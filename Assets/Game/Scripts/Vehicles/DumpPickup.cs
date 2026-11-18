@@ -92,7 +92,7 @@ namespace FPSBase.Vehicles
             {
                 // a tidy tank (diesel transfer tank with a pump and hose reel) strapped in at the front of the bed:
                 // fill it at the fuel pump, drive it out to your machines. It takes up the front of the box.
-                float len = 0.55f, w = Mathf.Min(1.2f, bedInnerSize.x * 0.85f), h = Mathf.Min(0.55f, bedInnerSize.y * 1.1f);
+                float len = 0.4f, w = Mathf.Min(1.3f, bedInnerSize.x * 0.88f), h = Mathf.Min(0.6f, bedInnerSize.y * 1.15f);
                 FuelTank.BuildTidyTank(bedContents.parent, new Vector3(0f, 0.04f, bedContents.localPosition.z + bedInnerSize.z * 0.5f - len * 0.5f),
                     new Vector3(w, h, len), Mathf.Round(w * h * len * 1000f / 10f) * 10f);
                 float cut = len + 0.05f, z0 = bedInnerSize.z;

@@ -40,6 +40,9 @@ namespace FPSBase.DebugTools
                         case "update3": yield return Update3Tests(); break;
                         case "berm": yield return BermTests(); break;
                         case "services": yield return ServiceTests(); break;
+                        case "cabfp": yield return CabFirstPersonTests(); break;
+                        case "slosh": yield return SloshTests(DigSite.Instance, FindFirstObjectByType<DumpPickup>()); break;
+                        case "materials": yield return MaterialsTests(DigSite.Instance, Economy.Instance, FindFirstObjectByType<WashPlant>(), FindFirstObjectByType<DumpPickup>()); break;
                         default: log.AppendLine($"INFO  unknown quick test '{part}'"); break;
                     }
                 Finish();
@@ -271,6 +274,53 @@ namespace FPSBase.DebugTools
         /// A real dig cycle through the controls, like a player: boom down into the ground, pull the stick in and
         /// curl, lift out, swing. The dirt must stay in the bucket (it used to fall straight out of it).
         /// </summary>
+        /// <summary>First person in the cab: your arms and legs are drawn on the controls, the head isn't in the way.</summary>
+        IEnumerator CabFirstPersonTests()
+        {
+            var pi = FindFirstObjectByType<PlayerInteractor>();
+            var body = pi != null ? pi.GetComponent<FPSBase.Player.PlayerBody>() : null;
+            if (body == null || body.rig == null) { Check(false, "player body found"); yield break; }
+            var machines = new System.Collections.Generic.List<VehicleBase>();
+            foreach (var e in FindObjectsByType<MiniExcavator>(FindObjectsSortMode.None)) if (e.displayName.Contains("5 t")) { machines.Add(e); break; }
+            var dz = FindFirstObjectByType<Bulldozer>(); if (dz != null) machines.Add(dz);
+            var tr = FindFirstObjectByType<DumpPickup>(); if (tr != null) machines.Add(tr);
+            var fl = FindFirstObjectByType<FrontLoader>(); if (fl != null) machines.Add(fl);
+            var smr = body.rig.GetComponentInChildren<SkinnedMeshRenderer>();
+            int k = 0;
+            foreach (var v in machines)
+            {
+                var vrb = v.GetComponent<Rigidbody>(); vrb.isKinematic = true;
+                pi.PlaceAt(v.transform.position + v.transform.right * -3f, 0f);
+                yield return null;
+                v.Interact(pi);
+                var vcam = v.vehicleCamera;
+                for (int i = 0; i < 20; i++) { if (vcam != null) vcam.TestCabView(true, 38f, -10f); yield return null; }
+                Transform eye = null;
+                foreach (var t in v.GetComponentsInChildren<Transform>(true)) if (t.name == "CabView") eye = t;
+                var cc = v.Controls3D;
+                float hand = cc != null && cc.rightGrip != null ? Vector3.Distance(body.rig.RightHand.position, cc.rightGrip.position) : -1f;
+                Check(body.rig.LimbsInView && smr.shadowCastingMode == UnityEngine.Rendering.ShadowCastingMode.On && smr.enabled,
+                    $"{v.displayName}: in cab view your arms and legs are drawn (limbs {body.rig.LimbsInView}, hand {hand:0.00} m from the grip, near clip {(vcam != null ? vcam.GetComponent<Camera>().nearClipPlane : -1f):0.00})");
+                float headGap = eye != null && body.rig.Head != null ? Vector3.Distance(body.rig.Head.position, eye.position) : 0f;
+                Check(headGap < 0.45f, $"{v.displayName}: the body still sits in the seat under the eye point ({headGap:0.00} m)");
+                if (vcam != null)
+                {
+                    var cam = vcam.GetComponent<Camera>();
+                    var rt = new RenderTexture(1600, 900, 24);
+                    var prev = cam.targetTexture;
+                    cam.targetTexture = rt;
+                    for (int i = 0; i < 30; i++) { vcam.TestCabView(true, 38f, -10f); yield return null; }
+                    yield return RenderLate(cam, rt, $"Screenshots/cab_fp_{k}.png");
+                    cam.targetTexture = prev; rt.Release();
+                }
+                if (vcam != null) vcam.TestCabView(false);
+                v.Exit();
+                for (int i = 0; i < 5; i++) yield return null;
+                Check(!body.rig.LimbsInView, $"{v.displayName}: getting out puts things back (limbs view off)");
+                k++;
+            }
+        }
+
         /// <summary>Dealer deliveries never overlap; tidy tank refuelling; reposition; paid towing.</summary>
         IEnumerator ServiceTests()
         {
@@ -1452,8 +1502,10 @@ namespace FPSBase.DebugTools
             }
             for (float t = 0f; t < 1.5f; t += Time.deltaTime) yield return null;
             float lost = before - truck.load.volume, spilled = cc.Spilled - spilled0;
-            Check(lost > 0.005f && Mathf.Abs(lost - spilled) < 0.002f,
-                $"slamming the brakes sloshes the load over the front of the bed ({lost * 1000f:0} L, {cc.SpillCount - sp0} clods)");
+            // (a pickup with a tidy tank at the front of the bed: the tank takes the surge, so little or nothing goes over)
+            bool tidy = truck.GetComponentInChildren<FuelTank>() != null;
+            Check((tidy || lost > 0.005f) && Mathf.Abs(lost - spilled) < 0.002f,
+                $"slamming the brakes: whatever sloshes over the front falls out as clods ({lost * 1000f:0} L, {cc.SpillCount - sp0} clods{(tidy ? ", tidy tank in front" : "")})");
             yield return ShotAt(pos + dir * 4f + Vector3.up * 2.2f + rot * Vector3.right * 3.5f, pos + dir * 1f, "Screenshots/slosh_spill.png");
             DirtGrains.FastForward();
 

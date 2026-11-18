@@ -20,6 +20,9 @@ namespace FPSBase.Vehicles
         /// <summary>True while looking out from the seat.</summary>
         public bool CabView => cabView;
 
+        /// <summary>Automated tests: look out from the seat, `down` degrees below the default.</summary>
+        public void TestCabView(bool on, float down = 0f, float yaw = 0f) { cabView = on; pitchOffset = down; yawOffset = yaw; }
+
         void LateUpdate()
         {
             if (target == null) return;

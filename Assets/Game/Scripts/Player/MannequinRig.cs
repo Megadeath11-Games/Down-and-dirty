@@ -31,7 +31,8 @@ namespace FPSBase.Player
 
         Transform hips, spine, spine1, spine2, neck, head;
         Transform lUp, lLo, lFoot, rUp, rLo, rFoot;
-        Transform lArm, lFore, rArm, rFore, lHand, rHand;
+        Transform lArm, lFore, rArm, rFore, lHand, rHand, lThumb, rThumb;
+        readonly List<Transform> lFingers = new(), rFingers = new();
         readonly List<Transform> bones = new();
         readonly List<Quaternion> bind = new();
         Vector3 hipsBind;
@@ -60,6 +61,14 @@ namespace FPSBase.Player
             lArm = Bone("LeftArm"); lFore = Bone("LeftForeArm");
             rArm = Bone("RightArm"); rFore = Bone("RightForeArm");
             lHand = Bone("LeftHand"); rHand = Bone("RightHand");
+            foreach (var side in new[] { "Left", "Right" })
+                foreach (var f in new[] { "Index", "Middle", "Ring", "Pinky" })
+                    for (int j = 1; j <= 3; j++)
+                    {
+                        var b = Bone($"{side}Hand{f}{j}");
+                        if (b != null) (side == "Left" ? lFingers : rFingers).Add(b);
+                    }
+            lThumb = Bone("LeftHandThumb1"); rThumb = Bone("RightHandThumb1");
             if (hips != null) hipsBind = hips.localPosition;
             renderers = GetComponentsInChildren<Renderer>(true);
         }
@@ -110,6 +119,15 @@ namespace FPSBase.Player
             Vector3 R = transform.right, F = transform.forward, U = transform.up;
             idleT += dt;
 
+            if (pose == Pose.Sit)
+            {
+                // seated: fingers curl round the grips (done in the T-pose, palms down, before the arms move:
+                // each joint bends about the character's forward axis, and the arm carries the hand along)
+                foreach (var b in lFingers) Rot(b, F, 38f);
+                foreach (var b in rFingers) Rot(b, F, -38f);
+                Rot(lThumb, U, 25f); Rot(rThumb, U, -25f);
+            }
+
             // arms hang down from the T-pose, a little out from the body
             Rot(lArm, F, 74f); Rot(rArm, F, -74f);
 
@@ -133,8 +151,12 @@ namespace FPSBase.Player
                 Rot(head, R, 6f + Mathf.Sin(idleT * 0.7f) * 2f);
                 if (seat != null && head != null)
                 {
-                    Vector3 eye = seat.position - Vector3.up * 0.08f - F * 0.04f;
-                    transform.position += eye - head.position;
+                    Vector3 eye = seat.position - Vector3.up * 0.08f - F * (LimbsInView ? 0.1f : 0.04f);
+                    // (with the neck folded away the head bone sits at the neck: use where it would be)
+                    Vector3 headAt = head.position;
+                    if (neckShrunk && neck != null) headAt = neck.position + U * neckLen;
+                    else if (neck != null) neckLen = Vector3.Distance(neck.position, head.position);
+                    transform.position += eye - headAt;
                 }
                 ReachControls(R, F, U);
                 Visibility();
@@ -216,13 +238,29 @@ namespace FPSBase.Player
             b.rotation = Quaternion.FromToRotation(c.position - b.position, reach - b.position) * b.rotation;
         }
 
+        /// <summary>First person in a cab: your own arms and legs are drawn working the controls (only the head is hidden).</summary>
+        public bool LimbsInView { get; private set; }
+        Vector3 neckScale = Vector3.one; bool neckShrunk; float neckLen = 0.12f;
+
         void Visibility()
         {
             bool fp = firstPerson != null && firstPerson();
-            if (fp == hidden) return;
-            hidden = fp;
+            // seated in first person: show the body (hands on the sticks, feet on the pedals) but fold the head and
+            // neck away, so the camera in the head looks out past them. On foot the camera keeps the shadow only.
+            bool limbs = fp && pose == Pose.Sit;
+            LimbsInView = limbs;
+            Transform hideBone = neck != null ? neck : head;
+            if (hideBone != null && limbs != neckShrunk)
+            {
+                if (limbs) { neckScale = hideBone.localScale; hideBone.localScale = Vector3.one * 0.001f; }
+                else hideBone.localScale = neckScale;
+                neckShrunk = limbs;
+            }
+            bool shadowOnly = fp && !limbs;
+            if (shadowOnly == hidden) return;
+            hidden = shadowOnly;
             foreach (var r in renderers)
-                if (r != null) r.shadowCastingMode = fp ? ShadowCastingMode.ShadowsOnly : ShadowCastingMode.On;
+                if (r != null) r.shadowCastingMode = shadowOnly ? ShadowCastingMode.ShadowsOnly : ShadowCastingMode.On;
         }
     }
 }

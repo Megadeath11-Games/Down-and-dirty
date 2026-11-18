@@ -94,6 +94,8 @@ namespace FPSBase.Core
         public static float GrassDistance { get => GetF("set.grassDist", 120f); set => SetF("set.grassDist", value); }
         public static int AntiAliasing { get => GetI("set.aa", 1); set => SetI("set.aa", value); }                 // 0 off, 1 FXAA, 2 SMAA, 3 TAA
         public static bool MotionBlur { get => GetI("set.motionBlur", 0) == 1; set => SetI("set.motionBlur", value ? 1 : 0); }
+        public static bool ShowTestList { get => showTestList ??= GetI("set.showTestList", 1) == 1; set { showTestList = value; SetI("set.showTestList", value ? 1 : 0); } }
+        static bool? showTestList;
         public static bool ShowFps { get => showFps ??= GetI("set.showFps", 0) == 1; set { showFps = value; SetI("set.showFps", value ? 1 : 0); } }
         static bool? showFps;
     }

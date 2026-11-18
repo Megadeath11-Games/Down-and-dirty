@@ -14,7 +14,7 @@ namespace FPSBase.Core
         /// <summary>The main menu is up (the world waits behind it).</summary>
         public bool InMainMenu => menuOpen;
         bool menuOpen;
-        enum MenuScreen { Main, Single, Multi }
+        enum MenuScreen { Main, Single, Multi, Blog }
         MenuScreen screen;
         string newWorldName = "My claim";
         string menuMessage;
@@ -37,6 +37,29 @@ namespace FPSBase.Core
         {
             menuOpen = !Application.isBatchMode; // the automated tests start straight in the world
             screen = MenuScreen.Main;
+            // dev: "-menushot <folder>" saves screenshots of the menus and the game, then quits
+            var args = System.Environment.GetCommandLineArgs();
+            int a = System.Array.IndexOf(args, "-menushot");
+            if (a >= 0 && a + 1 < args.Length) StartCoroutine(MenuShots(args[a + 1]));
+        }
+
+        System.Collections.IEnumerator MenuShots(string folder)
+        {
+            System.IO.Directory.CreateDirectory(folder);
+            System.Collections.IEnumerator Shot(string name)
+            {
+                for (int i = 0; i < 30; i++) yield return null;
+                ScreenCapture.CaptureScreenshot(System.IO.Path.Combine(folder, name));
+                for (int i = 0; i < 10; i++) yield return null;
+            }
+            for (int i = 0; i < 90; i++) yield return null;
+            yield return Shot("menu_main.png");
+            screen = MenuScreen.Blog; yield return Shot("menu_blog.png");
+            screen = MenuScreen.Single; RefreshSaves(SaveGame.Mode.SinglePlayer); yield return Shot("menu_single.png");
+            screen = MenuScreen.Multi; RefreshSaves(SaveGame.Mode.Multiplayer); yield return Shot("menu_multi.png");
+            CloseMenu(); yield return Shot("game_hud.png");
+            paused = true; yield return Shot("game_paused.png");
+            Application.Quit();
         }
 
         void MenuUpdate()
@@ -68,6 +91,68 @@ namespace FPSBase.Core
             menuRich = new GUIStyle(GUI.skin.label) { fontSize = 15, richText = true, wordWrap = true };
         }
 
+        void BlogScreen()
+        {
+            GUILayout.Label("<b><size=22>Dev Blog</size></b>", menuRich);
+            GUILayout.Space(4);
+            menuScroll = GUILayout.BeginScrollView(menuScroll, GUILayout.Height(Mathf.Max(200f, Mathf.Min(720f, Screen.height - 40f) - 250f)));
+            foreach (var p in DevNotes.Blog)
+            {
+                GUILayout.BeginVertical(GUI.skin.box);
+                GUILayout.Label($"<color=#f5c84c><b><size=18>{p.title}</size></b></color>   <color=#aaa>{p.date}</color>", menuRich);
+                GUILayout.Label(p.body, menuRich);
+                GUILayout.EndVertical();
+                GUILayout.Space(8);
+            }
+            GUILayout.EndScrollView();
+            GUILayout.Space(8);
+            if (GUILayout.Button("Back", GUILayout.Height(34))) { screen = MenuScreen.Main; menuScroll = Vector2.zero; }
+        }
+
+        GUIStyle testStyle, testHead;
+
+        /// <summary>The "what to test" checklist down the left of the screen. Tick items off in a menu (the mouse is free there).</summary>
+        void DrawTestList(bool clickable)
+        {
+            if (!GameSettings.ShowTestList) return;
+            testStyle ??= new GUIStyle(hudSmall) { fontSize = 13, wordWrap = true, richText = true };
+            testHead ??= new GUIStyle(hudSmall) { fontSize = 14, fontStyle = FontStyle.Bold, richText = true };
+            var items = DevNotes.TestList;
+            float w = Mathf.Clamp(Screen.width * 0.22f, 240f, 330f);
+            float x = 10f, y = menuOpen ? 40f : 84f; // in the game: under the key hints
+            float maxH = Screen.height - y - (ActiveVehicle != null && !menuOpen ? 230f : 20f);
+            // measure
+            float h = 46f;
+            var heights = new float[items.Length];
+            for (int i = 0; i < items.Length; i++) { heights[i] = Mathf.Max(18f, testStyle.CalcHeight(new GUIContent(items[i]), w - 36f)) + 2f; h += heights[i]; }
+            if (clickable) h += 24f;
+            h = Mathf.Min(h, maxH);
+            GUI.color = Color.white;
+            GUI.Box(new Rect(x, y, w, h), GUIContent.none, box);
+            GUI.Box(new Rect(x, y, w, h), GUIContent.none, box);
+            GUI.color = Color.white;
+            GUI.BeginGroup(new Rect(x, y, w, h));
+            GUI.Label(new Rect(8, 4, w - 16, 20), $"What to test  <color=#aaa>({DevNotes.DoneCount()}/{items.Length} done)</color>", testHead);
+            GUI.Label(new Rect(8, 22, w - 16, 18), clickable ? "<color=#aaa>click to tick off</color>" : "<color=#aaa>tick off in the pause menu (Esc)</color>", testStyle);
+            float cy = 44f;
+            for (int i = 0; i < items.Length && cy < h - 4f; i++)
+            {
+                bool done = DevNotes.Done(i);
+                string text = done ? $"<color=#8c8>{items[i]}</color>" : items[i];
+                if (clickable)
+                {
+                    bool now = GUI.Toggle(new Rect(8, cy, 18, 18), done, GUIContent.none);
+                    if (GUI.Button(new Rect(28, cy, w - 36, heights[i]), GUIContent.none, GUIStyle.none)) now = !done;
+                    if (now != done) DevNotes.SetDone(i, now);
+                }
+                else GUI.Label(new Rect(8, cy, 18, 18), done ? "<color=#8c8>[x]</color>" : "•", testStyle);
+                GUI.Label(new Rect(28, cy, w - 36, heights[i]), text, testStyle);
+                cy += heights[i];
+            }
+            if (clickable && cy + 22f <= h && GUI.Button(new Rect(8, h - 24f, 110, 20), "Clear ticks")) DevNotes.ClearTicks();
+            GUI.EndGroup();
+        }
+
         void RefreshSaves(SaveGame.Mode mode) { savesMode = mode; saves = SaveGame.List(mode); confirmDelete = null; }
 
         void DrawMainMenu()
@@ -86,6 +171,7 @@ namespace FPSBase.Core
             {
                 case MenuScreen.Main: MainScreen(); break;
                 case MenuScreen.Single: SingleScreen(); break;
+                case MenuScreen.Blog: BlogScreen(); break;
                 default: MultiScreen(); break;
             }
             if (!string.IsNullOrEmpty(menuMessage)) { GUILayout.Space(10); GUILayout.Label($"<color=#f99>{menuMessage}</color>", menuRich); }
@@ -97,6 +183,8 @@ namespace FPSBase.Core
             if (GUILayout.Button("Single Player", menuButton, GUILayout.Height(58))) { screen = MenuScreen.Single; RefreshSaves(SaveGame.Mode.SinglePlayer); menuMessage = null; }
             GUILayout.Space(8);
             if (GUILayout.Button("Multiplayer", menuButton, GUILayout.Height(58))) { screen = MenuScreen.Multi; RefreshSaves(SaveGame.Mode.Multiplayer); menuMessage = null; }
+            GUILayout.Space(8);
+            if (GUILayout.Button("Dev Blog: what's new", menuButton, GUILayout.Height(48))) { screen = MenuScreen.Blog; menuScroll = Vector2.zero; menuMessage = null; }
             GUILayout.Space(8);
             if (GUILayout.Button("Quit", menuButton, GUILayout.Height(48))) QuitGame();
             GUILayout.Space(20);

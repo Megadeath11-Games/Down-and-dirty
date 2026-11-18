@@ -151,7 +151,7 @@ namespace FPSBase.Core
         void OnGUI()
         {
             Styles();
-            if (menuOpen) { DrawMainMenu(); return; }
+            if (menuOpen) { DrawMainMenu(); DrawTestList(true); return; }
             var eco = Economy.Instance;
 
             // Wallet (top right)
@@ -214,6 +214,7 @@ namespace FPSBase.Core
             }
             GUI.color = Color.white;
 
+            if (panelDraw == null) DrawTestList(paused);
             if (panelDraw != null) DrawPanel();
             if (paused) { if (controlsOpen) DrawControlsMenu(); else DrawPauseMenu(); }
         }
@@ -666,6 +667,8 @@ namespace FPSBase.Core
             int nfi = GUILayout.Toolbar(fi, fpsNames, GUILayout.Height(26));
             if (nfi != fi) { GameSettings.FpsLimit = fps[nfi]; changed = true; }
             GUILayout.EndHorizontal();
+            bool showTests = Toggle("Show the \"what to test\" list (left of the screen)", GameSettings.ShowTestList);
+            if (showTests != GameSettings.ShowTestList) GameSettings.ShowTestList = showTests;
             bool showFps = Toggle("Show FPS counter", GameSettings.ShowFps);
             if (showFps != GameSettings.ShowFps) GameSettings.ShowFps = showFps;
 

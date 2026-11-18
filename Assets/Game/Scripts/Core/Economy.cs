@@ -31,6 +31,8 @@ namespace FPSBase.Core
         }
 
         public void Earn(float amount) => Money += amount;
+        /// <summary>Loading a saved world.</summary>
+        public void SetState(float money, float gold) { Money = Mathf.Max(0f, money); GoldGrams = Mathf.Max(0f, gold); }
         public void AddGold(float grams) => GoldGrams += grams;
 
         public float TakeAllGold()

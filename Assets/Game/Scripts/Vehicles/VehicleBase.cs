@@ -97,6 +97,7 @@ namespace FPSBase.Vehicles
         public override void Interact(PlayerInteractor player)
         {
             if (Occupied || NetRemoteDriven) return;
+            Trailer.ReleaseCargo(this); // chained down on a lowboy: the chains come off
             if (NetRemote) SetNetRemote(false); // take it over: this game runs it from now on
             NetEntered?.Invoke(this);
             enteredBuried = Buried;
@@ -287,7 +288,9 @@ namespace FPSBase.Vehicles
                 });
             }
             foreach (var t in GetComponentsInChildren<FuelTank>())
-                list.Add(new InteractOption { label = $"{t.label}: {t.liters:0}/{t.capacity:0} L  (fill it at the fuel pump, park near a machine to fuel it)", enabled = false, note = null });
+                list.Add(FPSBase.Mining.FuelPump.FillOption(t, t.transform.position));
+            ExtraOptions(list);
+            Trailer.AddTruckOptions(this, list);
             list.Add(new InteractOption
             {
                 label = "Reposition   (unstick it / set it upright nearby)",
@@ -303,6 +306,9 @@ namespace FPSBase.Vehicles
                 run = p => GameUI.Instance.OpenTow(this),
             });
         }
+
+        /// <summary>Machine-specific look-at choices (a pickup's tidy tank).</summary>
+        protected virtual void ExtraOptions(List<InteractOption> list) { }
 
         /// <summary>Bounds of the machine in its own space (footprint and height).</summary>
         public Bounds LocalBounds
@@ -371,12 +377,15 @@ namespace FPSBase.Vehicles
         {
             if (body == null) body = GetComponent<Rigidbody>();
             if (Buried) Unbury();
+            Trailer.ReleaseCargo(this);
+            var hooked = Trailer.Hooked(this);
             transform.SetPositionAndRotation(ground + Vector3.up * 0.6f, Quaternion.Euler(0f, yaw, 0f));
             if (body != null)
             {
                 body.position = transform.position; body.rotation = transform.rotation;
                 if (!body.isKinematic) { body.linearVelocity = Vector3.zero; body.angularVelocity = Vector3.zero; }
             }
+            Trailer.Follow(this, hooked);
             Physics.SyncTransforms();
         }
 

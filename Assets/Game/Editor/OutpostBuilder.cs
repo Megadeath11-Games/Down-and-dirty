@@ -167,7 +167,7 @@ namespace FPSBase.EditorTools
             dealer.listings = new[]
             {
                 L("Starter machines", "Mini Excavator 1.5t", 18000f, prefabs.mini, false, "Another 1.5 t mini excavator: 80 L bucket and a backfill blade."),
-                L("Starter machines", "Old 3/4-ton Pickup (dump box)", 9500f, prefabs.pickup, false, "Another starter pickup with a 1.5 m³ dump box."),
+                L("Starter machines", "GMT400 3/4-Ton 4x4 Pickup", 11500f, prefabs.pickup, false, "Another '90s starter pickup: dump box (1.5 m³, or 1.0 m³ with the tank in), 420 L tidy tank to refuel your machines in the field (take it out for a bigger box), pintle hook for the fuel bowser. 130 L tank."),
                 L("Excavators", "Compact Excavator 5 t", 48000f, e[0], false, "180 L bucket and a front backfill blade (blade up/down keys): push dirt forward, or drag it back in reverse. 75 L tank."),
                 L("Excavators", "Excavator 20 t", 165000f, e[1], true, "1.35 m³ bucket, twin boom rams and a dozer blade for backfilling. The workhorse: reaches bedrock easily. 340 L tank. " + ex),
                 L("Excavators", "Heavy Excavator 50 t", 420000f, e[2], true, "3.6 m³ bucket, catwalks and handrails. Fills a haul truck in four passes. 700 L tank."),
@@ -183,6 +183,10 @@ namespace FPSBase.EditorTools
                 L("Skid steers & grader", "Motor Grader 19.5 t", 340000f, prefabs.grader, true, "4.27 m moldboard on a drawbar and circle: lift each end, turn, side-shift and pitch it, plus articulation, wheel lean and a rear ripper. Cuts and spreads dirt and gravel into flat roads. 416 L tank. " + ex),
                 L("Trucks", "Single-Axle Dump Truck", 58000f, prefabs.dumpTruck, false, "6 m³ dump box (4x the pickup). 250 L tank."),
                 L("Trucks", "Haul Truck 25t", 220000f, prefabs.hauler, false, "14 m³ haul truck for big operations. Slow but moves a mountain. 400 L tank."),
+                L("Transport & fuel", "Field Fuel Bowser 3,500 L", 18000f, prefabs.bowser, false, "Tandem-axle diesel trailer with a pump, meter and hose reel. Tow it with a pickup's pintle hook, fill it at the fuel pump (look at it, scroll to Refuel), park it by your machines to fuel them. Comes with 1,200 L."),
+                L("Transport & fuel", "Semi Truck 25 t + RGN Lowboy", 145000f, prefabs.semis[0], true, "Tandem-drive tractor with a condo sleeper and a 25 t removable-gooseneck lowboy (6.4 m deck). Detach the neck to drop the deck, drive a machine on over the front, hook the neck back on and haul it. 600 L tank."),
+                L("Transport & fuel", "Semi Truck 55 t + RGN Lowboy", 230000f, prefabs.semis[1], true, "Tri-drive heavy hauler with a 55 t RGN lowboy (7.4 m deck, 3 axles). Carries the 20 t and 50 t excavators and the 22 t dozer. 900 L tank."),
+                L("Transport & fuel", "Semi Truck 95 t + RGN Lowboy", 360000f, prefabs.semis[2], true, "Quad-drive mining hauler, 95 t RGN lowboy with a 3.1 m wide deck and a two-axle booster. Moves the 70-90 t excavators and the mining dozer. 1,200 L tank."),
             };
         }
     }

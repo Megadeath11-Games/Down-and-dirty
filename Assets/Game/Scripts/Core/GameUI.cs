@@ -19,7 +19,7 @@ namespace FPSBase.Core
     /// Placeholder in-game UI (IMGUI): money/gold HUD, interaction prompts, toasts, the pause/settings menu,
     /// and pop-up panels for machines and shops. Also owns mouse-cursor locking.
     /// </summary>
-    public class GameUI : MonoBehaviour
+    public partial class GameUI : MonoBehaviour
     {
         public static GameUI Instance { get; private set; }
 
@@ -37,9 +37,9 @@ namespace FPSBase.Core
 
         GUIStyle hudBig, hudSmall, prompt, header, toastStyle, box;
 
-        public bool BlocksGameplay => paused || panelDraw != null;
+        public bool BlocksGameplay => paused || panelDraw != null || menuOpen;
 
-        void Awake() => Instance = this;
+        void Awake() { Instance = this; MenuAwake(); }
 
         void Start() => GraphicsApply.All();
 
@@ -74,6 +74,15 @@ namespace FPSBase.Core
         void Update()
         {
             var kb = Keyboard.current;
+            if (menuOpen)
+            {
+                MenuUpdate();
+                if (menuOpen && kb != null && kb.escapeKey.wasPressedThisFrame && screen != MenuScreen.Main) { screen = MenuScreen.Main; menuMessage = null; }
+                if (menuOpen) Time.timeScale = FPSBase.Net.NetSession.InSession ? 1f : 0f;
+                Cursor.lockState = CursorLockMode.None;
+                Cursor.visible = true;
+                return;
+            }
             if (capturing.HasValue)
             {
                 // waiting for the player to press the new key for an action
@@ -106,7 +115,7 @@ namespace FPSBase.Core
             {
                 if (controlsOpen) controlsOpen = false;
                 else if (panelDraw != null) ClosePanel();
-                else paused = !paused;
+                else { paused = !paused; confirmQuitToMenu = false; saveName = null; }
             }
             // in a multiplayer game the world keeps going while the menu is open
             Time.timeScale = paused && !FPSBase.Net.NetSession.InSession ? 0f : 1f;
@@ -142,6 +151,7 @@ namespace FPSBase.Core
         void OnGUI()
         {
             Styles();
+            if (menuOpen) { DrawMainMenu(); return; }
             var eco = Economy.Instance;
 
             // Wallet (top right)
@@ -274,8 +284,6 @@ namespace FPSBase.Core
                 string text = (sel ? $"[{key}]  " : "      ") + o.label + (!o.enabled && !string.IsNullOrEmpty(o.note) ? $"   ({o.note})" : "");
                 GUI.Label(new Rect(cx - w / 2f, y + i * h, w, h), text, sel ? prompt : hudSmall);
             }
-            GUI.color = new Color(1f, 1f, 1f, 0.7f);
-            if (opts.Count > 1) GUI.Label(new Rect(cx - 300, y + opts.Count * h + 2, 600, 22), "scroll to choose", hudSmall);
             GUI.color = Color.white;
         }
 
@@ -524,6 +532,7 @@ namespace FPSBase.Core
             GUI.Box(r, GUIContent.none, box);
             GUILayout.BeginArea(new Rect(r.x + 20, r.y + 14, w - 40, h - 28));
             GUILayout.Label("Paused", header);
+            DrawSaveRow();
             GUILayout.Space(6);
             int tab = GUILayout.Toolbar(pauseTab, PauseTabs, GUILayout.Height(34));
             if (tab != pauseTab) { pauseTab = tab; pauseScroll = Vector2.zero; }
@@ -541,14 +550,8 @@ namespace FPSBase.Core
             GUILayout.BeginHorizontal();
             if (GUILayout.Button("Resume  (Esc)", GUILayout.Height(36))) paused = false;
             if (GUILayout.Button($"Multiplayer ({Controls.N(GameAction.Invite)})", GUILayout.Height(36), GUILayout.Width(170))) { paused = false; OpenMultiplayer(); }
-            if (GUILayout.Button("Quit Game", GUILayout.Height(36), GUILayout.Width(150)))
-            {
-#if UNITY_EDITOR
-                UnityEditor.EditorApplication.isPlaying = false;
-#else
-                Application.Quit();
-#endif
-            }
+            QuitToMenuButton();
+            if (GUILayout.Button("Quit Game", GUILayout.Height(36), GUILayout.Width(120))) QuitGame();
             GUILayout.EndHorizontal();
             GUILayout.EndArea();
         }

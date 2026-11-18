@@ -20,6 +20,8 @@ namespace FPSBase.Vehicles
         public float reverseSpeed = 2.5f;
         public float turnSpeed = 40f;        // deg/s
         public float acceleration = 2.5f;    // m/s^2
+        [Tooltip("Slowing down (0 = same as acceleration). Road trucks have brakes much stronger than their engines.")]
+        public float brakeDecel = 0f;
         [Tooltip("Tracked machines can spin in place; wheeled ones turn only while moving.")]
         public bool turnInPlace = true;
         public float groundCheck = 0.6f;
@@ -78,7 +80,8 @@ namespace FPSBase.Vehicles
             bool grounded = suspension.Contacts > 0 ? suspension.Touching > 0
                 : Physics.Raycast(transform.position + Vector3.up * 0.3f, Vector3.down, groundCheck, ~0, QueryTriggerInteraction.Ignore);
             float target = (throttle >= 0f ? throttle * driveSpeed : throttle * reverseSpeed) * speedFactor;
-            speed = Mathf.MoveTowards(speed, target, acceleration * Time.fixedDeltaTime);
+            bool slowing = Mathf.Abs(target) < Mathf.Abs(speed) || target * speed < 0f;
+            speed = Mathf.MoveTowards(speed, target, (slowing && brakeDecel > 0f ? brakeDecel : acceleration) * Time.fixedDeltaTime);
             if (!grounded) return;
             // tracks grip: set the velocity along the ground, keep what the springs/gravity do across it
             Vector3 n = suspension.Touching > 0 ? suspension.GroundNormal : Vector3.up;

@@ -21,6 +21,8 @@ namespace FPSBase.Vehicles
         public float dampingRatio = 0.8f;
         [Tooltip("Extra gravity on heavy machines so they settle hard and don't bounce or float.")]
         public float gravityScale = 1.7f;
+        /// <summary>Colliders the contacts don't stand on (a semi's own trailer and its load).</summary>
+        [System.NonSerialized] public System.Func<Collider, bool> ignore;
 
         public int Touching { get; private set; }
         public int Contacts => pts?.Length ?? 0;
@@ -118,6 +120,7 @@ namespace FPSBase.Vehicles
                 var h = hits[i];
                 if (h.collider.attachedRigidbody == rb) continue;
                 if (ignorePiles && h.collider.GetComponent<DirtPile>() != null) continue;
+                if (ignore != null && ignore(h.collider)) continue;
                 if (h.distance < bd) { bd = h.distance; best = h; }
             }
             return bd < float.MaxValue;

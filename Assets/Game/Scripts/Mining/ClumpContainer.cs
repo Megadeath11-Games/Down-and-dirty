@@ -131,22 +131,28 @@ namespace FPSBase.Mining
             var c = owner.AddComponent<ClumpContainer>();
             c.source = source; c.spawnAt = spawnAt; c.drainAt = drainAt;
             c.frame = frame;
-            Vector3 ls = frame.lossyScale;
-            c.center = boxCenter;
-            c.half = new Vector3(Mathf.Abs(boxSize.x * ls.x), Mathf.Abs(boxSize.y * ls.y), Mathf.Abs(boxSize.z * ls.z)) * 0.5f;
-            c.capacity = Mathf.Max(0.01f, capacity);
-            c.maxN = Mathf.Clamp(Mathf.RoundToInt(capacity * 220f), 45, 150);
-            // random-packed spheres take about 7 r^3 of space each
-            c.baseR = Mathf.Clamp(Mathf.Pow(c.capacity / (c.maxN * 7f), 1f / 3f), 0.04f, 0.3f);
-            c.baseR = Mathf.Min(c.baseR, Mathf.Min(c.half.x, Mathf.Min(c.half.y, c.half.z)) * 0.6f);
-            // a small bucket whose box is tight for its rated (heaped) load: smaller clumps, so a full load packs in
-            // instead of stacking up over the rim and falling out
-            float boxVol = 8f * c.half.x * c.half.y * c.half.z;
-            float rFit = Mathf.Pow(boxVol * 1.1f / (c.maxN * 7f), 1f / 3f);
-            c.baseR = Mathf.Max(0.025f, Mathf.Min(c.baseR, rFit));
+            c.Reshape(boxCenter, boxSize, capacity);
             c.hidden = hide;
             foreach (var r in hide) if (r != null) r.enabled = false;
             return c;
+        }
+
+        /// <summary>New box / capacity (an empty pickup bed with its tidy tank fitted or taken out).</summary>
+        public void Reshape(Vector3 boxCenter, Vector3 boxSize, float cap)
+        {
+            Vector3 ls = frame.lossyScale;
+            center = boxCenter;
+            half = new Vector3(Mathf.Abs(boxSize.x * ls.x), Mathf.Abs(boxSize.y * ls.y), Mathf.Abs(boxSize.z * ls.z)) * 0.5f;
+            capacity = Mathf.Max(0.01f, cap);
+            maxN = Mathf.Clamp(Mathf.RoundToInt(cap * 220f), 45, 150);
+            // random-packed spheres take about 7 r^3 of space each
+            baseR = Mathf.Clamp(Mathf.Pow(capacity / (maxN * 7f), 1f / 3f), 0.04f, 0.3f);
+            baseR = Mathf.Min(baseR, Mathf.Min(half.x, Mathf.Min(half.y, half.z)) * 0.6f);
+            // a small bucket whose box is tight for its rated (heaped) load: smaller clumps, so a full load packs in
+            // instead of stacking up over the rim and falling out
+            float boxVol = 8f * half.x * half.y * half.z;
+            float rFit = Mathf.Pow(boxVol * 1.1f / (maxN * 7f), 1f / 3f);
+            baseR = Mathf.Max(0.025f, Mathf.Min(baseR, rFit));
         }
 
         System.Func<MaterialLoad> source;

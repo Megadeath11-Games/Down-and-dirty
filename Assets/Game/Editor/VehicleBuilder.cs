@@ -54,7 +54,7 @@ namespace FPSBase.EditorTools
                 }
         }
 
-        class VehiclePrefabs { public GameObject mini, pickup, dumpTruck, hauler, dozer, loader, grader; public GameObject[] excavators, dozers, skids; }
+        class VehiclePrefabs { public GameObject mini, pickup, dumpTruck, hauler, dozer, loader, grader, bowser; public GameObject[] excavators, dozers, skids, semis; }
 
         class ExcavatorSpec
         {
@@ -74,11 +74,6 @@ namespace FPSBase.EditorTools
             var p = new VehiclePrefabs
             {
                 mini = SavePrefab(BuildExcavator(new ExcavatorSpec { name = "Mini Excavator 1.5t", scale = 1f, bucket = 0.08f, digRate = 0.12f, drive = 1.6f, fuel = 22f, workBurn = 3.2f, mass = 1500f }, vm)),
-                pickup = SavePrefab(BuildTruck(new TruckSpec
-                {
-                    name = "Old 3/4-ton Pickup (dump box)", length = 5.3f, width = 1.9f, wheelR = 0.4f, hood = 1.55f, cab = 1.1f, cabH = 1.25f,
-                    bedL = 2.25f, bedW = 1.9f, bedH = 0.6f, capacity = 1.5f, mass = 2600f, fuel = 120f, workBurn = 18f, topSpeed = 95f, axles = new[] { 1.75f, -1.55f }
-                }, vm, vm.truckPaint)),
                 dumpTruck = SavePrefab(BuildTruck(new TruckSpec
                 {
                     name = "Single-Axle Dump Truck", length = 7.4f, width = 2.45f, wheelR = 0.55f, hood = 1.0f, cab = 1.8f, cabH = 1.6f,
@@ -102,6 +97,12 @@ namespace FPSBase.EditorTools
             p.skids = new GameObject[SkidFleet.Length];
             for (int i = 0; i < SkidFleet.Length; i++) p.skids[i] = SavePrefab(BuildSkidSteer(SkidFleet[i], fm));
             p.grader = SavePrefab(BuildGrader(fm));
+            // transport + support: the GMT400 starter pickup (dump box + tidy tank), the fuel bowser, the semis with RGN lowboys
+            var tm = BuildTransportMats();
+            p.pickup = SavePrefab(BuildGMT400(fm, tm, vm.dirt));
+            p.bowser = SavePrefab(BuildBowser(fm, tm));
+            p.semis = new GameObject[SemiFleet.Length];
+            for (int i = 0; i < SemiFleet.Length; i++) p.semis[i] = SavePrefab(BuildSemi(SemiFleet[i], fm, tm));
             return p;
         }
 

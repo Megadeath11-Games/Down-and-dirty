@@ -6,7 +6,7 @@ using UnityEngine.InputSystem;
 namespace FPSBase.Vehicles
 {
     /// <summary>
-    /// Old 3/4-ton pickup with a hydraulic dump box. Load it with the excavator, back up the wash plant ramp,
+    /// 3/4-ton pickup (the GMT400 starter truck) with a hydraulic dump box. Load it with the excavator, back up the wash plant ramp,
     /// raise the box to tip the load into the hopper.
     /// </summary>
     [RequireComponent(typeof(Rigidbody))]
@@ -88,18 +88,11 @@ namespace FPSBase.Vehicles
         {
             rb = GetComponent<Rigidbody>();
             rb.centerOfMass = new Vector3(0f, 0.35f, 0.2f);
-            if (bedContents != null && displayName.Contains("Pickup") && GetComponentInChildren<FuelTank>() == null)
+            if (bedContents != null)
             {
-                // a tidy tank (diesel transfer tank with a pump and hose reel) strapped in at the front of the bed:
-                // fill it at the fuel pump, drive it out to your machines. It takes up the front of the box.
-                float len = 0.4f, w = Mathf.Min(1.3f, bedInnerSize.x * 0.88f), h = Mathf.Min(0.6f, bedInnerSize.y * 1.15f);
-                FuelTank.BuildTidyTank(bedContents.parent, new Vector3(0f, 0.04f, bedContents.localPosition.z + bedInnerSize.z * 0.5f - len * 0.5f),
-                    new Vector3(w, h, len), Mathf.Round(w * h * len * 1000f / 10f) * 10f);
-                float cut = len + 0.05f, z0 = bedInnerSize.z;
-                bedInnerSize.z = Mathf.Max(0.5f, z0 - cut);
-                capacity *= bedInnerSize.z / z0;
-                bedContents.localPosition -= new Vector3(0f, 0f, cut * 0.5f);
-                if (bedVolume != null) { bedVolume.center -= new Vector3(0f, 0f, cut * 0.5f); bedVolume.size -= new Vector3(0f, 0f, cut); }
+                fullInner = bedInnerSize; fullCap = capacity; fullContentsZ = bedContents.localPosition.z;
+                if (bedVolume != null) { fullVolC = bedVolume.center; fullVolS = bedVolume.size; }
+                if (tidyTank != null) ApplyBed(tidyTankFitted);
             }
             if (bedContents != null)
             {
@@ -112,8 +105,55 @@ namespace FPSBase.Vehicles
                     () => load, () => null, () => tailgatePour != null ? tailgatePour.position : transform.position - transform.forward * 3f, hide.ToArray());
                 cc.takeOut = v => load.Take(v);
                 cc.holdCos = Mathf.Cos(pourStartTilt * Mathf.Deg2Rad); // rocks slide out once the box tips past the pour angle
+                clumps = cc;
             }
             UpdateContents();
+        }
+
+        // ------------------------------------------------------------------ tidy tank (diesel transfer tank at the front of the bed)
+
+        [Header("Tidy tank (front of the bed, can be taken out)")]
+        public FuelTank tidyTank;
+        [Tooltip("Bed length the tank takes up (m).")]
+        public float tidyTankLength = 0.68f;
+        public bool tidyTankFitted = true;
+        Vector3 fullInner, fullVolC, fullVolS; float fullCap, fullContentsZ;
+        ClumpContainer clumps;
+
+        public bool TidyTankFitted => tidyTank != null && tidyTankFitted;
+
+        /// <summary>Fit or take out the tidy tank (only with the bed empty and down). Returns false if it can't.</summary>
+        public bool SetTidyTank(bool fit)
+        {
+            if (tidyTank == null || !load.IsEmpty || tilt > 1f) return false;
+            ApplyBed(fit);
+            UpdateContents();
+            return true;
+        }
+
+        void ApplyBed(bool fit)
+        {
+            tidyTankFitted = fit;
+            if (tidyTank != null) tidyTank.gameObject.SetActive(fit);
+            float cut = fit ? tidyTankLength + 0.05f : 0f;
+            bedInnerSize = new Vector3(fullInner.x, fullInner.y, Mathf.Max(0.5f, fullInner.z - cut));
+            capacity = fullCap * bedInnerSize.z / fullInner.z;
+            var p = bedContents.localPosition; p.z = fullContentsZ - cut * 0.5f; bedContents.localPosition = p;
+            if (bedVolume != null) { bedVolume.center = fullVolC - new Vector3(0f, 0f, cut * 0.5f); bedVolume.size = fullVolS - new Vector3(0f, 0f, cut); }
+            if (clumps != null)
+                clumps.Reshape(new Vector3(bedContents.localPosition.x, 0.05f + bedInnerSize.y * 0.5f, bedContents.localPosition.z), bedInnerSize, capacity);
+        }
+
+        protected override void ExtraOptions(System.Collections.Generic.List<InteractOption> list)
+        {
+            if (tidyTank == null) return;
+            bool can = load.IsEmpty && tilt < 1f && !Occupied && !NetRemoteDriven;
+            string note = !load.IsEmpty ? "empty the dump box first" : tilt >= 1f ? "lower the dump box first" : "someone's in the truck";
+            list.Add(tidyTankFitted
+                ? new InteractOption { label = $"Take the tidy tank out   (whole bed for dirt: {fullCap:0.0} m³)", enabled = can, note = note,
+                    run = p => { if (SetTidyTank(false)) GameUI.Toast($"Tidy tank unstrapped and set aside: the dump box holds {capacity:0.0} m³"); } }
+                : new InteractOption { label = $"Fit the tidy tank   ({tidyTank.capacity:0} L of diesel for your machines, box {fullCap * Mathf.Max(0.5f, fullInner.z - tidyTankLength - 0.05f) / fullInner.z:0.0} m³)", enabled = can, note = note,
+                    run = p => { if (SetTidyTank(true)) GameUI.Toast($"Tidy tank strapped in ({tidyTank.liters:0}/{tidyTank.capacity:0} L): park by a machine and look at it to refuel it"); } });
         }
 
         protected override void DriveUpdate(float dt)
@@ -140,7 +180,10 @@ namespace FPSBase.Vehicles
         }
 
         // nobody in the cab: the box stays where it was left and keeps emptying
-        protected override void IdleUpdate(float dt) { DumpStep(dt); ApplyDrive(0f, 0f, true); }
+        protected override void IdleUpdate(float dt) { DumpStep(dt); ApplyDrive(testThrottle, 0f, Mathf.Abs(testThrottle) < 0.01f); }
+        float testThrottle;
+        /// <summary>Automated tests: drive with nobody in the cab.</summary>
+        public void TestDrive(float throttle) => testThrottle = throttle;
 
         /// <summary>
         /// Tipping: once the box is steep enough the load slides back against the tailgate, which swings open as far
@@ -172,6 +215,7 @@ namespace FPSBase.Vehicles
             float kmh = Mathf.Abs(speed) * 3.6f;
             float steerAngle = steer * maxSteer * Mathf.Lerp(1f, 0.35f, kmh / topSpeedKmh);
             bool braking = (throttle > 0.1f && speed < -0.5f) || (throttle < -0.1f && speed > 0.5f);
+            if (Mathf.Abs(throttle) > 0.01f && rb.IsSleeping()) rb.WakeUp(); // wheel torque alone doesn't wake a parked truck
 
             for (int i = 0; i < wheels.Length; i++)
             {

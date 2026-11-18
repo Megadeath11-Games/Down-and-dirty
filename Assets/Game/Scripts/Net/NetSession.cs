@@ -38,7 +38,7 @@ namespace FPSBase.Net
         public string Status { get; private set; } = "Steam not started";
         CSteamID lobby = CSteamID.Nil;
         CSteamID me;
-        bool IsHost => InSession && SteamMatchmaking.GetLobbyOwner(lobby) == me;
+        public bool IsHost => InSession && SteamMatchmaking.GetLobbyOwner(lobby) == me;
         readonly List<CSteamID> peers = new();
         readonly List<CSteamID> pendingInvites = new();
         bool creating;
@@ -63,6 +63,8 @@ namespace FPSBase.Net
         void Awake()
         {
             Instance = this;
+            DontDestroyOnLoad(gameObject); // survives "quit to main menu" (a scene reload): Steam stays up
+            UnityEngine.SceneManagement.SceneManager.sceneLoaded += OnSceneReloaded;
             AssignSceneIds();
             VehicleBase.NetEntered = v => { if (InSession) SendClaim(v, true); };
             VehicleBase.NetExited = v => { if (InSession) SendClaim(v, false); };
@@ -106,8 +108,19 @@ namespace FPSBase.Net
             if (parts.Length > 1 && ulong.TryParse(parts[1], out ulong id)) Join(new CSteamID(id));
         }
 
+        void OnSceneReloaded(UnityEngine.SceneManagement.Scene s, UnityEngine.SceneManagement.LoadSceneMode m)
+        {
+            // a fresh copy of the world: forget the old one's machines and players
+            owner.Clear(); spawnedListing.Clear(); vTarget.Clear();
+            foreach (var a in avatars.Values) if (a.root != null) Destroy(a.root);
+            avatars.Clear();
+            localPlayer = null;
+            AssignSceneIds();
+        }
+
         void OnDestroy()
         {
+            UnityEngine.SceneManagement.SceneManager.sceneLoaded -= OnSceneReloaded;
             if (Instance == this) Instance = null;
             if (!SteamOk) return;
             Leave();
@@ -393,9 +406,10 @@ namespace FPSBase.Net
         readonly Dictionary<int, (Vector3 p, Quaternion q)> vTarget = new();
 
         /// <summary>The machines in the scene get the same ids on every player's game (sorted by name and where they start).</summary>
-        static void AssignSceneIds()
+        public static void AssignSceneIds()
         {
             var list = new List<VehicleBase>(FindObjectsByType<VehicleBase>(FindObjectsInactive.Include, FindObjectsSortMode.None));
+            list.RemoveAll(v => v.NetId >= SpawnIdBase || v.GetComponent<BoughtFrom>() != null); // only the ones the scene starts with
             list.Sort((a, b) =>
             {
                 int c = string.CompareOrdinal(a.name, b.name);
@@ -416,6 +430,7 @@ namespace FPSBase.Net
         /// <summary>A machine was bought at the dealer on this game.</summary>
         public static void NotifySpawn(GameObject go, int listing)
         {
+            BoughtFrom.Mark(go, listing);
             var v = go.GetComponent<VehicleBase>();
             if (v == null) return;
             v.NetId = SpawnIdBase + UnityEngine.Random.Range(1, int.MaxValue - SpawnIdBase - 1);
@@ -445,6 +460,7 @@ namespace FPSBase.Net
             if (dealer == null || listing < 0 || listing >= dealer.listings.Length || dealer.listings[listing].prefab == null) return;
             var go = Instantiate(dealer.listings[listing].prefab, p, q);
             go.name = name;
+            BoughtFrom.Mark(go, listing);
             var v = go.GetComponent<VehicleBase>();
             v.NetId = id;
             spawnedListing[v] = listing;

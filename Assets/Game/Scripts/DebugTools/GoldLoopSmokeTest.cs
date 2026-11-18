@@ -41,6 +41,8 @@ namespace FPSBase.DebugTools
                         case "berm": yield return BermTests(); break;
                         case "services": yield return ServiceTests(); break;
                         case "cabfp": yield return CabFirstPersonTests(); break;
+                        case "transport": yield return TransportTests(); break;
+                        case "save": yield return SaveTests(); break;
                         case "slosh": yield return SloshTests(DigSite.Instance, FindFirstObjectByType<DumpPickup>()); break;
                         case "materials": yield return MaterialsTests(DigSite.Instance, Economy.Instance, FindFirstObjectByType<WashPlant>(), FindFirstObjectByType<DumpPickup>()); break;
                         default: log.AppendLine($"INFO  unknown quick test '{part}'"); break;
@@ -91,7 +93,9 @@ namespace FPSBase.DebugTools
             Vector3 inBed = truck.bedVolume.transform.TransformPoint(truck.bedVolume.center);
             Check(MaterialTransfer.FindReceiverBelow(inBed, null, out _) == (IMaterialReceiver)truck, "pour point inside the truck bed still finds the truck");
 
-            // pour into the truck bed from above
+            // pour into the truck bed from above (tidy tank out: the whole box)
+            bool hadTank = truck.TidyTankFitted;
+            truck.SetTidyTank(false);
             Vector3 bedTop = truck.bedVolume.transform.TransformPoint(truck.bedVolume.center) + Vector3.up * 1.5f;
             MaterialTransfer.Pour(bedTop, dug, null);
             DirtGrains.FastForward();
@@ -103,6 +107,7 @@ namespace FPSBase.DebugTools
             MaterialTransfer.Pour(hopTop, load, null);
             DirtGrains.FastForward();
             Check(plant.hopper.volume > 1.0f, $"hopper received {plant.hopper.volume:0.00} m³");
+            if (hadTank) truck.SetTidyTank(true);
 
             // a pour onto bare ground leaves loose dirt that keeps its gold
             Vector3 pp = new Vector3(60f, 3f, -25f);
@@ -259,7 +264,91 @@ namespace FPSBase.DebugTools
             yield return PlayerTests(site, truck);
 
             yield return DigCycleTests();
+            yield return SaveTests();
             Finish();
+        }
+
+        /// <summary>Save a world, change everything, load it back: the ground, machines, bought gear and money return.</summary>
+        IEnumerator SaveTests()
+        {
+            var site = DigSite.Instance;
+            var eco = Economy.Instance;
+            var dealer = FindFirstObjectByType<VehicleDealer>();
+            var deliver = typeof(VehicleDealer).GetMethod("Deliver", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            VehicleDealer.Listing L(string n) { foreach (var l in dealer.listings) if (l.name.StartsWith(n)) return l; return null; }
+            T Nearest<T>(Vector3 at, System.Collections.Generic.HashSet<BoughtFrom> skip) where T : Component
+            {
+                T best = null; float bd = float.MaxValue;
+                foreach (var b in FindObjectsByType<BoughtFrom>(FindObjectsSortMode.None))
+                    if ((skip == null || !skip.Contains(b)) && b.GetComponent<T>() is T c && Vector3.Distance(c.transform.position, at) < bd) { bd = Vector3.Distance(c.transform.position, at); best = c; }
+                return best;
+            }
+            var had = new System.Collections.Generic.HashSet<BoughtFrom>(FindObjectsByType<BoughtFrom>(FindObjectsSortMode.None));
+            // dig a hole
+            Vector3 p = new Vector3(70f, 0f, -12f);
+            Check(site.Contains(p), "save test spot is on the dig site");
+            p.y = site.SurfaceY(p);
+            site.Dig(p + Vector3.down * 0.6f, 1.2f, 3f);
+            site.Flush(9999);
+            float h1 = site.SurfaceY(p);
+            // buy a pickup and a bowser, set them up
+            deliver.Invoke(dealer, new object[] { L("GMT400") });
+            deliver.Invoke(dealer, new object[] { L("Field Fuel Bowser") });
+            for (int i = 0; i < 20; i++) yield return new WaitForFixedUpdate();
+            var pk = Nearest<DumpPickup>(dealer.transform.position, had);
+            var bw = Nearest<Trailer>(dealer.transform.position, had);
+            Check(pk != null && bw != null, "bought a pickup and a bowser for the save test");
+            if (pk == null || bw == null) yield break;
+            pk.fuel = 13f;
+            pk.SetTidyTank(false);
+            bw.Tank.liters = 777f;
+            MiniExcavator ex = null;
+            foreach (var m in FindObjectsByType<MiniExcavator>(FindObjectsSortMode.None)) if (m.GetComponent<BoughtFrom>() == null) ex = m;
+            ex.fuel = 7f;
+            for (int i = 0; i < 50; i++) yield return new WaitForFixedUpdate();
+            pk.Receive(new MaterialLoad(0.3f, 0f)); // after it has settled on the lot (landing shakes some out)
+            for (int i = 0; i < 5; i++) yield return null;
+            Vector3 exAt = ex.transform.position, pkAt = pk.transform.position, bwAt = bw.transform.position;
+            float money = eco.Money, bedAt = pk.load.volume;
+            int boughtBefore = FindObjectsByType<BoughtFrom>(FindObjectsSortMode.None).Length;
+
+            string err = SaveGame.Save("smoke test world", SaveGame.Mode.SinglePlayer);
+            Check(err == null, $"saved the world ({err ?? "ok"})");
+            var listed = SaveGame.List(SaveGame.Mode.SinglePlayer).Find(s => s.name == "smoke test world");
+            Check(listed != null && SaveGame.List(SaveGame.Mode.Multiplayer).Find(s => s.name == "smoke test world") == null, "the save is listed under single player (not multiplayer)");
+            if (listed == null) yield break;
+            log.AppendLine($"INFO  save file {new FileInfo(listed.path).Length / 1024f:0.0} KB");
+
+            // change everything
+            site.Dig(p + Vector3.down * 1.4f, 1.2f, 3f);
+            site.Flush(9999);
+            float h2 = site.SurfaceY(p);
+            eco.Earn(5000f);
+            ex.fuel = 40f;
+            ex.transform.position += Vector3.right * 6f;
+            var exRb = ex.GetComponent<Rigidbody>(); if (exRb != null) exRb.position = ex.transform.position;
+            Destroy(pk.gameObject); Destroy(bw.gameObject);
+            for (int i = 0; i < 5; i++) yield return null;
+
+            string loadErr = "never finished";
+            yield return SaveGame.Load(listed.path, e => loadErr = e);
+            Check(loadErr == null, $"loaded the world back ({loadErr ?? "ok"})");
+            for (int i = 0; i < 10; i++) yield return new WaitForFixedUpdate();
+            site.Flush(9999);
+            float h3 = site.SurfaceY(p);
+            Check(h2 < h1 - 0.2f && Mathf.Abs(h3 - h1) < 0.05f, $"the dug ground comes back as saved (saved {h1:0.00}, dug deeper {h2:0.00}, loaded {h3:0.00})");
+            Check(Mathf.Abs(eco.Money - money) < 1f, $"money comes back (${eco.Money:N0}, saved ${money:N0})");
+            Check(Vector3.Distance(ex.transform.position, exAt) < 0.6f && Mathf.Abs(ex.fuel - 7f) < 0.5f, $"the claim's excavator is back where it was with its fuel ({Vector3.Distance(ex.transform.position, exAt):0.00} m off, {ex.fuel:0.0} L)");
+            int boughtAfter = FindObjectsByType<BoughtFrom>(FindObjectsSortMode.None).Length;
+            Check(boughtAfter == boughtBefore, $"every bought machine comes back once ({boughtAfter}, saved {boughtBefore})");
+            var pk2 = Nearest<DumpPickup>(pkAt, null);
+            var bw2 = Nearest<Trailer>(bwAt, null);
+            Check(pk2 != null && Vector3.Distance(pk2.transform.position, pkAt) < 0.8f && Mathf.Abs(pk2.fuel - 13f) < 0.5f && !pk2.TidyTankFitted && bedAt > 0.01f && Mathf.Abs(pk2.load.volume - bedAt) < 0.03f,
+                  $"the bought pickup comes back: place, fuel, tidy tank off, dirt in the box ({(pk2 != null ? $"{Vector3.Distance(pk2.transform.position, pkAt):0.00} m off, {pk2.fuel:0.0} L, tank {pk2.TidyTankFitted}, {pk2.load.volume:0.00} m³ of {bedAt:0.00}" : "missing")})");
+            Check(bw2 != null && Vector3.Distance(bw2.transform.position, bwAt) < 0.8f && bw2.Tank != null && Mathf.Abs(bw2.Tank.liters - 777f) < 1f,
+                  $"the bowser comes back with its fuel ({(bw2 != null && bw2.Tank != null ? $"{Vector3.Distance(bw2.transform.position, bwAt):0.00} m off, {bw2.Tank.liters:0} L" : "missing")})");
+            SaveGame.Delete(listed);
+            Check(!File.Exists(listed.path), "deleting a save removes the file");
         }
 
         void Finish()
@@ -274,6 +363,245 @@ namespace FPSBase.DebugTools
         /// A real dig cycle through the controls, like a player: boom down into the ground, pull the stick in and
         /// curl, lift out, swing. The dirt must stay in the bucket (it used to fall straight out of it).
         /// </summary>
+        static InteractOption FindOption(Interactable it, string contains)
+        {
+            var list = new System.Collections.Generic.List<InteractOption>();
+            it.GetOptions(list);
+            foreach (var o in list) if (o.label != null && o.label.Contains(contains)) return o;
+            return null;
+        }
+
+        /// <summary>
+        /// Transport fleet: the GMT400's tidy tank comes out and goes back in, the fuel bowser hitches to its pintle
+        /// hook, follows it, is towed with it, fills at the pump from its menu and fuels a machine; a semi's RGN lowboy
+        /// drops its deck when the gooseneck comes off, a machine drives on and is chained down, the neck goes back on
+        /// and the load rides along.
+        /// </summary>
+        IEnumerator TransportTests()
+        {
+            var dealer = FindFirstObjectByType<VehicleDealer>();
+            var pi = FindFirstObjectByType<PlayerInteractor>();
+            GameObject Prefab(string n) { foreach (var l in dealer.listings) if (l.name.Contains(n)) return l.prefab; return null; }
+            Vector3 yard = dealer.heavyLotSpots[0].position;
+            Vector3 G(Vector3 p) => VehicleDealer.GroundAt(p);
+
+            // --- GMT400 + tidy tank
+            var pkPrefab = Prefab("GMT400"); var bwPrefab = Prefab("Fuel Bowser");
+            Check(pkPrefab != null && bwPrefab != null, "dealer sells the GMT400 pickup and the fuel bowser");
+            if (pkPrefab == null || bwPrefab == null) yield break;
+            var starter = FindFirstObjectByType<DumpPickup>();
+            Check(starter != null && starter.displayName.Contains("GMT400") && starter.TidyTankFitted, $"the starter truck is the GMT400 with its tidy tank ({(starter != null ? starter.displayName : "none")})");
+            Quaternion yawX = Quaternion.Euler(0f, 90f, 0f);
+            var pk = Instantiate(pkPrefab, yard + Vector3.down * 300f, yawX).GetComponent<DumpPickup>();
+            {
+                Vector3 at = VehicleSpot.FindFree(yard + new Vector3(2f, 0f, 8f), 90f, VehicleSpot.LocalBounds(pk.transform), pk.transform, 40f);
+                pk.transform.SetPositionAndRotation(at + Vector3.up * 0.5f, yawX);
+                var r = pk.GetComponent<Rigidbody>(); r.position = pk.transform.position; r.rotation = yawX;
+                Physics.SyncTransforms();
+            }
+            for (int i = 0; i < 60; i++) yield return new WaitForFixedUpdate();
+            float capWith = pk.capacity;
+            Check(pk.TidyTankFitted && pk.tidyTank.capacity >= 420f && ContainsTank(pk.tidyTank), $"GMT400 carries a {pk.tidyTank.capacity:0} L tidy tank (box {capWith:0.00} m³ with it in)");
+            var opt = FindOption(pk, "Take the tidy tank out");
+            Check(opt != null && opt.enabled, "the pickup's menu offers to take the tidy tank out");
+            opt?.run(pi);
+            Check(!pk.TidyTankFitted && !pk.tidyTank.gameObject.activeSelf && pk.capacity > capWith + 0.3f && !ContainsTank(pk.tidyTank),
+                $"tank out: the whole bed holds {pk.capacity:0.00} m³");
+            opt = FindOption(pk, "Fit the tidy tank");
+            opt?.run(pi);
+            Check(pk.TidyTankFitted && Mathf.Abs(pk.capacity - capWith) < 0.01f, "and fitted again");
+
+            {
+                var r0 = pk.GetComponent<Rigidbody>(); Vector3 p0 = pk.transform.position;
+                pk.TestDrive(1f);
+                for (int i = 0; i < 100; i++) yield return new WaitForFixedUpdate();
+                pk.TestDrive(0f);
+                log.AppendLine($"INFO  pickup alone, 2 s full throttle: {Vector3.Distance(pk.transform.position, p0):0.0} m, vel {r0.linearVelocity.magnitude:0.0}, rpm {pk.wheels[0].rpm:0}, y {pk.transform.position.y:0.00}");
+                var touch = new System.Text.StringBuilder();
+                foreach (var c in Physics.OverlapBox(pk.transform.TransformPoint(new Vector3(0f, 1.0f, 0f)), new Vector3(1.2f, 1.1f, 3.0f), pk.transform.rotation, ~0, QueryTriggerInteraction.Ignore))
+                    if (!c.transform.IsChildOf(pk.transform)) touch.Append(c.name).Append(c.attachedRigidbody != null ? "(rb) " : " ");
+                var own = new System.Text.StringBuilder();
+                foreach (var c in pk.GetComponentsInChildren<Collider>()) if (!(c is WheelCollider) && !c.isTrigger) own.Append(c.name).Append(' ').Append(c.bounds.min.y.ToString("0.00")).Append("; ");
+                log.AppendLine($"INFO  pickup overlaps: {touch}  | ground {G(pk.transform.position).y:0.00} | own colliders (bottom y): {own}");
+                for (int i = 0; i < 100; i++) yield return new WaitForFixedUpdate();
+            }
+            // --- bowser on the pintle hook
+            Hitch pintle = pk.GetComponentInChildren<Hitch>();
+            var bw = Instantiate(bwPrefab, pk.transform.position - pk.transform.forward * 6f, pk.transform.rotation).GetComponent<Trailer>();
+            yield return null;
+            bw.transform.position += (pintle.transform.position - pk.transform.forward * 0.8f) - bw.couplerPoint.position;
+            var bwrb = bw.GetComponent<Rigidbody>(); bwrb.position = bw.transform.position;
+            Physics.SyncTransforms();
+            for (int i = 0; i < 80; i++) yield return new WaitForFixedUpdate();
+            opt = FindOption(bw, "Hitch to");
+            Check(opt != null && opt.enabled, $"backing up to the bowser: its menu offers to hitch it ({Vector3.Distance(pintle.transform.position, bw.couplerPoint.position):0.00} m)");
+            opt?.run(pi);
+            Check(bw.Hitched == pintle, "bowser hitched to the pickup's pintle hook");
+            Vector3 b0 = bw.transform.position;
+            pk.TestDrive(0.6f);
+            var pkrb = pk.GetComponent<Rigidbody>();
+            for (int i = 0; i < 50 * 6; i++)
+            {
+                yield return new WaitForFixedUpdate();
+                if (i % 50 == 0) log.AppendLine($"INFO  pickup t {i / 50}: pos {pk.transform.position} vel {pkrb.linearVelocity.magnitude:0.00} kin {pkrb.isKinematic} sleep {pkrb.IsSleeping()} w0 grounded {pk.wheels[0].isGrounded} rpm {pk.wheels[0].rpm:0} torque {pk.wheels[0].motorTorque:0} brake {pk.wheels[0].brakeTorque:0} bowser vel {bwrb.linearVelocity.magnitude:0.00} brake {bw.wheels[0].brakeTorque:0} jack {bw.jack.localPosition.y:0.00}");
+            }
+            pk.TestDrive(0f);
+            for (int i = 0; i < 50 * 2; i++) yield return new WaitForFixedUpdate();
+            float gap = Vector3.Distance(pintle.transform.position, bw.couplerPoint.position);
+            Check(Vector3.Distance(bw.transform.position, b0) > 6f && gap < 0.25f && bw.transform.up.y > 0.9f,
+                $"the pickup pulls the bowser ({Vector3.Distance(bw.transform.position, b0):0.0} m, ring {gap:0.00} m from the hook, upright {bw.transform.up.y:0.00})");
+            yield return ShotAt(pk.transform.position + pk.transform.right * 7f + Vector3.up * 3f - pk.transform.forward * 2f, pk.transform.position - pk.transform.forward * 3f + Vector3.up * 1f, "Screenshots/transport_bowser.png");
+
+            // tow the rig to the fuel pump: the bowser comes along; fill it from its menu
+            var pump = FindFirstObjectByType<FuelPump>();
+            float tank0 = bw.Tank.liters;
+            bool towed = pk.TowTo(pump.transform.position + pump.transform.right * 6f, null);
+            for (int i = 0; i < 30; i++) yield return new WaitForFixedUpdate();
+            gap = Vector3.Distance(pintle.transform.position, bw.couplerPoint.position);
+            Check(towed && gap < 0.4f && bw.Hitched == pintle, $"towing the pickup brings its hitched bowser along (ring {gap:0.00} m from the hook)");
+            opt = FindOption(bw, "Refuel the fuel bowser at the pump");
+            Check(opt != null && opt.enabled, $"at the pump the bowser's menu offers a refuel ({Vector3.Distance(bw.Tank.transform.position, pump.transform.position):0.0} m from the pump)");
+            opt?.run(pi);
+            Check(bw.Tank.liters >= bw.Tank.capacity - 0.5f && bw.Tank.liters > tank0, $"bowser filled: {tank0:0} -> {bw.Tank.liters:0} L");
+            opt = FindOption(pk, "Refuel the tidy tank at the pump");
+            Check(opt != null, "the pickup's menu offers to refuel its tidy tank at the pump");
+            opt = FindOption(bw, "Unhitch");
+            Check(opt != null && opt.enabled, "the bowser's menu offers to unhitch it");
+            opt?.run(pi);
+            Check(bw.Hitched == null, "bowser unhitched");
+            // a machine parked by the bowser is fuelled from it
+            var mini = Instantiate(Prefab("Mini Excavator"), bw.transform.position + bw.transform.right * 4f + Vector3.up * 0.5f, bw.transform.rotation).GetComponent<VehicleBase>();
+            for (int i = 0; i < 40; i++) yield return new WaitForFixedUpdate();
+            mini.fuel = 1f;
+            opt = FindOption(mini, "Refuel from the fuel bowser");
+            Check(opt != null && opt.enabled, "a machine parked by the bowser can refuel from it");
+            float bl0 = bw.Tank.liters;
+            opt?.run(pi);
+            Check(mini.fuel > mini.fuelCapacity - 0.5f && bw.Tank.liters < bl0, $"machine fuelled from the bowser ({bl0:0} -> {bw.Tank.liters:0} L)");
+            for (int i = 0; i < 50 * 2; i++) yield return new WaitForFixedUpdate();
+            float ringUp = -1f;
+            foreach (var h in Physics.RaycastAll(bw.couplerPoint.position + Vector3.up * 1f, Vector3.down, 4f, ~0, QueryTriggerInteraction.Ignore))
+                if (h.collider.GetComponentInParent<Trailer>() != bw) ringUp = Mathf.Max(ringUp, 1f - h.distance);
+            ringUp = ringUp < 0f ? -1f : bw.couplerPoint.position.y - (bw.couplerPoint.position.y + 1f - (1f - ringUp));
+            float ringH = -1f;
+            {
+                float best = float.MaxValue;
+                foreach (var h in Physics.RaycastAll(bw.couplerPoint.position + Vector3.up * 1f, Vector3.down, 4f, ~0, QueryTriggerInteraction.Ignore))
+                    if (h.collider.GetComponentInParent<Trailer>() != bw && h.distance < best) best = h.distance;
+                if (best < float.MaxValue) ringH = best - 1f;
+            }
+            Check(bw.transform.up.y > 0.95f && ringH > 0.35f, $"unhitched, the bowser stands on its jack (ring {ringH:0.00} m up, upright {bw.transform.up.y:0.00})");
+            Destroy(mini.gameObject); Destroy(bw.gameObject); Destroy(pk.gameObject);
+            yield return null;
+
+            // --- semis with RGN lowboys
+            var semis = new System.Collections.Generic.List<SemiTruck>();
+            string[] names = { "Semi Truck 25", "Semi Truck 55", "Semi Truck 95" };
+            for (int k = 0; k < 3; k++)
+            {
+                var pf = Prefab(names[k]);
+                Check(pf != null, $"dealer sells the {names[k]} t");
+                if (pf == null) continue;
+                var s = Instantiate(pf, G(yard + new Vector3(10f, 0f, -2f + k * 14f)) + Vector3.up * 0.4f, yawX).GetComponent<SemiTruck>();
+                semis.Add(s);
+            }
+            for (int i = 0; i < 50 * 3; i++) yield return new WaitForFixedUpdate();
+            foreach (var s in semis)
+            {
+                var tw = s.Towing;
+                Check(tw != null && tw.Hitched == s.fifthWheel && tw.NeckOn && s.transform.up.y > 0.97f && tw.transform.up.y > 0.97f,
+                    $"{s.displayName}: lowboy on the fifth wheel, both standing level (tractor {s.transform.up.y:0.000}, trailer {(tw != null ? tw.transform.up.y : 0f):0.000}, y {s.transform.position.y - G(s.transform.position).y:0.00})");
+            }
+            if (semis.Count == 3)
+                yield return ShotAt(semis[2].transform.position + new Vector3(-14f, 9f, 18f), semis[1].transform.position + Vector3.left * 6f, "Screenshots/transport_semis.png");
+            var semi = semis.Count > 0 ? semis[0] : null;
+            if (semi == null) yield break;
+            for (int k = 1; k < semis.Count; k++) { if (semis[k].Towing != null) semis[k].Towing.gameObject.SetActive(false); semis[k].gameObject.SetActive(false); }
+            var low = semi.Towing;
+            if (low == null) yield break;
+            Vector3 s0 = semi.transform.position;
+            semi.TestDrive(0.6f);
+            for (int i = 0; i < 50 * 5; i++) yield return new WaitForFixedUpdate();
+            semi.TestDrive(0f);
+            var srb = semi.GetComponent<Rigidbody>();
+            for (int i = 0; i < 50 * 10 && (i < 50 || srb.linearVelocity.magnitude > 0.2f); i++) yield return new WaitForFixedUpdate();
+            float kp = Vector3.Distance(low.couplerPoint.position, semi.fifthWheel.transform.position);
+            Check(Vector3.Distance(semi.transform.position, s0) > 10f && kp < 0.3f && low.transform.up.y > 0.95f,
+                $"{semi.displayName} pulls its lowboy ({Vector3.Distance(semi.transform.position, s0):0.0} m, kingpin {kp:0.00} m from the fifth wheel)");
+
+            opt = FindOption(low, "Detach the gooseneck");
+            Check(opt != null && opt.enabled, "the lowboy's menu offers to detach the gooseneck");
+            opt?.run(pi);
+            for (int i = 0; i < 50 * 2; i++) yield return new WaitForFixedUpdate();
+            float lip = low.deckSocket.position.y - G(low.deckSocket.position).y;
+            Check(!low.NeckOn && low.Hitched == null && low.NeckCarrier == semi.fifthWheel && lip < 0.3f,
+                $"gooseneck off: it stays on the tractor and the deck front drops to the ground ({lip:0.00} m up)");
+            semi.TestDrive(0.3f);
+            for (int i = 0; i < 50 * 3; i++) yield return new WaitForFixedUpdate();
+            semi.TestDrive(0f);
+            for (int i = 0; i < 50 * 6 && (i < 50 || srb.linearVelocity.magnitude > 0.2f); i++) yield return new WaitForFixedUpdate();
+            float pulled = Vector3.Distance(low.neckSocket.position, low.deckSocket.position);
+            Check(pulled > 3f, $"the tractor drives off with the neck, leaving the deck ({pulled:0.0} m)");
+            yield return ShotAt(low.deckSocket.position + low.transform.right * 8f + Vector3.up * 3f + low.transform.forward * 4f, low.deckSocket.position - low.transform.forward * 2f, "Screenshots/transport_deck_down.png");
+
+            // drive a compact track loader on over the front of the deck
+            var ctl = Instantiate(Prefab("Compact Track Loader"), Vector3.down * 400f, Quaternion.identity).GetComponent<EarthmoverBase>();
+            Vector3 front = low.deckSocket.position + low.transform.forward * 3.2f;
+            ctl.transform.SetPositionAndRotation(G(front) + Vector3.up * 0.3f, Quaternion.LookRotation(-low.transform.forward));
+            if (ctl is FrontLoader carry) carry.SetPose(0f, 30f); // bucket up to carry height, not dragging on the deck
+            var crb = ctl.GetComponent<Rigidbody>(); crb.isKinematic = false; crb.position = ctl.transform.position; crb.rotation = ctl.transform.rotation;
+            Physics.SyncTransforms();
+            for (int i = 0; i < 50; i++) yield return new WaitForFixedUpdate();
+            ctl.TestDrive(0.7f);
+            for (int i = 0; i < 50 * 14; i++)
+            {
+                yield return new WaitForFixedUpdate();
+                if (i % 50 == 0) log.AppendLine($"INFO  loader t {i / 50}: pos {ctl.transform.position} vel {crb.linearVelocity.magnitude:0.00} kin {crb.isKinematic} touching {ctl.Suspension.Touching}/{ctl.Suspension.Contacts} parent {(ctl.transform.parent != null ? ctl.transform.parent.name : "-")} occupied {ctl.Occupied}");
+                Vector3 l = low.deckArea.InverseTransformPoint(ctl.transform.position);
+                if (Mathf.Abs(l.z) < 0.6f) break;
+            }
+            ctl.TestDrive(0f);
+            for (int i = 0; i < 50 * 3; i++) yield return new WaitForFixedUpdate();
+            Vector3 onDeck = low.deckArea.InverseTransformPoint(ctl.transform.position);
+            Check(low.Carries(ctl) && Mathf.Abs(onDeck.y) < 0.35f,
+                $"{ctl.displayName} drives up onto the deck and is chained down (deck-local {onDeck.x:0.0}, {onDeck.y:0.00}, {onDeck.z:0.0})");
+
+            // back the tractor up to the deck and pin the neck back on
+            semi.TestDrive(-0.6f);
+            float dist = 99f;
+            for (int i = 0; i < 50 * 20; i++)
+            {
+                yield return new WaitForFixedUpdate();
+                low.NeckLinedUp(out dist, out _);
+                if (dist < 1.4f) break;
+            }
+            semi.TestDrive(0f);
+            for (int i = 0; i < 50 * 6 && (i < 50 || srb.linearVelocity.magnitude > 0.2f); i++) yield return new WaitForFixedUpdate();
+            low.NeckLinedUp(out dist, out float yaw);
+            opt = FindOption(low, "Attach the gooseneck");
+            Check(opt != null && opt.enabled, $"backed up to the deck: the menu offers to attach the gooseneck ({dist:0.00} m, {yaw:0.0} deg off)");
+            opt?.run(pi);
+            for (int i = 0; i < 50 * 3; i++) yield return new WaitForFixedUpdate();
+            Check(low.NeckOn && low.Hitched == semi.fifthWheel && low.Carries(ctl), "gooseneck back on: hitched, the machine still chained on the deck");
+            Vector3 c0 = ctl.transform.position;
+            semi.TestDrive(0.6f);
+            for (int i = 0; i < 50 * 6; i++) yield return new WaitForFixedUpdate();
+            semi.TestDrive(0f);
+            for (int i = 0; i < 50 * 3; i++) yield return new WaitForFixedUpdate();
+            Vector3 still = low.deckArea.InverseTransformPoint(ctl.transform.position);
+            Check(Vector3.Distance(ctl.transform.position, c0) > 8f && Mathf.Abs(still.z - onDeck.z) < 0.2f && semi.LoadFraction > 0.1f,
+                $"the load rides along ({Vector3.Distance(ctl.transform.position, c0):0.0} m, slid {Mathf.Abs(still.z - onDeck.z):0.00} m, load {semi.LoadFraction * 100f:0}% of {low.payloadTons:0} t)");
+            yield return ShotAt(low.transform.position + low.transform.right * 9f + Vector3.up * 4f + low.transform.forward * 2f, low.deckArea.position, "Screenshots/transport_loaded.png");
+            Trailer.ReleaseCargo(ctl);
+            Check(!low.Carries(ctl) && !crb.isKinematic && ctl.transform.parent == null, "getting in (or towing) the machine takes the chains off");
+
+            Destroy(ctl.gameObject);
+            foreach (var s in semis) { if (s.Towing != null) Destroy(s.Towing.gameObject); Destroy(s.gameObject); }
+            yield return null;
+        }
+
+        static bool ContainsTank(FuelTank t) { foreach (var x in FuelTank.All) if (x == t) return true; return false; }
+
         /// <summary>First person in the cab: your arms and legs are drawn on the controls, the head isn't in the way.</summary>
         IEnumerator CabFirstPersonTests()
         {
@@ -1425,9 +1753,14 @@ namespace FPSBase.DebugTools
             }
 
             // tyres: tread lugs and spokes turn with the wheel (a bare cylinder looks still when it spins)
-            int lugs = 0;
-            foreach (var w in truck.wheelVisuals) if (w != null) foreach (Transform c in w) if (c.name == "Lug") lugs++;
-            Check(lugs >= 4 * 8, $"truck tyres have tread lugs that spin with the wheels ({lugs})");
+            int lugs = 0, treadWheels = 0;
+            foreach (var w in truck.wheelVisuals)
+            {
+                if (w == null) continue;
+                foreach (var c in w.GetComponentsInChildren<Transform>(true)) if (c.name == "Lug") lugs++;
+                foreach (var mf in w.GetComponentsInChildren<MeshFilter>(true)) if (mf.sharedMesh != null && mf.sharedMesh.vertexCount > 400) { treadWheels++; break; } // baked tyre with tread blocks
+            }
+            Check(lugs >= 4 * 8 || treadWheels >= 4, $"truck tyres have tread that spins with the wheels ({lugs} lugs, {treadWheels} baked treaded tyres)");
 
             // ruts: heavy contacts rolling over loose dirt press a groove and push berms up beside it
             Vector3 r0 = new Vector3(150f, 0f, -10f);
@@ -1686,7 +2019,12 @@ namespace FPSBase.DebugTools
             Check(body.rig.pose == FPSBase.Player.MannequinRig.Pose.Sit && body.rig.transform.IsChildOf(truck.transform) && headErr < 0.2f,
                 $"getting in: the driver sits in the cab (head {headErr:0.00} m from the eye point)");
             Material glass = null;
-            foreach (var r in truck.GetComponentsInChildren<MeshRenderer>(true)) if (r.name == "Windshield") glass = r.sharedMaterial;
+            foreach (var r in truck.GetComponentsInChildren<MeshRenderer>(true))
+            {
+                if (r.name == "Windshield") glass = r.sharedMaterial;
+                else foreach (var m in r.sharedMaterials)
+                    if (m != null && m.name.Contains("Glass") && m.HasProperty("_BaseColor") && (glass == null || (glass.name != "Windshield" && m.GetColor("_BaseColor").a < glass.GetColor("_BaseColor").a))) glass = m; // the clearest pane (windshield), not a tinted rear one
+            }
             Check(glass != null && glass.GetFloat("_SurfaceType") > 0.5f && glass.GetColor("_BaseColor").a < 0.5f, "cab windows are see-through glass");
             Check(body.rig.GetComponentInChildren<SkinnedMeshRenderer>().shadowCastingMode == UnityEngine.Rendering.ShadowCastingMode.On, "the seated driver is drawn (outside cab view)");
             Vector3 cabC = eye != null ? eye.position : tp + Vector3.up * 1.5f;

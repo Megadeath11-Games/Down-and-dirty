@@ -3,7 +3,7 @@ using UnityEngine;
 
 namespace FPSBase.Vehicles
 {
-    public enum HitchType { Pintle, FifthWheel }
+    public enum HitchType { Pintle, FifthWheel, Gooseneck }
 
     /// <summary>
     /// A tow point on a truck: a pintle hook on a pickup's rear bumper (takes a trailer's lunette ring) or a semi

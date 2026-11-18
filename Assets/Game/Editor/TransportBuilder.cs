@@ -453,6 +453,15 @@ namespace FPSBase.EditorTools
             gq.Attach(t, id + "_Quarters");
             var pintle = Node(t, "Pintle Hook", F(-2.7f, 0.56f, 0f));
             pintle.gameObject.AddComponent<Hitch>().type = HitchType.Pintle;
+            // removable gooseneck ball: a plate on the bed floor just ahead of the rear axle (fitted from the menu)
+            var goose = Node(t, "Gooseneck Ball", F(-1.56f, rT + 0.22f + 0.12f + 0.04f + 0.12f, 0f));
+            var gg0 = new Geo();
+            gg0.Box(fm.dark, F(0f, -0.11f, 0f), FS(0.42f, 0.02f, 0.42f));
+            gg0.Cyl(fm.dark, F(0f, -0.07f, 0f), Quaternion.identity, 0.05f, 0.05f, 0.07f, 12);
+            gg0.Cyl(fm.chrome, F(0f, -0.03f, 0f), Quaternion.identity, 0.03f, 0.044f, 0.03f, 12);
+            gg0.Cyl(fm.chrome, F(0f, -0.01f, 0f), Quaternion.identity, 0.044f, 0.02f, 0.03f, 12);
+            gg0.Attach(goose, id + "_GooseBall");
+            goose.gameObject.AddComponent<Hitch>().type = HitchType.Gooseneck;
 
             // --- dump box (hinged at the back), tailgate, tidy tank
             float bedY = rT + 0.22f + 0.12f;
@@ -518,6 +527,7 @@ namespace FPSBase.EditorTools
             pk.tailgatePour = Marker(bedPivot, "PourPoint", new Vector3(0f, 0.25f, -0.25f));
             pk.tailgate = gateHinge;
             pk.tidyTank = tank; pk.tidyTankLength = tankLen; pk.tidyTankFitted = true;
+            pk.gooseneckBall = goose.gameObject; pk.gooseneckFitted = false;
             pk.exitPoint = Marker(t, "ExitPoint", F(0.28f, 0f, -1.9f));
 
             var rb = root.GetComponent<Rigidbody>();
@@ -556,6 +566,194 @@ namespace FPSBase.EditorTools
             var seat = Marker(t, "CabView", Cb(-0.12f, 0.98f, -0.40f));
             CabInterior(seat, CabStyle.Truck, CabMatsFrom(fm, red), id);
             pk.vehicleCamera = VehicleCam(t, t, seat, 8f, 2.6f);
+            return root;
+        }
+
+        // ------------------------------------------------------------------ equipment trailers (from the trailers visualizer)
+
+        /// <summary>
+        /// 7 t bumper-pull hydraulic tilt-deck trailer (pintle / receiver hitch) or 10 t gooseneck tandem-dual trailer
+        /// with folding ramps (gooseneck ball in a pickup's bed). Built for the skid steers and the 5 t excavator.
+        /// </summary>
+        static GameObject BuildEquipTrailer(bool goose, FleetMats fm, TransportMats tm)
+        {
+            wheelProto.Clear();
+            string id = goose ? "Goose10" : "Tilt7";
+            float L = goose ? 6.7f : 5.4f, W = goose ? 2.54f : 2.12f;
+            var frame = fm.Paint(Hex(goose ? 0x1e293b : 0x0f172a));
+            var accent = fm.Paint(Hex(goose ? 0xdc2626 : 0xf59e0b));
+            var wood = tm.wood;
+            const float rT = 0.39f;
+            float deckY = goose ? rT + 0.48f : rT + 0.24f;   // deck centre height
+            float axleC = -L * 0.14f, spread = 0.92f;
+            float front = L * 0.5f;
+            var root = new GameObject(goose ? "Gooseneck Equipment Trailer 10 t" : "Tilt-Deck Equipment Trailer 7 t");
+            var t = root.transform;
+            var g = new Geo();
+
+            // --- the deck (on its own pivot for the tilt trailer)
+            Transform deck = t; float ox = 0f;
+            float pivotX = axleC - 0.1f;
+            if (!goose) { deck = Node(t, "Tilt Deck (pivot)", F(pivotX, deckY, 0f)); ox = -pivotX; }
+            float dy = goose ? deckY : 0f; // deck parts' height in the deck frame
+            var gd = goose ? g : new Geo();
+            gd.Box(frame, F(ox, dy - 0.02f, 0f), FS(L, 0.06f, W));
+            gd.Box(wood, F(ox, dy + 0.035f, 0f), FS(L * 0.98f, 0.05f, W * 0.92f));
+            foreach (int s in new[] { -1, 1 })
+            {
+                float zs = s * W * 0.49f;
+                gd.Box(frame, F(ox, dy, zs), FS(L, 0.12f, 0.07f));
+                gd.Box(accent, F(ox, dy + 0.02f, zs + s * 0.065f), FS(L * 0.96f, 0.05f, 0.025f));
+                for (int k = -3; k <= 3; k++) gd.Box(frame, F(ox + k * L * 0.13f, dy + 0.01f, zs + s * 0.042f), FS(0.09f, 0.09f, 0.045f));
+                foreach (float xm in new[] { -L * 0.38f, 0f, L * 0.38f }) gd.Box(fm.amber, F(ox + xm, dy - 0.03f, zs + s * 0.038f), FS(0.08f, 0.03f, 0.02f));
+            }
+            float rearX = ox - L * 0.5f;
+            gd.Box(frame, F(rearX, dy - 0.02f, 0f), FS(0.12f, 0.14f, W * 0.98f));
+            foreach (int s in new[] { -1, 1 }) gd.Box(tm.tail, F(rearX - 0.065f, dy - 0.02f, s * W * 0.38f), FS(0.04f, 0.08f, 0.26f));
+            if (!goose)
+            {
+                // beavertail lip and the tilt ram's top mount under the deck
+                gd.Box(frame, F(rearX + 0.12f, dy - 0.07f, 0f), FS(0.3f, 0.05f, W * 0.96f), RZ(-0.2f));
+                gd.Box(fm.dark, F(ox + 0.9f, dy - 0.1f, 0f), FS(0.16f, 0.1f, 0.2f));
+                gd.Attach(deck, id + "_Deck");
+            }
+            ColBox(deck, "Deck", F(ox, dy - 0.005f, 0f), FS(L, 0.13f, W));
+            var deckArea = Marker(deck, "DeckArea", F(ox, dy + 0.06f, 0f));
+
+            // --- running gear: tandem axles, singles (tilt) or duals under the deck (gooseneck), fenders
+            var wheels = new List<WheelCollider>(); var vis = new List<Transform>();
+            float tare = goose ? 2280f : 1540f, payload = goose ? 6790f : 4810f;
+            float perWheel = (tare + payload) * 0.85f / 4f;
+            float wz = goose ? W * 0.44f : W * 0.5f + 0.14f;
+            foreach (float dx in new[] { -spread * 0.5f, spread * 0.5f })
+            {
+                float x = axleC + dx;
+                g.Cyl(fm.dark, F(x, rT, 0f), AxisLat, 0.045f, 0.045f, wz * 2f - 0.2f, 12);
+                foreach (int s in new[] { -1, 1 })
+                {
+                    var wgo = new GameObject("Wheel " + wheels.Count);
+                    wgo.transform.SetParent(t, false);
+                    // leaf / torsion sprung: soft, long travel, rests mid-travel at its design height
+                    wgo.transform.localPosition = F(x, rT + 0.15f, s * wz);
+                    var wc = wgo.AddComponent<WheelCollider>();
+                    wc.radius = rT; wc.mass = goose ? 60f : 35f; wc.suspensionDistance = 0.3f; wc.forceAppPointDistance = 0.15f;
+                    float spring = perWheel * 9.81f * 6f;
+                    wc.suspensionSpring = new JointSpring { spring = spring, damper = spring * 0.16f, targetPosition = 0.1f };
+                    var sf = wc.sidewaysFriction; sf.stiffness = 1.5f; wc.sidewaysFriction = sf;
+                    wheels.Add(wc);
+                    var v = Node(t, "Wheel Visual " + vis.Count, F(x, rT, s * wz));
+                    if (goose) TruckWheel(v, id + "_Dual", rT, 0.22f, new[] { -0.14f, 0.14f }, fm, fm.chrome);
+                    else TruckWheel(v, id + "_Wheel", rT, 0.24f, new[] { 0f }, fm, fm.chrome);
+                    vis.Add(v);
+                }
+            }
+            if (!goose)
+                foreach (int s in new[] { -1, 1 })
+                {
+                    float zf = s * (W * 0.5f + 0.18f);
+                    g.Box(frame, F(axleC, rT * 2f + 0.12f, zf), FS(1.88f, 0.05f, 0.32f));
+                    g.Box(frame, F(axleC + 1.04f, rT * 2f + 0.04f, zf), FS(0.28f, 0.05f, 0.32f), RZ(-0.58f));
+                    g.Box(frame, F(axleC - 1.04f, rT * 2f + 0.04f, zf), FS(0.28f, 0.05f, 0.32f), RZ(0.58f));
+                    ColBox(t, s < 0 ? "Fender L" : "Fender R", F(axleC, rT * 2f + 0.12f, zf), FS(1.88f, 0.05f, 0.32f));
+                }
+
+            // --- frame, hitch and jack
+            var rb = root.AddComponent<Rigidbody>();
+            rb.mass = tare; rb.interpolation = RigidbodyInterpolation.Interpolate; rb.angularDamping = 0.5f;
+            var trl = root.AddComponent<Trailer>();
+            Transform jack;
+            if (goose)
+            {
+                foreach (int s in new[] { -1, 1 }) g.Box(frame, F(0f, deckY - 0.14f, s * W * 0.34f), FS(L * 0.94f, 0.18f, 0.08f));
+                foreach (int s in new[] { -1, 1 }) g.Box(frame, F(front + 0.04f, deckY + 0.44f, s * W * 0.34f), FS(0.24f, 0.96f, 0.12f), RZ(-0.14f));
+                g.Box(frame, F(front - 0.04f, deckY + 0.21f, 0f), FS(0.08f, 0.42f, W * 0.96f));
+                g.Box(fm.chrome, F(front + 0.12f, deckY + 0.24f, 0f), FS(0.42f, 0.34f, W * 0.62f));
+                g.Box(frame, F(front + 0.98f, deckY + 0.88f, 0f), FS(2.15f, 0.22f, W * 0.72f));
+                const float ballTop = 0.90f;
+                float tubeTop = deckY + 0.77f, tubeLen = tubeTop - (ballTop + 0.06f);
+                g.Cyl(fm.dark, F(front + 1.98f, ballTop + 0.06f + tubeLen * 0.5f, 0f), Quaternion.identity, 0.065f, 0.065f, tubeLen, 16);
+                g.Cyl(accent, F(front + 1.98f, ballTop + 0.06f, 0f), Quaternion.identity, 0.11f, 0.08f, 0.12f, 16);
+                g.Box(accent, F(front + 1.6f, deckY + 0.88f, 0f), FS(0.5f, 0.04f, W * 0.73f)); // accent stripe on the neck
+                ColBox(t, "Neck", F(front + 0.98f, deckY + 0.88f, 0f), FS(2.15f, 0.22f, W * 0.72f));
+                ColBox(t, "Neck Uprights", F(front + 0.06f, deckY + 0.44f, 0f), FS(0.3f, 0.96f, W * 0.8f));
+                ColBox(t, "Coupler", F(front + 1.98f, ballTop + 0.06f + tubeLen * 0.5f, 0f), FS(0.16f, tubeLen, 0.16f));
+                trl.couplerPoint = Marker(t, "Gooseneck Coupler", F(front + 1.98f, ballTop, 0f));
+                trl.coupler = HitchType.Gooseneck;
+                // drop-leg landing gear (both legs on one jack)
+                jack = Node(t, "Landing Gear", F(front + 0.22f, deckY - 0.16f, 0f));
+                var gj = new Geo();
+                foreach (int s in new[] { -1, 1 })
+                {
+                    g.Box(frame, F(front + 0.22f, deckY + 0.14f, s * W * 0.34f), FS(0.11f, 0.72f, 0.11f));
+                    gj.Box(fm.chrome, F(0f, 0f, s * W * 0.34f), FS(0.085f, 0.58f, 0.085f));
+                    gj.Box(fm.dark, F(0f, -0.29f, s * W * 0.34f), FS(0.22f, 0.03f, 0.22f));
+                    ColBox(jack, s < 0 ? "Leg Pad L" : "Leg Pad R", F(0f, -0.25f, s * W * 0.34f), FS(0.22f, 0.1f, 0.22f));
+                }
+                gj.Attach(jack, id + "_Legs");
+                trl.jackDrop = deckY - 0.16f - 0.30f + 0.02f;
+                // folding ramps at the back: stowed standing up, lowered onto the ground
+                const float rampLen = 2.4f, rampW = 0.9f;
+                float hingeY = deckY + 0.06f;
+                float drop = Mathf.Asin(Mathf.Clamp01((hingeY - 0.03f) / rampLen)) * Mathf.Rad2Deg;
+                var rampList = new List<Transform>();
+                foreach (int s in new[] { -1, 1 })
+                {
+                    var rp = Node(t, s < 0 ? "Ramp L" : "Ramp R", F(-front, hingeY, s * W * 0.25f));
+                    var gr = new Geo();
+                    gr.Box(accent, F(0f, rampLen * 0.5f, 0f), FS(0.07f, rampLen, rampW));
+                    foreach (int e in new[] { -1, 1 }) gr.Box(frame, F(0.02f, rampLen * 0.5f, e * rampW * 0.47f), FS(0.1f, rampLen, 0.05f));
+                    for (int k = 0; k < 10; k++) gr.Box(frame, F(0.05f, 0.15f + k * (rampLen - 0.3f) / 9f, 0f), FS(0.04f, 0.04f, rampW * 0.9f)); // cleats
+                    gr.Attach(rp, id + "_Ramp");
+                    ColBox(rp, "Ramp", F(0f, rampLen * 0.5f, 0f), FS(0.08f, rampLen, rampW));
+                    rampList.Add(rp);
+                }
+                trl.ramps = rampList.ToArray();
+                trl.rampSwing = 90f + drop;
+            }
+            else
+            {
+                // front frame (pivot forward), A-frame tongue, toolbox, coupler, the tilt ram
+                float fl = front - pivotX, fc = (front + pivotX) * 0.5f;
+                foreach (int s in new[] { -1, 1 })
+                {
+                    g.Box(frame, F(fc, deckY - 0.17f, s * W * 0.34f), FS(fl, 0.16f, 0.08f));
+                    float zb = s * W * 0.34f, ang = Mathf.Atan2(zb, 1.48f);
+                    g.Box(frame, F(front + 0.74f, deckY - 0.12f, zb * 0.5f), FS(1.62f, 0.14f, 0.08f), RY(ang));
+                }
+                g.Box(frame, F(pivotX, deckY - 0.17f, 0f), FS(0.12f, 0.16f, W * 0.72f));
+                g.Cyl(fm.pin, F(pivotX, deckY - 0.09f, 0f), AxisLat, 0.04f, 0.04f, W * 0.9f, 10); // tilt pivot pin
+                g.Box(accent, F(front + 1.56f, deckY - 0.10f, 0f), FS(0.32f, 0.14f, 0.14f));
+                g.Box(fm.chrome, F(front + 0.42f, deckY + 0.08f, 0f), FS(0.46f, 0.32f, 0.76f));
+                g.Cyl(accent, F(front - 0.85f, deckY - 0.16f, 0f), RZ(-0.35f), 0.045f, 0.045f, 0.54f, 14);
+                g.Cyl(fm.chrome, F(front - 0.62f, deckY - 0.1f, 0f), RZ(-0.35f), 0.028f, 0.028f, 0.4f, 12);
+                g.Box(frame, F(front + 1.12f, deckY + 0.04f, 0f), FS(0.09f, 0.56f, 0.09f));
+                ColBox(t, "Front Frame", F(fc, deckY - 0.17f, 0f), FS(fl, 0.16f, W * 0.72f));
+                ColBox(t, "Tongue", F(front + 0.8f, deckY - 0.12f, 0f), FS(1.6f, 0.14f, 0.5f));
+                ColBox(t, "Toolbox", F(front + 0.42f, deckY + 0.08f, 0f), FS(0.46f, 0.32f, 0.76f));
+                trl.couplerPoint = Marker(t, "Coupler", F(front + 1.56f, deckY - 0.10f, 0f));
+                trl.coupler = HitchType.Pintle;
+                jack = Node(t, "Jack Foot", F(front + 1.12f, deckY - 0.2f, 0f));
+                var gj = new Geo();
+                gj.Box(fm.chrome, Vector3.zero, FS(0.075f, 0.44f, 0.075f));
+                gj.Box(fm.dark, F(0f, -0.22f, 0f), FS(0.2f, 0.03f, 0.2f));
+                gj.Attach(jack, id + "_Jack");
+                ColBox(jack, "Jack Pad", F(0f, -0.17f, 0f), FS(0.2f, 0.12f, 0.2f));
+                trl.jackDrop = deckY - 0.2f - 0.23f + 0.02f;
+                trl.tiltDeck = deck;
+                float rearDist = pivotX + L * 0.5f, under = deckY - 0.06f;
+                // empty it rides ~0.1 m above its loaded design height: tilt far enough that the back edge still meets the ground
+                trl.tiltMax = Mathf.Asin(Mathf.Clamp01((under + 0.1f) / rearDist)) * Mathf.Rad2Deg;
+            }
+            g.Attach(t, id + "_Body");
+
+            rb.centerOfMass = new Vector3(0f, deckY, axleC + 0.2f);
+            trl.displayName = goose ? "10 t gooseneck equipment trailer" : "7 t tilt-deck equipment trailer";
+            trl.wheels = wheels.ToArray(); trl.wheelVisuals = vis.ToArray();
+            trl.parkBrake = perWheel * 3f;
+            trl.payloadTons = payload / 1000f;
+            trl.jack = jack;
+            trl.deckArea = deckArea; trl.deckSize = new Vector2(W, L);
+            trl.carriesOnly = new[] { "Stand-On", "Wheeled Skid Steer", "Compact Track Loader", "Compact Excavator" };
             return root;
         }
 
@@ -632,9 +830,12 @@ namespace FPSBase.EditorTools
                     wgo.transform.SetParent(t, false);
                     wgo.transform.localPosition = F(x, rT + 0.1f, s * 0.95f);
                     var wc = wgo.AddComponent<WheelCollider>();
-                    wc.radius = rT; wc.mass = 35f; wc.suspensionDistance = 0.22f; wc.forceAppPointDistance = 0.15f;
-                    float spring = perWheel * 9.81f * 8f;
-                    wc.suspensionSpring = new JointSpring { spring = spring, damper = spring * 0.12f, targetPosition = 0.5f };
+                    // leaf-sprung tandem: soft and long-travel so each axle follows the ground (the deck flexes over humps).
+                    // Loaded it sags ~0.17 m past a target near full droop: rests mid-travel with the wheel at its design height
+                    wc.radius = rT; wc.mass = 35f; wc.suspensionDistance = 0.4f; wc.forceAppPointDistance = 0.15f;
+                    wgo.transform.localPosition = F(x, rT + 0.19f, s * 0.95f);
+                    float spring = perWheel * 9.81f * 6f;
+                    wc.suspensionSpring = new JointSpring { spring = spring, damper = spring * 0.16f, targetPosition = 0.1f };
                     var sf = wc.sidewaysFriction; sf.stiffness = 1.5f; wc.sidewaysFriction = sf;
                     wheels.Add(wc);
                     var v = Node(t, "Wheel Visual " + vis.Count, F(x, rT, s * 0.95f));

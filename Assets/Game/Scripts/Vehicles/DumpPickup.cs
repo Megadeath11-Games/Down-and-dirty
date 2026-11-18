@@ -67,7 +67,7 @@ namespace FPSBase.Vehicles
 
         public bool AcceptsAt(Vector3 worldPoint)
         {
-            if (tilt > 8f || bedVolume == null) return false;
+            if (tilt > 8f || bedVolume == null || GooseneckFitted) return false;
             Vector3 l = bedVolume.transform.InverseTransformPoint(worldPoint) - bedVolume.center;
             Vector3 h = bedVolume.size * 0.5f;
             return Mathf.Abs(l.x) <= h.x && Mathf.Abs(l.z) <= h.z;
@@ -100,6 +100,7 @@ namespace FPSBase.Vehicles
         {
             rb = GetComponent<Rigidbody>();
             rb.centerOfMass = new Vector3(0f, 0.35f, 0.2f);
+            if (gooseneckBall != null) gooseneckBall.SetActive(gooseneckFitted);
             if (bedContents != null)
             {
                 fullInner = bedInnerSize; fullCap = capacity; fullContentsZ = bedContents.localPosition.z;
@@ -134,6 +135,23 @@ namespace FPSBase.Vehicles
 
         public bool TidyTankFitted => tidyTank != null && tidyTankFitted;
 
+        [Header("Gooseneck ball (in the bed floor, just ahead of the rear axle)")]
+        public GameObject gooseneckBall;
+        public bool gooseneckFitted;
+        public bool GooseneckFitted => gooseneckBall != null && gooseneckFitted;
+        Hitch GooseHitch => gooseneckBall != null ? gooseneckBall.GetComponentInChildren<Hitch>(true) : null;
+
+        /// <summary>Fit or take out the gooseneck ball. Fitting needs an empty box, down; taking it out needs nothing hitched to it.</summary>
+        public bool SetGooseneck(bool fit)
+        {
+            if (gooseneckBall == null) return false;
+            if (fit && (!load.IsEmpty || tilt > 1f)) return false;
+            if (!fit && GooseHitch != null && GooseHitch.Attached != null) return false;
+            gooseneckFitted = fit;
+            gooseneckBall.SetActive(fit);
+            return true;
+        }
+
         /// <summary>Fit or take out the tidy tank (only with the bed empty and down). Returns false if it can't.</summary>
         public bool SetTidyTank(bool fit)
         {
@@ -158,6 +176,21 @@ namespace FPSBase.Vehicles
 
         protected override void ExtraOptions(System.Collections.Generic.List<InteractOption> list)
         {
+            if (gooseneckBall != null)
+            {
+                bool empty = load.IsEmpty && tilt < 1f && !Occupied && !NetRemoteDriven;
+                if (!GooseneckFitted)
+                    list.Add(new InteractOption { label = "Fit the gooseneck ball   (for gooseneck trailers: locks the dump box down)", enabled = empty,
+                        note = !load.IsEmpty ? "empty the dump box first" : tilt >= 1f ? "lower the dump box first" : "someone's in the truck",
+                        run = p => { if (SetGooseneck(true)) GameUI.Toast("Gooseneck ball fitted in the bed: back up under a gooseneck trailer's coupler"); } });
+                else
+                {
+                    bool hooked = GooseHitch != null && GooseHitch.Attached != null;
+                    list.Add(new InteractOption { label = "Take the gooseneck ball out   (dump box free again)", enabled = !hooked && !Occupied,
+                        note = hooked ? "unhitch the gooseneck trailer first" : "someone's in the truck",
+                        run = p => { if (SetGooseneck(false)) GameUI.Toast("Gooseneck ball out: the dump box works again"); } });
+                }
+            }
             if (tidyTank == null) return;
             bool can = load.IsEmpty && tilt < 1f && !Occupied && !NetRemoteDriven;
             string note = !load.IsEmpty ? "empty the dump box first" : tilt >= 1f ? "lower the dump box first" : "someone's in the truck";
@@ -174,6 +207,11 @@ namespace FPSBase.Vehicles
 
             float tiltIn = Controls.Axis(GameAction.BoxUp, GameAction.BoxDown);
             if (!HasFuel) tiltIn = Mathf.Min(tiltIn, 0f); // box can always come down (gravity)
+            if (GooseneckFitted)
+            {
+                if (Controls.Pressed(GameAction.BoxUp)) GameUI.Toast("Dump box locked: the gooseneck ball is fitted (take it out from the truck's menu)");
+                tiltIn = Mathf.Min(tiltIn, 0f);
+            }
             SetTilt(tilt + tiltIn * tiltSpeed * dt);
             if (Controls.Pressed(GameAction.Tailgate))
             {
@@ -233,8 +271,12 @@ namespace FPSBase.Vehicles
             UpdateContents();
         }
 
+        float lastThrottle;
+        protected override bool DriveInput => Mathf.Abs(lastThrottle) > 0.05f;
+
         void ApplyDrive(float throttle, float steer, bool handbrake)
         {
+            lastThrottle = throttle;
             float speed = Vector3.Dot(rb.linearVelocity, transform.forward);
             float kmh = Mathf.Abs(speed) * 3.6f;
             float steerAngle = steer * maxSteer * Mathf.Lerp(1f, 0.35f, kmh / topSpeedKmh);
@@ -262,6 +304,8 @@ namespace FPSBase.Vehicles
                 float b = 0f;
                 if (braking) b = brakeTorque;
                 else if (Mathf.Abs(throttle) < 0.05f) b = kmh < 2.5f ? brakeTorque : 250f; // stopped: hold it on the brakes (no creeping down hills); rolling: engine braking
+                // anti-lock: a locked wheel has no side grip and lets the tail swing round; ease off as it starts to skid
+                if (braking && !handbrake && w.GetGroundHit(out WheelHit wh) && Mathf.Abs(wh.forwardSlip) > 0.4f) b *= 0.35f;
                 if (handbrake) b = brakeTorque * 1.5f;
                 w.brakeTorque = b;
 
@@ -338,7 +382,8 @@ namespace FPSBase.Vehicles
                        $"Dump box {load.volume:0.00} / {capacity:0.0} m³   ({load.goldGrams:0.0} g gold, {load.Grade:0.0} g/m³)\n" +
                        $"Load: {load.Describe()}\n" +
                        $"Box tilt {tilt:0}°   Tailgate {GateNames[Mathf.Clamp(gateSetting, 0, GateNames.Length - 1)]}\n" +
-                       $"Drive {(transferCase ? DriveNames[(int)driveMode] : "rear")}   Rear diff {(rearLocked ? "LOCKED" : "open")}";
+                       $"Drive {(transferCase ? DriveNames[(int)driveMode] : "rear")}   Rear diff {(rearLocked ? "LOCKED" : "open")}" +
+                       (GooseneckFitted ? "   Gooseneck ball fitted (box locked)" : "");
             }
         }
 

@@ -54,7 +54,7 @@ namespace FPSBase.EditorTools
                 }
         }
 
-        class VehiclePrefabs { public GameObject mini, pickup, dumpTruck, hauler, dozer, loader, grader, bowser; public GameObject[] excavators, dozers, skids, semis; }
+        class VehiclePrefabs { public GameObject mini, pickup, dumpTruck, hauler, dozer, loader, grader, bowser, tilt7, goose10; public GameObject[] excavators, dozers, skids, semis; }
 
         class ExcavatorSpec
         {
@@ -101,6 +101,8 @@ namespace FPSBase.EditorTools
             var tm = BuildTransportMats();
             p.pickup = SavePrefab(BuildGMT400(fm, tm, vm.dirt));
             p.bowser = SavePrefab(BuildBowser(fm, tm));
+            p.tilt7 = SavePrefab(BuildEquipTrailer(false, fm, tm));
+            p.goose10 = SavePrefab(BuildEquipTrailer(true, fm, tm));
             p.semis = new GameObject[SemiFleet.Length];
             for (int i = 0; i < SemiFleet.Length; i++) p.semis[i] = SavePrefab(BuildSemi(SemiFleet[i], fm, tm));
             return p;

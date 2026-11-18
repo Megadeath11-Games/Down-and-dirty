@@ -42,7 +42,12 @@ namespace FPSBase.Mining
         /// <summary>Takes `volume` m3 out of the real load (for clumps that spill over the rim). Null = clumps can't leave.</summary>
         public System.Func<float, MaterialLoad> takeOut;
         [Tooltip("How strongly the container's own movement throws the clumps around (1 = physical).")]
-        public float sloshGain = 1.5f;
+        public float sloshGain = 1f;
+        [Tooltip("Shaking gentler than this (m/s2) doesn't move the load at all: heavy wet dirt holds together and grips the steel.")]
+        public float yieldAccel = 2.5f;
+        [Tooltip("Seconds: the load feels the container's movement smoothed over this long (chassis chatter doesn't toss it).")]
+        public float shakeSmoothing = 0.12f;
+        Vector3 accSmooth;
         /// <summary>
         /// Which way the container opens, in its own frame (unit vector). Up for a truck bed; a bucket finds its own
         /// mouth from its mesh (AutoMouth). The box faces on that side are open: clumps leave through them whenever
@@ -345,14 +350,22 @@ namespace FPSBase.Mining
             Vector3 acc = hasLast ? (vel - lastVel) / dt : Vector3.zero;
             if (acc.sqrMagnitude > 1600f) acc = acc.normalized * 40f; // teleports
             lastPos = pos; lastVel = vel; hasLast = true;
+            // heavy dirt: it doesn't feel every rattle of the chassis, and it holds together until the shove is real
+            accSmooth = Vector3.Lerp(accSmooth, acc, shakeSmoothing > 0f ? 1f - Mathf.Exp(-dt / shakeSmoothing) : 1f);
+            acc = accSmooth;
+            float am = acc.magnitude;
+            acc = am > yieldAccel ? acc * ((am - yieldAccel) / am) : Vector3.zero;
             // another player's machine moves in network steps: don't let that jerkiness throw its load about
             Vector3 g = Quaternion.Inverse(Rot) * (Physics.gravity - acc * (Remote() ? 0.15f : sloshGain));
 
             // rest when nothing is happening (most of the time): no work at all
             Vector3 gl = g.normalized;
             bool still = acc.sqrMagnitude < 0.6f;
-            // a load at rest holds its heap (dirt sticks); once shaken it moves freely and sloshes
-            float damp = still ? 3.5f : 0.7f, stick = still ? 0.15f : 0.06f;
+            // a load at rest holds its heap (dirt sticks); shaken hard it shifts, but heavily, like wet dirt (not packing peanuts)
+            float damp = still ? 4f : 2.2f, stick = still ? 0.18f : 0.12f;
+            // tipped toward mouth-down it pours: the dirt lets go of the steel and runs out freely
+            float pour = Mathf.InverseLerp(0.55f, -0.1f, Vector3.Dot(-gl, mouth));
+            damp = Mathf.Lerp(damp, 0.8f, pour); stick = Mathf.Lerp(stick, 0.05f, pour);
             if (still && quiet > 0.6f && Vector3.Dot(gl, lastG) > 0.999f) { Draw(); return; }
             lastG = gl;
 
@@ -449,7 +462,7 @@ namespace FPSBase.Mining
         [Tooltip("Dirt-on-steel friction: the load holds against gentle starts and stops and slides on hard ones.")]
         public float wallFriction = 0.55f;
         [Tooltip("How much of a hard hit on a wall surges up it (the load sloshing up and over the front on a hard stop).")]
-        public float runUp = 0.75f;
+        public float runUp = 0.35f;
 
         void Walls(ref Clump c, Vector3 g, float h)
         {
@@ -472,7 +485,7 @@ namespace FPSBase.Mining
         void Hit(ref Clump c, int axis, float sgn, Vector3 g, float h)
         {
             float impact = Mathf.Abs(c.v[axis]);
-            c.v[axis] *= -0.2f;
+            c.v[axis] *= -0.05f; // dirt thuds into the wall, it doesn't bounce
             // a hard hit on a side wall (not the floor) throws the load up it, like a wave hitting a wall
             var n = Vector3.zero; n[axis] = sgn;
             if (Mathf.Abs(Vector3.Dot(n, mouth)) < 0.5f && impact > 0.9f)

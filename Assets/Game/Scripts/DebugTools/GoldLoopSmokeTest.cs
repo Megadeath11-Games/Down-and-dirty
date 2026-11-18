@@ -46,6 +46,8 @@ namespace FPSBase.DebugTools
                         case "dozerblade": yield return DozerBladeTests(); break;
                         case "hill": yield return PickupHillTests(); break;
                         case "heavy": yield return HeavyTests(); break;
+                        case "skidcarry": yield return SkidCarryTests(); break;
+                        case "equip": yield return EquipTrailerTests(); break;
                         case "slosh": yield return SloshTests(DigSite.Instance, FindFirstObjectByType<DumpPickup>()); break;
                         case "materials": yield return MaterialsTests(DigSite.Instance, Economy.Instance, FindFirstObjectByType<WashPlant>(), FindFirstObjectByType<DumpPickup>()); break;
                         default: log.AppendLine($"INFO  unknown quick test '{part}'"); break;
@@ -271,6 +273,8 @@ namespace FPSBase.DebugTools
             yield return DozerBladeTests();
             yield return PickupHillTests();
             yield return HeavyTests();
+            yield return SkidCarryTests();
+            yield return EquipTrailerTests();
             Finish();
         }
 
@@ -459,6 +463,65 @@ namespace FPSBase.DebugTools
             Check(climbed[0] > climbed[1] + 1f || climbed[1] < 10f, $"4-low pulls harder than 4-high up the ramp ({climbed[0]:0.0} vs {climbed[1]:0.0} m)");
             Check(climbed[2] > 5f, $"on its own in 2WD with the rear locked it still climbs the ramp ({climbed[2]:0.0} m)");
             Destroy(ramp);
+
+            // --- braking hard with a full bowser on: the trailer brakes itself, the rig stops straight (no push, no jackknife)
+            {
+                Vector3 padAt = new Vector3(-150f, 400f, -150f);
+                var pad = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                pad.name = "Test pad"; pad.transform.position = padAt + Vector3.down * 0.5f; pad.transform.localScale = new Vector3(40f, 1f, 400f);
+                Physics.SyncTransforms();
+                var pk = Instantiate(pkPrefab, padAt + new Vector3(0f, 1.2f, -150f), Quaternion.identity).GetComponent<DumpPickup>();
+                yield return null;
+                pk.SetDrive(DumpPickup.DriveMode.FourHigh, false);
+                var pintle = pk.GetComponentInChildren<Hitch>();
+                var bw = Instantiate(bwPrefab, pk.transform.position - Vector3.forward * 6f, Quaternion.identity).GetComponent<Trailer>();
+                yield return null;
+                bw.Tank.liters = bw.Tank.capacity;
+                bw.transform.position += pintle.transform.position - bw.couplerPoint.position;
+                bw.Body.position = bw.transform.position;
+                Physics.SyncTransforms();
+                bw.Couple(pintle, true);
+                var prb = pk.GetComponent<Rigidbody>();
+                {
+                    // hitched: the tongue passes through the truck's back end, but the tank and cabinet still hit the truck
+                    Collider tank = null, tongue = null, chassis = pk.GetComponent<BoxCollider>(), cab = null;
+                    foreach (var c in bw.GetComponentsInChildren<Collider>()) { if (c.name == "Tank") tank = c; if (c.name == "Tongue") tongue = c; }
+                    foreach (var c in pk.GetComponentsInChildren<Collider>()) if (c.name == "Cab Collider") cab = c;
+                    bool tankHits = tank != null && chassis != null && !Physics.GetIgnoreCollision(tank, chassis) && cab != null && !Physics.GetIgnoreCollision(tank, cab);
+                    bool tongueFree = tongue != null && chassis != null && Physics.GetIgnoreCollision(tongue, chassis);
+                    Check(tankHits && tongueFree, $"hitched, the bowser's tank still collides with the truck (only the tongue at the hitch passes through: {tongueFree})");
+                }
+                for (int i = 0; i < 40; i++) yield return new WaitForFixedUpdate();
+                float deckY = bw.transform.position.y - padAt.y;
+                pk.TestDrive(1f);
+                for (int i = 0; i < 50 * 14 && Vector3.Dot(prb.linearVelocity, pk.transform.forward) < 14f; i++) yield return new WaitForFixedUpdate();
+                float v0 = Vector3.Dot(prb.linearVelocity, pk.transform.forward);
+                float yaw0 = pk.transform.eulerAngles.y;
+                // a little sideways nudge on the trailer as the brakes go on (a bump, a crosswind, a bit of steering)
+                bw.Body.AddTorque(Vector3.up * 0.35f, ForceMode.VelocityChange);
+                pk.TestDrive(-1f);
+                float maxHitch = 0f, maxBrake = 0f; int t = 0;
+                for (; t < 50 * 8 && prb.linearVelocity.magnitude > 0.3f; t++)
+                {
+                    yield return new WaitForFixedUpdate();
+                    maxHitch = Mathf.Max(maxHitch, Mathf.Abs(Mathf.DeltaAngle(pk.transform.eulerAngles.y, bw.transform.eulerAngles.y)));
+                    maxBrake = Mathf.Max(maxBrake, bw.BrakeLevel);
+                }
+                pk.TestDrive(0f);
+                float yawDrift = Mathf.Abs(Mathf.DeltaAngle(yaw0, pk.transform.eulerAngles.y));
+                log.AppendLine($"INFO  hard stop with the bowser: from {v0 * 3.6f:0} km/h in {t / 50f:0.0} s, hitch angle max {maxHitch:0}°, truck yawed {yawDrift:0}°, trailer brakes up to {maxBrake * 100f:0}%, bowser deck {deckY:0.00} m up");
+                Check(v0 > 10f && maxHitch < 12f && yawDrift < 8f, $"braking hard from {v0 * 3.6f:0} km/h with a full bowser: no jackknife (hitch {maxHitch:0}°, truck yawed {yawDrift:0}°)");
+                Check(maxBrake > 0.3f, $"the bowser's own brakes come on when the truck slows ({maxBrake * 100f:0}%)");
+                for (int i = 0; i < 50; i++) yield return new WaitForFixedUpdate();
+                Check(bw.BrakeLevel > 0.9f, $"stopped, the bowser's brakes hold it with the truck ({bw.BrakeLevel * 100f:0}%)");
+                pk.TestDrive(0.6f);
+                Vector3 bp = bw.transform.position;
+                for (int i = 0; i < 50 * 2; i++) yield return new WaitForFixedUpdate();
+                pk.TestDrive(0f);
+                Check(Vector3.Distance(bw.transform.position, bp) > 1f && bw.BrakeLevel < 0.2f, $"pulling away, they let go ({Vector3.Distance(bw.transform.position, bp):0.0} m, brakes {bw.BrakeLevel * 100f:0}%)");
+                Destroy(bw.gameObject); Destroy(pk.gameObject); Destroy(pad);
+                yield return null;
+            }
         }
 
         /// <summary>Parked machines hold on a 30-degree slope; heavy machines pack the loose dirt they cross, light ones hardly.</summary>
@@ -533,6 +596,183 @@ namespace FPSBase.DebugTools
                 }
                 else Check(maxPacked < 0.2f, $"the light {v.displayName} hardly packs it (packed {maxPacked * 100f:0}%, {squeezed:0.00} m³)");
                 Destroy(v.gameObject);
+                yield return null;
+            }
+        }
+
+        /// <summary>Skid steers carry a full bucket (curled back, low) through starts, a hard reverse and stops without losing much of it.</summary>
+        IEnumerator SkidCarryTests()
+        {
+            var site = DigSite.Instance;
+            var dealer = FindFirstObjectByType<VehicleDealer>();
+            int k = 0;
+            foreach (var l in dealer.listings)
+            {
+                if (l.prefab == null) continue;
+                var fl0 = l.prefab.GetComponent<FrontLoader>();
+                if (fl0 == null || !fl0.skidSteer) continue;
+                Vector3 st = new Vector3(40f + k * 16f, 0f, -130f); st.y = site.SurfaceY(st); k++;
+                var fl = Instantiate(l.prefab, st + Vector3.up * 0.4f, Quaternion.identity).GetComponent<FrontLoader>();
+                var frb = fl.GetComponent<Rigidbody>(); frb.isKinematic = false;
+                fl.SetPose(Mathf.Lerp(fl.armRange.x, fl.armRange.y, 0.2f), fl.tiltRange.x); // carry: low and curled right back
+                fl.bucketLoad = MaterialLoad.Mix(fl.bucketCapacity, 0f, 0f, 0f, 0f);
+                var ccb = fl.GetComponent<ClumpContainer>();
+                for (int i = 0; i < 60; i++) yield return new WaitForFixedUpdate();
+                float full = fl.bucketLoad.volume;
+                log.AppendLine($"INFO  {fl.displayName} carry: capacity {fl.bucketCapacity:0.00}, after settling {full:0.00} (spilled {(ccb != null ? ccb.Spilled : 0f):0.00}), mouth up {(ccb != null ? ccb.MouthUp : 0f):0.00}, box half {(ccb != null ? ccb.Half : Vector3.zero)}, clumps {(ccb != null ? ccb.Count : 0)}, arm {fl.Arm:0}");
+                float[] th = { 0.8f, -0.8f, 1f, 0f };
+                float[] secs = { 3f, 1.5f, 2f, 1.5f };
+                for (int s = 0; s < th.Length; s++)
+                {
+                    fl.TestDrive(th[s]);
+                    for (int i = 0; i < 50 * secs[s]; i++) yield return new WaitForFixedUpdate();
+                }
+                fl.TestDrive(0f);
+                float lost = (full - fl.bucketLoad.volume) / Mathf.Max(1e-4f, full);
+                Check(full > fl.bucketCapacity * 0.85f && lost < 0.12f, $"{fl.displayName} carries a full bucket ({full:0.00} m³) through a start, a hard reverse and a stop, losing {lost * 100f:0}%");
+                Destroy(fl.gameObject);
+                yield return null;
+            }
+            Check(k >= 3, $"all the skid steers were tried ({k})");
+        }
+
+        /// <summary>
+        /// The two equipment trailers behind the GMT400: the 7 t bumper-pull tilts its deck down to the ground, a skid
+        /// steer drives on, the deck levels and it's chained; the 10 t gooseneck goes on the ball fitted in the bed,
+        /// lowers its ramps, a track loader drives up them and is chained. Both haul their load away. Only the skid
+        /// steers and the 5 t excavator are carried.
+        /// </summary>
+        IEnumerator EquipTrailerTests()
+        {
+            var dealer = FindFirstObjectByType<VehicleDealer>();
+            var pi = FindFirstObjectByType<PlayerInteractor>();
+            GameObject Prefab(string nm) { foreach (var l in dealer.listings) if (l.name.Contains(nm)) return l.prefab; return null; }
+            var pkPrefab = Prefab("GMT400");
+            var tiltPrefab = Prefab("Tilt-Deck Equipment Trailer"); var goosePrefab = Prefab("Gooseneck Equipment Trailer");
+            if (pkPrefab == null || tiltPrefab == null || goosePrefab == null) { Check(false, "the pickup and both equipment trailers are on sale"); yield break; }
+
+            // who rides: the 3 skid steers and the 5 t excavator; not the mini excavator or the big machines
+            {
+                var tr = tiltPrefab.GetComponent<Trailer>();
+                string ok = "", bad = "";
+                foreach (var n in new[] { "Stand-On Mini Track Loader", "Wheeled Skid Steer", "Compact Track Loader", "Compact Excavator 5 t" })
+                { var p = Prefab(n); if (p == null || !tr.CanCarry(p.GetComponent<VehicleBase>())) bad += n + "; "; else ok += n + "; "; }
+                foreach (var n in new[] { "Mini Excavator", "Excavator 20 t", "Medium Dozer" })
+                { var p = Prefab(n); if (p != null && tr.CanCarry(p.GetComponent<VehicleBase>())) bad += "(should refuse) " + n + "; "; }
+                Check(bad == "", $"the equipment trailers take the skid steers and the 5 t excavator, and nothing else ({ok}{bad})");
+            }
+
+            for (int which = 0; which < 2; which++)
+            {
+                bool goose = which == 1;
+                Vector3 padAt = new Vector3(150f, 400f, goose ? 250f : -250f);
+                var pad = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                pad.name = "Test pad"; pad.transform.position = padAt + Vector3.down * 0.5f; pad.transform.localScale = new Vector3(40f, 1f, 200f);
+                Physics.SyncTransforms();
+                var pk = Instantiate(pkPrefab, padAt + new Vector3(0f, 1.2f, 30f), Quaternion.identity).GetComponent<DumpPickup>();
+                var prb = pk.GetComponent<Rigidbody>();
+                yield return null;
+                for (int i = 0; i < 50; i++) yield return new WaitForFixedUpdate();
+                pk.SetDrive(DumpPickup.DriveMode.FourHigh, false);
+                Hitch hitch = null;
+                if (goose)
+                {
+                    var fit = FindOption(pk, "Fit the gooseneck ball");
+                    Check(fit != null && fit.enabled, "the pickup's menu offers to fit the gooseneck ball (box empty and down)");
+                    fit?.run(pi);
+                    Check(pk.GooseneckFitted && !pk.AcceptsAt(pk.bedVolume != null ? pk.bedVolume.transform.TransformPoint(pk.bedVolume.center) : pk.transform.position), "ball fitted: the dump box is locked and takes no dirt");
+                    foreach (var h in pk.GetComponentsInChildren<Hitch>()) if (h.type == HitchType.Gooseneck) hitch = h;
+                }
+                else foreach (var h in pk.GetComponentsInChildren<Hitch>()) if (h.type == HitchType.Pintle) hitch = h;
+                if (hitch == null) { Check(false, $"the pickup has a {(goose ? "gooseneck ball" : "pintle hook")}"); Destroy(pk.gameObject); Destroy(pad); continue; }
+                var trl = Instantiate(goose ? goosePrefab : tiltPrefab, pk.transform.position - Vector3.forward * 8f, Quaternion.identity).GetComponent<Trailer>();
+                yield return null;
+                trl.transform.position += hitch.transform.position - trl.couplerPoint.position;
+                trl.Body.position = trl.transform.position;
+                Physics.SyncTransforms();
+                trl.Couple(hitch, true);
+                Check(trl.Hitched == hitch, $"the {trl.displayName} hitches to the pickup's {(goose ? "gooseneck ball" : "pintle hook")}");
+                for (int i = 0; i < 50 * 2; i++) yield return new WaitForFixedUpdate();
+                float pitch = Mathf.Abs(Mathf.DeltaAngle(0f, trl.transform.eulerAngles.x));
+                log.AppendLine($"INFO  {trl.displayName}: hitched pitch {pitch:0.0} deg, deck {trl.deckArea.position.y - padAt.y:0.00} m up, pickup pitch {Mathf.DeltaAngle(0f, pk.transform.eulerAngles.x):0.0}");
+                Check(pitch < 3f, $"hitched and parked, the {trl.displayName} sits level ({pitch:0.0} deg)");
+                if (goose) Check(!pk.SetGooseneck(false), "the ball can't come out with the trailer on it");
+
+                // get the deck ready to load
+                Vector3 rearEnd() => trl.deckArea.position - trl.deckArea.forward * trl.deckSize.y * 0.5f;
+                if (goose)
+                {
+                    var o = FindOption(trl, "Lower the loading ramps");
+                    Check(o != null && o.enabled, "the gooseneck's menu offers to lower the ramps");
+                    o?.run(pi);
+                    for (int i = 0; i < 50 * 4; i++) yield return new WaitForFixedUpdate();
+                    float tipMax = 0f;
+                    foreach (var r in trl.ramps) tipMax = Mathf.Max(tipMax, r.TransformPoint(Vector3.up * 2.4f).y - padAt.y);
+                    Check(trl.RampsDown > 0.99f && tipMax < 0.2f, $"ramps down: their ends rest on the ground ({tipMax:0.00} m up)");
+                }
+                else
+                {
+                    var o = FindOption(trl, "Tilt the deck down");
+                    Check(o != null && o.enabled, "the tilt trailer's menu offers to tilt the deck");
+                    o?.run(pi);
+                    for (int i = 0; i < 50 * 5; i++) yield return new WaitForFixedUpdate();
+                    float rearY = rearEnd().y - padAt.y;
+                    Check(trl.DeckTilt > trl.tiltMax - 0.1f && rearY < 0.25f, $"deck tilted {trl.DeckTilt:0.0} deg: its back edge is down at the ground ({rearY:0.00} m up)");
+                }
+                yield return ShotAt(trl.transform.position + trl.transform.right * 7f + Vector3.up * 2.5f - trl.transform.forward * 5f, rearEnd(),
+                    goose ? "Screenshots/equip_goose_ramps.png" : "Screenshots/equip_tilt_down.png");
+
+                // drive a machine on over the back
+                var mPrefab = Prefab(goose ? "Compact Track Loader" : "Wheeled Skid Steer");
+                var m = Instantiate(mPrefab, Vector3.down * 400f, Quaternion.identity).GetComponent<EarthmoverBase>();
+                Vector3 start = rearEnd() - trl.transform.forward * 3.2f; start.y = padAt.y + 0.3f;
+                m.transform.SetPositionAndRotation(start, Quaternion.LookRotation(trl.transform.forward));
+                if (m is FrontLoader carry)
+                {
+                    float baseY = start.y - 0.3f, a = carry.armRange.x;
+                    for (; a < carry.armRange.y; a += 1f) { carry.SetPose(a, 30f); if (carry.bucketTip != null && carry.bucketTip.position.y > baseY + 0.6f) break; }
+                }
+                var mrb = m.GetComponent<Rigidbody>(); mrb.isKinematic = false; mrb.position = m.transform.position; mrb.rotation = m.transform.rotation;
+                Physics.SyncTransforms();
+                for (int i = 0; i < 50; i++) yield return new WaitForFixedUpdate();
+                m.TestDrive(0.6f);
+                for (int i = 0; i < 50 * 14; i++)
+                {
+                    yield return new WaitForFixedUpdate();
+                    Vector3 l = trl.deckArea.InverseTransformPoint(m.transform.position);
+                    if (i % 50 == 0) log.AppendLine($"INFO  {m.displayName} loading t {i / 50}: deck-local {l} vel {mrb.linearVelocity.magnitude:0.00}");
+                    if (l.z > -0.2f) break;
+                }
+                m.TestDrive(0f);
+                for (int i = 0; i < 50 * 2; i++) yield return new WaitForFixedUpdate();
+                if (goose) { FindOption(trl, "Fold the ramps up")?.run(pi); }
+                else
+                {
+                    Check(FindOption(trl, "Level the deck") is InteractOption lv && lv.enabled, "loaded: the menu offers to level the deck");
+                    FindOption(trl, "Level the deck")?.run(pi);
+                }
+                for (int i = 0; i < 50 * 5; i++) yield return new WaitForFixedUpdate();
+                Vector3 onDeck = trl.deckArea.InverseTransformPoint(m.transform.position);
+                Check(trl.Carries(m) && Mathf.Abs(onDeck.y) < 0.45f && trl.DeckTilt < 0.1f,
+                    $"the {m.displayName} drives on and is chained down (deck-local {onDeck.x:0.0}, {onDeck.y:0.00}, {onDeck.z:0.0}; tilt {trl.DeckTilt:0.0}, ramps {trl.RampsDown:0.0})");
+                if (!goose) Check(!trl.SetDeckTilt(true), "with a machine chained on, the deck won't tilt");
+
+                // haul it
+                Vector3 c0 = m.transform.position;
+                pk.TestDrive(0.6f);
+                for (int i = 0; i < 50 * 7; i++) yield return new WaitForFixedUpdate();
+                pk.TestDrive(-1f);
+                for (int i = 0; i < 50 * 4 && prb.linearVelocity.magnitude > 0.3f; i++) yield return new WaitForFixedUpdate();
+                pk.TestDrive(0f);
+                for (int i = 0; i < 50 * 2; i++) yield return new WaitForFixedUpdate();
+                Vector3 still = trl.deckArea.InverseTransformPoint(m.transform.position);
+                float hitchAng = Mathf.Abs(Mathf.DeltaAngle(pk.transform.eulerAngles.y, trl.transform.eulerAngles.y));
+                Check(Vector3.Distance(m.transform.position, c0) > 8f && trl.Carries(m) && Mathf.Abs(still.z - onDeck.z) < 0.2f && hitchAng < 10f,
+                    $"the pickup hauls the {m.displayName} away and stops ({Vector3.Distance(m.transform.position, c0):0.0} m, slid {Mathf.Abs(still.z - onDeck.z):0.00} m, hitch {hitchAng:0} deg, load {trl.CargoTons:0.0} t of {trl.payloadTons:0.0})");
+                yield return ShotAt(trl.transform.position + trl.transform.right * 8f + Vector3.up * 3.5f + trl.transform.forward * 3f, trl.deckArea.position,
+                    goose ? "Screenshots/equip_goose_loaded.png" : "Screenshots/equip_tilt_loaded.png");
+                Trailer.ReleaseCargo(m);
+                Destroy(m.gameObject); Destroy(trl.gameObject); Destroy(pk.gameObject); Destroy(pad);
                 yield return null;
             }
         }
@@ -2092,7 +2332,7 @@ namespace FPSBase.DebugTools
                     ex.transform.rotation = Quaternion.Euler(0f, 0f, Mathf.Lerp(0f, 150f, (i + 1) / 60f));
                     yield return null;
                 }
-                for (int i = 0; i < 90; i++) yield return null;
+                for (float t = 0f; t < 2f; t += Time.deltaTime) yield return null; // heavy dirt takes a moment to let go
                 float left = ex.bucketLoad.volume / ex.bucketCapacity;
                 Check(left < 0.5f && exc.Spilled > 0.2f * ex.bucketCapacity,
                     $"tipping the bucket over pours the clumps out by gravity ({left * 100f:0}% left, {exc.SpillCount} clods fell)");

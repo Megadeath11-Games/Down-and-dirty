@@ -13,6 +13,21 @@ namespace FPSBase.Core
         /// <summary>Newest first.</summary>
         public static readonly Post[] Blog =
         {
+            new Post { date = "Update 5  ·  Nov 18, 2026", title = "Equipment trailers, heavy dirt and proper towing",
+                body =
+                "<b>New</b>\n" +
+                "• 7 t tilt-deck equipment trailer (bumper-pull, $9,500 at the dealer). Hitch it to the pickup's hook, tilt the deck down from its menu, drive a skid steer on over the back, then level the deck and the machine is chained down.\n" +
+                "• 10 t gooseneck equipment trailer ($14,500) with folding ramps at the back: lower them from its menu, drive on, park, fold them up.\n" +
+                "• Gooseneck ball for the GMT400: fit it from the pickup's menu (dump box empty and down). It locks the dump box while it's in. Back the truck in under the gooseneck's coupler to hitch.\n" +
+                "• Both trailers are built for the three skid steers and the 5 t compact excavator. Anything else isn't chained down.\n\n" +
+                "<b>Changed / fixed</b>\n" +
+                "• Dirt in buckets and truck beds feels heavy now: it sits still over bumps and gentle starts, shifts with a thud on a hard jolt, and doesn't bounce about like packing peanuts.\n" +
+                "• Skid steers keep their load: a full bucket carried low and curled back loses only a few percent through a hard reverse.\n" +
+                "• A tipped bucket still pours freely.\n" +
+                "• Trailers have their own brakes: the truck's brake controller brakes the trailer to match, so a full fuel bowser no longer shoves the pickup into a spin or a jackknife when you slow down. Stopped, they hold it; pull away and they let go.\n" +
+                "• Pickup anti-lock brakes: the wheels don't lock and slide out under hard braking.\n" +
+                "• Hitched trailers collide with the truck again (only the tongue at the hitch passes through), so you can't drive into your own trailer.\n" +
+                "• The bowser's tandem axles have softer, longer-travel springs and the hitch pitches further, so the rig flexes over humps." },
             new Post { date = "Update 4  ·  Nov 18, 2026", title = "Blade tilt, blade angle, new skid steers",
                 body =
                 "<b>New</b>\n" +
@@ -56,11 +71,21 @@ namespace FPSBase.Core
                 "• Dozer berms build up properly in front of the blade." },
         };
 
-        public const string TestListVersion = "2026-11-18d";
+        public const string TestListVersion = "2026-11-18f";
 
         /// <summary>What's new in this build to try out.</summary>
         public static readonly string[] TestList =
         {
+            "Buy the 7 t tilt trailer, hitch it to the pickup",
+            "Tilt the deck down, drive a skid steer on, level it",
+            "Fit the gooseneck ball (pickup menu), hitch the 10 t gooseneck",
+            "Gooseneck: lower the ramps, drive the track loader or 5 t excavator on",
+            "Haul a machine on each trailer: it stays chained",
+            "Carry a full skid steer bucket around: it stays in",
+            "Drive a loaded truck over bumps: the dirt feels heavy",
+            "Tow the full bowser and brake hard: no spin, no jackknife",
+            "Turn sharply with the bowser on: it hits the truck, not through it",
+            "Tow the bowser over humps: the trailer flexes",
             "Dozer: R / T tilt the blade (each end drops)",
             "Dozer: G / H swivel the blade left / right",
             "Push with the blade angled: dirt rolls off to the side",

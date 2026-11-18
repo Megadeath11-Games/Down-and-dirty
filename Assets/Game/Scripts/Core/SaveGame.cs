@@ -146,8 +146,9 @@ namespace FPSBase.Core
                 foreach (var t in tanks) w.Write(t.liters);
                 if (v is DumpPickup pk)
                 {
-                    w.Write((byte)1);
+                    w.Write((byte)3); // 3 = tidy tank, gooseneck ball, bed load (1 = older saves: no ball)
                     w.Write(pk.TidyTankFitted);
+                    w.Write(pk.GooseneckFitted);
                     NetIO.Write(w, pk.load);
                 }
                 else if (v is SemiTruck semi && Trailer.OwnLowboy(semi) is Trailer low)
@@ -231,8 +232,9 @@ namespace FPSBase.Core
                     var liters = new float[nt];
                     for (int i = 0; i < nt; i++) liters[i] = r.ReadSingle();
                     byte extra = r.ReadByte();
-                    bool tidy = false; byte lowState = 0; MaterialLoad bed = default; Vector3 lp = default; Quaternion lq = Quaternion.identity;
+                    bool tidy = false, goose = false; byte lowState = 0; MaterialLoad bed = default; Vector3 lp = default; Quaternion lq = Quaternion.identity;
                     if (extra == 1) { tidy = r.ReadBoolean(); bed = NetIO.ReadLoad(r); }
+                    else if (extra == 3) { tidy = r.ReadBoolean(); goose = r.ReadBoolean(); bed = NetIO.ReadLoad(r); }
                     else if (extra == 2) { lowState = r.ReadByte(); lp = RV3(r); lq = RQ(r); }
 
                     VehicleBase v = null;
@@ -251,10 +253,11 @@ namespace FPSBase.Core
                     v.fuel = Mathf.Clamp(fuel, 0f, v.fuelCapacity);
                     var tanks = v.GetComponentsInChildren<FuelTank>(true);
                     for (int i = 0; i < tanks.Length && i < liters.Length; i++) tanks[i].liters = Mathf.Clamp(liters[i], 0f, tanks[i].capacity);
-                    if (v is DumpPickup pk && extra == 1)
+                    if (v is DumpPickup pk && (extra == 1 || extra == 3))
                     {
                         pk.load = default;
                         pk.SetTidyTank(tidy);
+                        pk.SetGooseneck(goose);
                         if (!bed.IsEmpty) pk.Receive(bed);
                     }
                     if (v is SemiTruck semi && extra == 2) lowboys.Add((semi, lowState, lp, lq));

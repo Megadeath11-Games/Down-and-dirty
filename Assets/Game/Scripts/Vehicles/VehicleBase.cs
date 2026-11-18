@@ -216,6 +216,8 @@ namespace FPSBase.Vehicles
         float BuryAt => Mathf.Max(0.3f, hullHeight * 0.15f);
         /// <summary>Being driven (or test-driven): a machine pushing into a berm isn't buried.</summary>
         protected virtual bool DriveInput => false;
+        /// <summary>The driver is on the throttle (a trailer's brakes let go when it pulls away).</summary>
+        public bool Throttling => DriveInput;
 
         void Bury()
         {

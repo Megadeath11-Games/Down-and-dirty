@@ -59,7 +59,7 @@ namespace FPSBase.Core
             panelScroll = Vector2.zero;
         }
 
-        public void ClosePanel() => panelDraw = null;
+        public void ClosePanel() { panelDraw = null; towing = null; towDest = null; }
 
         void OpenMultiplayer()
         {
@@ -192,7 +192,7 @@ namespace FPSBase.Core
 
             // Interaction prompt
             if (player != null && player.isActiveAndEnabled && player.Current != null && !BlocksGameplay)
-                GUI.Label(new Rect(Screen.width / 2f - 300, Screen.height / 2f + 30, 600, 30), $"[{Controls.N(GameAction.Interact)}] " + player.Current.Prompt, prompt);
+                DrawLookPrompt();
 
             // Toast
             toasts.RemoveAll(x => Time.unscaledTime > x.until);
@@ -248,6 +248,49 @@ namespace FPSBase.Core
 
         GUIStyle markerStyle;
 
+        // ------------------------------------------------------------------ look-at prompt / menu
+
+        void DrawLookPrompt()
+        {
+            var opts = player.Options;
+            string key = Controls.N(GameAction.Interact);
+            float cx = Screen.width / 2f, y = Screen.height / 2f + 30;
+            if (opts.Count == 0)
+            {
+                GUI.Label(new Rect(cx - 300, y, 600, 30), $"[{key}] " + player.Current.Prompt, prompt);
+                return;
+            }
+            GUI.Label(new Rect(cx - 300, y, 600, 26), player.Current.Prompt, prompt);
+            y += 28;
+            float w = 420f, h = 26f;
+            GUI.color = new Color(0f, 0f, 0f, 0.45f);
+            GUI.DrawTexture(new Rect(cx - w / 2f - 6, y - 3, w + 12, opts.Count * h + 6), Texture2D.whiteTexture);
+            for (int i = 0; i < opts.Count; i++)
+            {
+                var o = opts[i];
+                bool sel = i == player.Selected;
+                if (sel) { GUI.color = new Color(1f, 0.8f, 0.3f, 0.35f); GUI.DrawTexture(new Rect(cx - w / 2f - 4, y + i * h, w + 8, h - 2), Texture2D.whiteTexture); }
+                GUI.color = !o.enabled ? new Color(1f, 1f, 1f, 0.45f) : sel ? new Color(1f, 0.92f, 0.6f) : Color.white;
+                string text = (sel ? $"[{key}]  " : "      ") + o.label + (!o.enabled && !string.IsNullOrEmpty(o.note) ? $"   ({o.note})" : "");
+                GUI.Label(new Rect(cx - w / 2f, y + i * h, w, h), text, sel ? prompt : hudSmall);
+            }
+            GUI.color = new Color(1f, 1f, 1f, 0.7f);
+            if (opts.Count > 1) GUI.Label(new Rect(cx - 300, y + opts.Count * h + 2, 600, 22), "scroll to choose", hudSmall);
+            GUI.color = Color.white;
+        }
+
+        // ------------------------------------------------------------------ towing (paid fast travel for a machine)
+
+        FPSBase.Vehicles.VehicleBase towing;
+        Vector3? towDest;
+
+        /// <summary>Open the map to pick where a tow truck should take `v` (you ride along).</summary>
+        public void OpenTow(FPSBase.Vehicles.VehicleBase v)
+        {
+            towing = v; towDest = null;
+            OpenPanel("Map", DrawMap);
+        }
+
         // ------------------------------------------------------------------ map
 
         static Vector3 Ground(Vector3 p) => FPSBase.Mining.VehicleDealer.GroundAt(p);
@@ -266,7 +309,7 @@ namespace FPSBase.Core
             float size = Mathf.Max(world.width, world.height);
             world = new Rect(world.center.x - size / 2f, world.center.y - size / 2f, size, size);
 
-            GUILayout.Label("Click Travel to walk there instantly (on foot only). Recall brings an empty machine to you.", hudSmall);
+            GUILayout.Label("Click Travel to walk there instantly (on foot only). A tow truck brings an empty machine to you, or takes it anywhere (it costs money).", hudSmall);
             Rect r = GUILayoutUtility.GetRect(500, 470, GUILayout.ExpandWidth(true));
             float px = Mathf.Min(r.width, r.height);
             r = new Rect(r.x + (r.width - px) / 2f, r.y, px, px);
@@ -300,6 +343,43 @@ namespace FPSBase.Core
             Dot(me, 12, new Color(1f, 0.25f, 0.2f), "YOU");
             GUI.color = Color.white;
 
+            if (towing != null)
+            {
+                if (towing == null || towing.Occupied) { towing = null; return; }
+                Dot(towing.transform.position, 12, new Color(1f, 0.6f, 0.1f), towing.displayName);
+                var ev = Event.current;
+                if (ev.type == EventType.MouseDown && ev.button == 0 && r.Contains(ev.mousePosition))
+                {
+                    Vector2 q = ev.mousePosition;
+                    var w = new Vector3(world.x + (q.x - r.x) / r.width * world.width, 0f, world.y + (r.yMax - q.y) / r.height * world.height);
+                    towDest = Ground(w);
+                    ev.Use();
+                }
+                if (towDest.HasValue) { Dot(towDest.Value, 12, new Color(1f, 0.9f, 0.2f), "TOW HERE"); GUI.color = Color.white; }
+                GUILayout.Space(6);
+                GUILayout.Label($"Tow {towing.displayName}", hudBig);
+                if (!towDest.HasValue) GUILayout.Label("Click on the map where the tow truck should drop it off. You ride along.", hudSmall);
+                else
+                {
+                    float cost = towing.TowCost(towDest.Value);
+                    float dist = Vector3.Distance(towing.transform.position, towDest.Value);
+                    GUILayout.Label($"{dist:0} m away  —  tow costs ${cost:N0}" + (Economy.Instance != null && Economy.Instance.Unlimited ? " (free in test mode)" : ""), hudSmall);
+                    GUILayout.BeginHorizontal();
+                    GUI.enabled = Economy.Instance == null || Economy.Instance.CanAfford(cost);
+                    if (GUILayout.Button($"Tow it there (${cost:N0})", GUILayout.Height(32), GUILayout.Width(220)))
+                    {
+                        var v = towing; var d = towDest.Value;
+                        towing = null; towDest = null;
+                        ClosePanel();
+                        v.TowTo(d, player);
+                    }
+                    GUI.enabled = true;
+                    if (GUILayout.Button("Cancel", GUILayout.Height(32), GUILayout.Width(100))) { towing = null; towDest = null; ClosePanel(); }
+                    GUILayout.EndHorizontal();
+                }
+                return;
+            }
+
             GUILayout.Space(6);
             GUILayout.Label("Travel", hudBig);
             bool onFoot = ActiveVehicle == null && player != null && player.isActiveAndEnabled;
@@ -331,14 +411,13 @@ namespace FPSBase.Core
                 GUILayout.BeginHorizontal();
                 bool tipped = v.transform.up.y < 0.75f;
                 GUILayout.Label($"{v.displayName}  —  {Vector3.Distance(v.transform.position, me):0} m · fuel {v.FuelFraction * 100f:0}%" + (tipped ? " · TIPPED" : "") + (v.Occupied ? " · (you)" : ""), hudSmall, GUILayout.Width(330));
-                GUI.enabled = onFoot && !v.Occupied;
-                if (GUILayout.Button("Recall", GUILayout.Width(70)))
-                {
-                    var box = v.GetComponent<BoxCollider>();
-                    float reach = 4f + (box != null ? box.size.z * 0.6f : 3f);
-                    Vector3 f = Vector3.ProjectOnPlane(player.transform.forward, Vector3.up).normalized;
-                    if (v.RecallTo(me + f * reach, Quaternion.LookRotation(f).eulerAngles.y)) Toast($"{v.displayName} delivered to you");
-                }
+                GUI.enabled = onFoot && !v.Occupied && !v.Buried && !v.NetRemoteDriven;
+                var box = v.GetComponent<BoxCollider>();
+                float reach = 4f + (box != null ? box.size.z * 0.6f : 3f);
+                Vector3 f = player != null ? Vector3.ProjectOnPlane(player.transform.forward, Vector3.up).normalized : Vector3.forward;
+                Vector3 toMe = me + f * reach;
+                if (GUILayout.Button($"Tow to me ${v.TowCost(toMe):N0}", GUILayout.Width(150))) v.TowTo(toMe, null);
+                if (GUILayout.Button("Tow…", GUILayout.Width(60))) OpenTow(v);
                 GUI.enabled = true;
                 if (GUILayout.Button("Flip upright", GUILayout.Width(100))) v.Recover();
                 GUILayout.EndHorizontal();
@@ -370,7 +449,7 @@ namespace FPSBase.Core
             P($"{K(GameAction.DetectorToggle)} takes it out. Walk slowly over the dirt field: HIGH tone = gold, middle = coins/relics, low grunt = junk iron. {K(GameAction.DetectorDiscriminate)} ignores iron.");
             P($"Stand where it's loudest and press {K(GameAction.HandDig)} to dig with the shovel until the find pops out. Nuggets go to your gold, coins and relics pay cash. Bigger finds ring deeper.");
             H("Machines");
-            P($"{K(GameAction.Map)} opens the map: fast travel, see all your machines, Recall one to you or flip it upright. In a machine, {K(GameAction.Recover)} flips it upright / unsticks it.");
+            P($"{K(GameAction.Map)} opens the map: fast travel, see all your machines, have one towed (to you, or anywhere: you ride along) or flip it upright. Look at a machine on foot and scroll to refuel it from a tidy tank, reposition it or call a tow. In a machine, {K(GameAction.Recover)} flips it upright / unsticks it.");
             P("Machines burn diesel — refuel at the Outpost pumps. Buy bigger machines from the dealer (heavy ones are delivered to the heavy-equipment yard).");
             P("Excavator: push the bucket in too hard and the ground lifts the machine — the HUD warns you. Big dozers have rippers for hard ground and boulders.");
         }

@@ -88,6 +88,18 @@ namespace FPSBase.Vehicles
             if (ripperShank != null) ripperShank.localRotation = Quaternion.Euler(ripper, 0f, 0f);
         }
 
+        protected override void FixedUpdate()
+        {
+            // nobody driving (parked, or rolling / test-driven without a driver): the blade still works the ground it
+            // moves through, and a heap it pushed earlier and left behind doesn't keep holding the machine back
+            if (!Occupied && !NetRemote)
+            {
+                if (Mathf.Abs(ForwardSpeed) > 0.05f) Work(ForwardSpeed, Time.fixedDeltaTime);
+                else { speedFactor = 1f; heapVolume = 0f; heapTimer = 0f; }
+            }
+            base.FixedUpdate();
+        }
+
         protected override void DriveUpdate(float dt)
         {
             ReadDriveKeys();

@@ -38,6 +38,8 @@ namespace FPSBase.DebugTools
                         case "fleet2": yield return Fleet2Tests(); break;
                         case "net": yield return NetSyncTests(); break;
                         case "update3": yield return Update3Tests(); break;
+                        case "berm": yield return BermTests(); break;
+                        case "services": yield return ServiceTests(); break;
                         default: log.AppendLine($"INFO  unknown quick test '{part}'"); break;
                     }
                 Finish();
@@ -269,6 +271,181 @@ namespace FPSBase.DebugTools
         /// A real dig cycle through the controls, like a player: boom down into the ground, pull the stick in and
         /// curl, lift out, swing. The dirt must stay in the bucket (it used to fall straight out of it).
         /// </summary>
+        /// <summary>Dealer deliveries never overlap; tidy tank refuelling; reposition; paid towing.</summary>
+        IEnumerator ServiceTests()
+        {
+            var site = DigSite.Instance;
+            var dealer = FindFirstObjectByType<VehicleDealer>();
+            var deliver = typeof(VehicleDealer).GetMethod("Deliver", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            // ---- buy six machines in a row (small and heavy): each lands on clear ground
+            var bought = new System.Collections.Generic.List<VehicleBase>();
+            foreach (string want in new[] { "Excavator 20 t", "Excavator 20 t", "Excavator 20 t", "Compact Track Loader", "Compact Track Loader", "Compact Track Loader", "Mining Dozer", "Mining Dozer" })
+            {
+                VehicleDealer.Listing l = null;
+                foreach (var x in dealer.listings) if (x.name.StartsWith(want)) { l = x; break; }
+                if (l == null) { log.AppendLine($"INFO  no listing {want}"); continue; }
+                var before = new System.Collections.Generic.HashSet<VehicleBase>(VehicleBase.All);
+                deliver.Invoke(dealer, new object[] { l });
+                GameUI.Instance.ClosePanel();
+                foreach (var v in VehicleBase.All) if (!before.Contains(v)) bought.Add(v);
+                yield return null;
+            }
+            int overlaps = 0; string ov = "";
+            for (int i = 0; i < bought.Count; i++)
+                for (int j = i + 1; j < bought.Count; j++)
+                {
+                    var a = bought[i]; var b = bought[j];
+                    float ra = Mathf.Min(a.LocalBounds.extents.x, a.LocalBounds.extents.z), rb2 = Mathf.Min(b.LocalBounds.extents.x, b.LocalBounds.extents.z);
+                    Vector3 d = a.transform.TransformPoint(a.LocalBounds.center) - b.transform.TransformPoint(b.LocalBounds.center); d.y = 0f;
+                    if (d.magnitude < ra + rb2) { overlaps++; ov += $" {a.displayName}/{b.displayName} {d.magnitude:0.0}m"; }
+                }
+            Check(bought.Count >= 6 && overlaps == 0, $"{bought.Count} machines bought in a row all land on their own clear spot ({overlaps} overlapping{ov})");
+            for (int i = 0; i < 90; i++) yield return new WaitForFixedUpdate();
+            int upright = 0; foreach (var v in bought) if (v.transform.up.y > 0.9f) upright++;
+            Check(upright == bought.Count, $"delivered machines settle upright ({upright}/{bought.Count})");
+            yield return ShotAt(bought[0].transform.position + new Vector3(14f, 12f, -14f), bought[0].transform.position, "Screenshots/dealer_lot.png");
+
+            // ---- the pickup has a tidy tank; a machine parked next to it refuels from it
+            var truck = FindFirstObjectByType<DumpPickup>();
+            var tank = truck != null ? truck.GetComponentInChildren<FPSBase.Vehicles.FuelTank>() : null;
+            Check(tank != null && tank.capacity > 150f, $"the pickup carries a tidy tank ({(tank != null ? tank.capacity : 0f):0} L)");
+            var ex = bought.Count > 0 ? bought[0] : null;
+            if (tank != null && ex != null)
+            {
+                var trb = truck.GetComponent<Rigidbody>(); trb.isKinematic = true;
+                trb.interpolation = RigidbodyInterpolation.None;
+                Vector3 near = ex.transform.position + ex.transform.right * 7f;
+                truck.transform.position = VehicleDealer.GroundAt(near) + Vector3.up * 0.6f;
+                Physics.SyncTransforms();
+                ex.fuel = 5f;
+                var opts = new System.Collections.Generic.List<InteractOption>();
+                ex.GetOptions(opts);
+                var refuel = opts.Find(x => x.label.StartsWith("Refuel"));
+                log.AppendLine("INFO  menu: " + string.Join(" | ", opts.ConvertAll(x => x.label + (x.enabled ? "" : " (off)"))));
+                float t0 = tank.liters;
+                if (refuel != null && refuel.enabled) refuel.run(null);
+                Check(refuel != null && ex.fuel > 5f + 50f && tank.liters < t0 - 50f, $"looking at a machine near the truck offers Refuel from the tidy tank ({ex.fuel:0} L in it now, {tank.liters:0} L left in the tank)");
+                yield return ShotAt(truck.transform.position + new Vector3(-3f, 3f, -4f), truck.bedVolume.transform.position, "Screenshots/tidy_tank.png");
+                // fill the tank back up at the fuel pump
+                var pump = FindFirstObjectByType<FuelPump>();
+                if (pump != null)
+                {
+                    truck.transform.position = VehicleDealer.GroundAt(pump.transform.position + pump.transform.forward * 3f + pump.transform.right * 2f) + Vector3.up * 0.6f;
+                    Physics.SyncTransforms();
+                    float l1 = tank.liters;
+                    pump.Interact(null);
+                    Check(tank.liters > l1 + 50f, $"the fuel pump fills the tidy tank ({l1:0} → {tank.liters:0} L)");
+                }
+                trb.isKinematic = false;
+            }
+
+            // ---- reposition: a machine on its side gets set upright on clear ground
+            var dz = bought.Find(v => v is Bulldozer);
+            if (dz != null)
+            {
+                var drb = dz.GetComponent<Rigidbody>();
+                drb.interpolation = RigidbodyInterpolation.None;
+                dz.transform.rotation = Quaternion.Euler(0f, 30f, 95f);
+                Physics.SyncTransforms();
+                for (int i = 0; i < 30; i++) yield return new WaitForFixedUpdate();
+                dz.Reposition();
+                for (int i = 0; i < 90; i++) yield return new WaitForFixedUpdate();
+                Check(dz.transform.up.y > 0.9f, $"Reposition sets a tipped machine back on its tracks (up {dz.transform.up.y:0.00})");
+            }
+
+            // ---- tow: costs money, puts it (and you) at the spot picked on the map
+            if (ex != null)
+            {
+                var eco = Economy.Instance;
+                bool unl = GameSettings.UnlimitedMoney;
+                GameSettings.UnlimitedMoney = false;
+                eco.Earn(100000f);
+                float m0 = eco.Money;
+                Vector3 dest = new Vector3(60f, 0f, -60f);
+                float cost = ex.TowCost(dest);
+                var pi = FindFirstObjectByType<PlayerInteractor>();
+                bool ok = ex.TowTo(dest, pi);
+                for (int i = 0; i < 10; i++) yield return null;
+                float off = Vector3.Distance(new Vector3(ex.transform.position.x, 0f, ex.transform.position.z), new Vector3(dest.x, 0f, dest.z));
+                float pd = pi != null ? Vector3.Distance(pi.transform.position, ex.transform.position) : 0f;
+                Check(ok && Mathf.Abs(m0 - eco.Money - cost) < 1f && cost > 100f && off < 15f && pd < 12f,
+                    $"towing costs ${cost:N0} and drops the machine {off:0.0} m from the picked spot, you {pd:0.0} m from it");
+                GameSettings.UnlimitedMoney = unl;
+            }
+        }
+
+        /// <summary>Every dozer drives over a spoil berm (with a log of what holds it up).</summary>
+        IEnumerator BermTests()
+        {
+            var site = DigSite.Instance;
+            var dealer = FindFirstObjectByType<VehicleDealer>();
+            var dozers = new System.Collections.Generic.List<Bulldozer>();
+            foreach (var l in dealer.listings)
+                if (l.prefab != null && l.prefab.GetComponent<Bulldozer>() != null)
+                    dozers.Add(Instantiate(l.prefab, new Vector3(0f, -50f, 0f), Quaternion.identity).GetComponent<Bulldozer>());
+            // same order and state as the full run: the ripper dozers, after ripping and pushing a strip
+            dozers.RemoveAll(d => !d.HasRipper);
+            for (int k = 0; k < dozers.Count; k++)
+            {
+                var d = dozers[k];
+                d.GetComponent<Rigidbody>().isKinematic = true;
+                Vector3 st = new Vector3(75f + k * 30f, 0f, -30f); st.y = site.SurfaceY(st);
+                d.transform.SetPositionAndRotation(st, Quaternion.Euler(0f, 180f, 0f));
+                Vector3 fw = d.transform.forward;
+                d.SetBlade(d.bladeRange.y); d.SetRipper(d.ripperRange.y);
+                Physics.SyncTransforms();
+                for (int i = 0; i < 300; i++) { Vector3 np = d.transform.position + fw * 0.02f; np.y = site.SurfaceY(np); d.transform.position = np; d.Work(1f, 0.02f); }
+                d.SetRipper(d.ripperRange.x);
+                Vector3 bk = st - fw * 3f; bk.y = site.SurfaceY(bk); d.transform.position = bk;
+                d.SetBlade(-0.2f);
+                for (int i = 0; i < 450; i++) { Vector3 np = d.transform.position + fw * 0.02f; np.y = site.SurfaceY(np); d.transform.position = np; d.Work(1f, 0.02f); site.Relax(4000); }
+                site.SettleNow();
+            }
+            Collider terrain = FindFirstObjectByType<TerrainCollider>();
+            for (int k = 0; k < dozers.Count; k++)
+            {
+                var d = dozers[k];
+                Vector3 start = new Vector3(70f + k * 30f, 0f, 0f); start.y = site.SurfaceY(start) + 0.3f;
+                d.transform.SetPositionAndRotation(start, Quaternion.Euler(0f, 180f, 0f));
+                Vector3 fwd = d.transform.forward;
+                Vector3 mound = start + fwd * 9f; mound.y = site.SurfaceY(mound);
+                for (float off = -4f; off <= 4.01f; off += 1f)
+                    site.Deposit(mound + d.transform.right * off, new MaterialLoad(2.2f, 0f));
+                site.SettleNow();
+                float moundH = site.SurfaceY(mound) - mound.y;
+                d.SetBlade(d.bladeRange.y); d.SetRipper(d.ripperRange.x);
+                var rb = d.GetComponent<Rigidbody>();
+                rb.isKinematic = false;
+                Physics.SyncTransforms();
+                for (int i = 0; i < 60; i++) yield return new WaitForFixedUpdate();
+                d.TestDrive(1f);
+                Vector3 p0 = d.transform.position; float maxY = p0.y;
+                var cols = d.GetComponentsInChildren<Collider>();
+                for (int i = 0; i < 50 * 9; i++)
+                {
+                    yield return new WaitForFixedUpdate(); maxY = Mathf.Max(maxY, d.transform.position.y);
+                    if (i % 25 == 0)
+                    {
+                        var sb = new System.Text.StringBuilder();
+                        foreach (var c in cols)
+                        {
+                            if (c == null || c.isTrigger || !c.enabled || terrain == null) continue;
+                            if (Physics.GetIgnoreCollision(c, terrain)) continue;
+                            if (Physics.ComputePenetration(c, c.transform.position, c.transform.rotation, terrain, terrain.transform.position, terrain.transform.rotation, out _, out float dist))
+                                sb.Append($" {c.name}({c.GetType().Name[0]}) {dist:0.00}");
+                        }
+                        log.AppendLine($"INFO  {d.displayName} t={i / 50f:0.0} kin {rb.isKinematic} buried {d.Buried} {d.BuryDepth:0.00} heap {d.HeapVolume:0.0} rip {d.RipperDepth:0.00} along {Vector3.Dot(d.transform.position - p0, fwd):0.00} up {d.transform.position.y - p0.y:0.00} pitch {Vector3.SignedAngle(Vector3.ProjectOnPlane(d.transform.forward, Vector3.up), d.transform.forward, d.transform.right):0} v {d.ForwardSpeed:0.00} touch {d.Suspension.Touching}/{d.Suspension.Contacts} hits:{sb}");
+                    }
+                }
+                d.TestDrive(0f);
+                float went = Vector3.Dot(d.transform.position - p0, fwd);
+                Check(went > 11f && maxY > p0.y + moundH * 0.4f && d.transform.up.y > 0.85f,
+                    $"{d.displayName}: drives over a {moundH:0.00} m berm ({went:0.0} m in 9 s, climbed {maxY - p0.y:0.00} m, upright {d.transform.up.y:0.00})");
+                rb.isKinematic = true;
+                d.transform.position += Vector3.down * 80f;
+            }
+        }
+
         /// <summary>Rocks as real objects in buckets and beds, spreading with the bucket, burying a machine.</summary>
         IEnumerator Update3Tests()
         {
@@ -282,6 +459,7 @@ namespace FPSBase.DebugTools
 
             // ---- a rock rolls into the bucket, rides along, and tips out into the truck bed
             var erb = ex.GetComponent<Rigidbody>(); erb.isKinematic = true;
+            erb.interpolation = RigidbodyInterpolation.None; // teleported: no smoothing from where it was
             Vector3 at = new Vector3(40f, 0f, -132f); at.y = site.SurfaceY(at);
             ex.transform.SetPositionAndRotation(at, Quaternion.identity);
             ex.SetPose(-5f, -70f, -40f, 0f);
@@ -291,6 +469,7 @@ namespace FPSBase.DebugTools
             Vector3 tip = ex.bucketTip.position;
             Vector3 rp = tip + ex.transform.forward * 1.2f; rp.y = site.SurfaceY(rp) + 0.12f;
             var rock = Boulder.Spawn(rp, 0.16f, false);
+            log.AppendLine($"INFO  ex {ex.displayName} at {ex.transform.position} tip {tip} rock spawned {rock.transform.position} buried {ex.Buried}");
             for (int i = 0; i < 5; i++) yield return new WaitForFixedUpdate();
             log.AppendLine($"INFO  rock r {rock.radius:0.00} v {rock.volume:0.000} embedded {rock.embedded} dist {Vector3.Distance(rock.transform.position, ex.bucketTip.position) - rock.radius:0.00} bucket load {ex.bucketLoad.volume:0.00}/{ex.bucketCapacity:0.00} cc {cc != null} rocks {Boulder.All.Count}");
             var got = cc.Scoop(ex.bucketTip.position, 2f, ex.bucketCapacity);

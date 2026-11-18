@@ -30,7 +30,7 @@ namespace FPSBase.Player
             Look = Cursor.lockState == CursorLockMode.Locked ? mouse.delta.ReadValue() : Vector2.zero;
 
             // the CS-style "jump on mouse wheel" bind is an option now (off by default)
-            bool wheel = GameSettings.WheelJump && Cursor.lockState == CursorLockMode.Locked && Mathf.Abs(mouse.scroll.ReadValue().y) > 0.01f;
+            bool wheel = GameSettings.WheelJump && !PlayerInteractor.MenuActive && Cursor.lockState == CursorLockMode.Locked && Mathf.Abs(mouse.scroll.ReadValue().y) > 0.01f;
             JumpHeld = Controls.Held(GameAction.Jump) || wheel;
             JumpPressed = Controls.Pressed(GameAction.Jump) || wheel;
             CrouchHeld = Controls.Held(GameAction.Crouch) || Controls.Held(GameAction.CrouchAlt);

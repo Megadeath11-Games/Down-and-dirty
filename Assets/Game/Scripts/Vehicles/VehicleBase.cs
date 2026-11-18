@@ -201,7 +201,12 @@ namespace FPSBase.Vehicles
             {
                 // dug out, or (with someone in it) only shallow enough to drive out of
                 if (BuryDepth < BuryAt * 0.5f || (Occupied && BuryDepth < hullHeight * 0.4f)) Unbury();
-                else if (body != null && !body.isKinematic) body.isKinematic = true;
+                else if (body != null && !body.isKinematic)
+                {
+                    // something released it (a script, the test, a respawn): when it's dug out, it stays a physics body
+                    buryWasKinematic = false;
+                    body.isKinematic = true;
+                }
             }
         }
 
@@ -222,7 +227,8 @@ namespace FPSBase.Vehicles
         {
             if (!Buried) return;
             Buried = false;
-            if (body != null) body.isKinematic = Occupied ? false : buryWasKinematic;
+            // (it's held kinematic while buried: if it isn't now, something released it, and it stays released)
+            if (body != null) body.isKinematic = NetRemote || (!Occupied && buryWasKinematic && body.isKinematic);
             if (Occupied) GameUI.Toast($"{displayName} is dug out");
         }
 
@@ -251,6 +257,127 @@ namespace FPSBase.Vehicles
             var body = driver.GetComponent<FPSBase.Player.PlayerBody>();
             if (body != null) body.StandUp();
             driver = null;
+        }
+
+        // ------------------------------------------------------------------ look-at menu: refuel, reposition, tow
+
+        public override void GetOptions(List<InteractOption> list)
+        {
+            bool friend = NetRemoteDriven;
+            list.Add(new InteractOption
+            {
+                label = friend ? $"{NetDriverName} is driving it" : $"Get in   (fuel {fuel:0}/{fuelCapacity:0} L)",
+                enabled = !friend, note = friend ? "a friend is in it" : null, run = Interact,
+            });
+            var tank = FuelTank.Near(this);
+            if (tank != null)
+            {
+                float need = fuelCapacity - fuel;
+                bool can = need >= 0.5f && tank.liters >= 0.5f && !friend;
+                list.Add(new InteractOption
+                {
+                    label = $"Refuel from the {tank.label.ToLower()}   ({tank.liters:0}/{tank.capacity:0} L in it)",
+                    enabled = can,
+                    note = friend ? "a friend is in it" : need < 0.5f ? "tank's full" : "the tank is empty: fill it at the fuel pump",
+                    run = p =>
+                    {
+                        float l = tank.FillMachine(this);
+                        GameUI.Toast($"Pumped {l:0} L from the {tank.label.ToLower()} into {displayName}  ({tank.liters:0} L left in it)");
+                    },
+                });
+            }
+            foreach (var t in GetComponentsInChildren<FuelTank>())
+                list.Add(new InteractOption { label = $"{t.label}: {t.liters:0}/{t.capacity:0} L  (fill it at the fuel pump, park near a machine to fuel it)", enabled = false, note = null });
+            list.Add(new InteractOption
+            {
+                label = "Reposition   (unstick it / set it upright nearby)",
+                enabled = !friend && !Occupied && !(Buried && BuryDepth > hullHeight * 0.4f),
+                note = friend ? "a friend is in it" : "it's buried: dig it out first",
+                run = p => Reposition(),
+            });
+            list.Add(new InteractOption
+            {
+                label = "Call a tow truck   (pick a spot on the map, you ride along)",
+                enabled = !friend && !Occupied && !Buried,
+                note = friend ? "a friend is in it" : "it's buried: dig it out first",
+                run = p => GameUI.Instance.OpenTow(this),
+            });
+        }
+
+        /// <summary>Bounds of the machine in its own space (footprint and height).</summary>
+        public Bounds LocalBounds
+        {
+            get
+            {
+                if (!localBoundsKnown) { localBounds = VehicleSpot.LocalBounds(transform); localBoundsKnown = true; }
+                return localBounds;
+            }
+        }
+        Bounds localBounds; bool localBoundsKnown;
+
+        /// <summary>Tow price: a call-out fee, plus distance and the machine's weight.</summary>
+        public float TowCost(Vector3 dest)
+        {
+            if (body == null) body = GetComponent<Rigidbody>();
+            float km = Vector3.Distance(transform.position, dest) / 1000f;
+            float tons = body != null ? body.mass / 1000f : 5f;
+            return Mathf.Round(150f + km * 900f + tons * 6f);
+        }
+
+        /// <summary>Unstick: set it upright on clear, flat ground as close as possible to where it is.</summary>
+        public void Reposition()
+        {
+            if (Occupied) return;
+            TakeOver();
+            float yaw = transform.eulerAngles.y;
+            Vector3 at = VehicleSpot.FindFree(transform.position, yaw, LocalBounds, transform, 25f);
+            Place(at, yaw);
+            GameUI.Toast($"{displayName} repositioned");
+        }
+
+        /// <summary>A tow truck takes it to `dest` (paid); the player rides along and gets dropped next to it.</summary>
+        public bool TowTo(Vector3 dest, PlayerInteractor player)
+        {
+            if (Occupied || Buried) return false;
+            var eco = Economy.Instance;
+            float cost = TowCost(dest);
+            if (eco != null && !eco.TrySpend(cost)) return false;
+            TakeOver();
+            float yaw = transform.eulerAngles.y;
+            Vector3 at = VehicleSpot.FindFree(dest, yaw, LocalBounds, transform, 40f);
+            Place(at, yaw);
+            if (player != null)
+            {
+                // you climb out of the tow truck beside it
+                var lb = LocalBounds;
+                Vector3 side = transform.right * (lb.extents.x + 1.5f) + transform.TransformDirection(new Vector3(lb.center.x, 0f, lb.center.z));
+                Vector3 me = FPSBase.Mining.VehicleDealer.GroundAt(transform.position + side) + Vector3.up * 0.1f;
+                player.PlaceAt(me, Quaternion.LookRotation(Vector3.ProjectOnPlane(transform.position - me, Vector3.up).normalized + Vector3.forward * 1e-4f).eulerAngles.y);
+            }
+            GameUI.Toast(eco != null && eco.Unlimited ? $"{displayName} towed (free in test mode)" : $"{displayName} towed for ${cost:N0}");
+            return true;
+        }
+
+        /// <summary>A friend's game ran it last: this game takes it over before moving it, so it sticks.</summary>
+        void TakeOver()
+        {
+            if (!NetRemote) return;
+            SetNetRemote(false);
+            NetEntered?.Invoke(this);
+            NetExited?.Invoke(this);
+        }
+
+        void Place(Vector3 ground, float yaw)
+        {
+            if (body == null) body = GetComponent<Rigidbody>();
+            if (Buried) Unbury();
+            transform.SetPositionAndRotation(ground + Vector3.up * 0.6f, Quaternion.Euler(0f, yaw, 0f));
+            if (body != null)
+            {
+                body.position = transform.position; body.rotation = transform.rotation;
+                if (!body.isKinematic) { body.linearVelocity = Vector3.zero; body.angularVelocity = Vector3.zero; }
+            }
+            Physics.SyncTransforms();
         }
 
         /// <summary>Tipped over or stuck: lift the machine a little and set it back on its tracks/wheels.</summary>

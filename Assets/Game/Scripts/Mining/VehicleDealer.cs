@@ -59,12 +59,21 @@ namespace FPSBase.Mining
             bool heavy = l.heavy && heavyLotSpots != null && heavyLotSpots.Length > 0;
             var spots = heavy ? heavyLotSpots : lotSpots;
             float clear = heavy ? 5f : 2.5f;
-            Transform spot = null;
-            foreach (var s in spots)
-                if (!Physics.CheckSphere(s.position + Vector3.up * (clear + 0.5f), clear, ~0, QueryTriggerInteraction.Ignore)) { spot = s; break; }
-            if (spot == null) spot = spots[Random.Range(0, spots.Length)];
-            var go = Instantiate(l.prefab, GroundAt(spot.position) + Vector3.up * 0.5f, spot.rotation);
+            // size it up, then pick the first lot spot it fits on (or the nearest clear ground around the lot)
+            var go = Instantiate(l.prefab, spots[0].position + Vector3.down * 500f, spots[0].rotation);
             go.name = l.name;
+            var lb = FPSBase.Vehicles.VehicleSpot.LocalBounds(go.transform);
+            Vector3 at = Vector3.zero; float yaw = spots[0].eulerAngles.y; bool found = false;
+            foreach (var s in spots)
+            {
+                Vector3 g = GroundAt(s.position);
+                if (FPSBase.Vehicles.VehicleSpot.IsClear(g, s.eulerAngles.y, lb, go.transform)) { at = g; yaw = s.eulerAngles.y; found = true; break; }
+            }
+            if (!found) at = FPSBase.Vehicles.VehicleSpot.FindFree(spots[0].position, yaw, lb, go.transform, 60f);
+            go.transform.SetPositionAndRotation(at + Vector3.up * 0.5f, Quaternion.Euler(0f, yaw, 0f));
+            var grb = go.GetComponent<Rigidbody>();
+            if (grb != null) { grb.position = go.transform.position; grb.rotation = go.transform.rotation; }
+            Physics.SyncTransforms();
             FPSBase.Net.NetSession.NotifySpawn(go, System.Array.IndexOf(listings, l));
             GameUI.Toast(heavy ? $"{l.name} delivered to the heavy-equipment yard (east of the wash plant)!" : $"{l.name} delivered to the sales lot!");
             GameUI.Instance.ClosePanel();

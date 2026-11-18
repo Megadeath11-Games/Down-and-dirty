@@ -27,7 +27,18 @@ namespace FPSBase.Mining
                 v.Refuel(affordable);
                 total += affordable; count++;
             }
-            GameUI.Toast(count == 0 ? "Park a vehicle next to the pump to fill it" : $"Pumped {total:0} L into {count} vehicle(s) for ${total * pricePerLiter:N0}");
+            foreach (var t in FuelTank.All)
+            {
+                if (t == null || Vector3.Distance(t.transform.position, transform.position) > range + 2f) continue;
+                float need = t.capacity - t.liters;
+                if (need < 0.5f) continue;
+                float affordable = Mathf.Min(need, eco.Unlimited ? need : eco.Money / pricePerLiter);
+                if (affordable < 0.5f) { GameUI.Toast("Not enough money for fuel"); break; }
+                eco.TrySpend(affordable * pricePerLiter);
+                t.liters += affordable;
+                total += affordable; count++;
+            }
+            GameUI.Toast(count == 0 ? "Park a vehicle next to the pump to fill it" : $"Pumped {total:0} L into {count} vehicle(s) / tank(s) for ${total * pricePerLiter:N0}");
         }
     }
 }

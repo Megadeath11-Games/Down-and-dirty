@@ -88,6 +88,19 @@ namespace FPSBase.Vehicles
         {
             rb = GetComponent<Rigidbody>();
             rb.centerOfMass = new Vector3(0f, 0.35f, 0.2f);
+            if (bedContents != null && displayName.Contains("Pickup") && GetComponentInChildren<FuelTank>() == null)
+            {
+                // a tidy tank (diesel transfer tank with a pump and hose reel) strapped in at the front of the bed:
+                // fill it at the fuel pump, drive it out to your machines. It takes up the front of the box.
+                float len = 0.55f, w = Mathf.Min(1.2f, bedInnerSize.x * 0.85f), h = Mathf.Min(0.55f, bedInnerSize.y * 1.1f);
+                FuelTank.BuildTidyTank(bedContents.parent, new Vector3(0f, 0.04f, bedContents.localPosition.z + bedInnerSize.z * 0.5f - len * 0.5f),
+                    new Vector3(w, h, len), Mathf.Round(w * h * len * 1000f / 10f) * 10f);
+                float cut = len + 0.05f, z0 = bedInnerSize.z;
+                bedInnerSize.z = Mathf.Max(0.5f, z0 - cut);
+                capacity *= bedInnerSize.z / z0;
+                bedContents.localPosition -= new Vector3(0f, 0f, cut * 0.5f);
+                if (bedVolume != null) { bedVolume.center -= new Vector3(0f, 0f, cut * 0.5f); bedVolume.size -= new Vector3(0f, 0f, cut); }
+            }
             if (bedContents != null)
             {
                 // the load rides in the bed as live clumps that shake about and slide out of the tailgate when tipped

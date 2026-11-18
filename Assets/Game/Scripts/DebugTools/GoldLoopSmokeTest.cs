@@ -43,6 +43,9 @@ namespace FPSBase.DebugTools
                         case "cabfp": yield return CabFirstPersonTests(); break;
                         case "transport": yield return TransportTests(); break;
                         case "save": yield return SaveTests(); break;
+                        case "dozerblade": yield return DozerBladeTests(); break;
+                        case "hill": yield return PickupHillTests(); break;
+                        case "heavy": yield return HeavyTests(); break;
                         case "slosh": yield return SloshTests(DigSite.Instance, FindFirstObjectByType<DumpPickup>()); break;
                         case "materials": yield return MaterialsTests(DigSite.Instance, Economy.Instance, FindFirstObjectByType<WashPlant>(), FindFirstObjectByType<DumpPickup>()); break;
                         default: log.AppendLine($"INFO  unknown quick test '{part}'"); break;
@@ -265,6 +268,9 @@ namespace FPSBase.DebugTools
 
             yield return DigCycleTests();
             yield return SaveTests();
+            yield return DozerBladeTests();
+            yield return PickupHillTests();
+            yield return HeavyTests();
             Finish();
         }
 
@@ -349,6 +355,186 @@ namespace FPSBase.DebugTools
                   $"the bowser comes back with its fuel ({(bw2 != null && bw2.Tank != null ? $"{Vector3.Distance(bw2.transform.position, bwAt):0.00} m off, {bw2.Tank.liters:0} L" : "missing")})");
             SaveGame.Delete(listed);
             Check(!File.Exists(listed.path), "deleting a save removes the file");
+        }
+
+        /// <summary>Dozer blades tilt (one end down) and swivel (angle): an angled blade rolls its dirt off to that side.</summary>
+        IEnumerator DozerBladeTests()
+        {
+            var site = DigSite.Instance;
+            var dealer = FindFirstObjectByType<VehicleDealer>();
+            int k = 0;
+            foreach (var l in dealer.listings)
+            {
+                if (l.prefab == null || l.prefab.GetComponent<Bulldozer>() == null) continue;
+                var d = Instantiate(l.prefab, new Vector3(0f, -50f, 0f), Quaternion.identity).GetComponent<Bulldozer>();
+                d.GetComponent<Rigidbody>().isKinematic = true;
+                Vector3 st = new Vector3(60f + k * 32f, 0f, -70f); st.y = site.SurfaceY(st); k++;
+                d.transform.SetPositionAndRotation(st, Quaternion.identity);
+                Physics.SyncTransforms();
+                yield return null;
+                var sw = d.bladeSwivel != null ? d.bladeSwivel : d.blade;
+                // tilt: the left end of the cutting edge drops, the right end rises
+                d.SetBlade(0.3f); d.SetBladeAngle(0f); d.SetBladeTilt(d.maxTilt);
+                Physics.SyncTransforms();
+                Vector3 e = d.bladeEdge.position, r = sw.right * d.bladeWidth * 0.5f;
+                float drop = (e + r).y - (e - r).y;
+                Check(drop > d.bladeWidth * Mathf.Sin(d.maxTilt * Mathf.Deg2Rad) * 0.8f, $"{d.displayName}: tilting drops the left end ({drop:0.00} m across {d.bladeWidth:0.0} m, {d.BladeTilt:0}°)");
+                // angle: the blade swivels about the vertical
+                d.SetBladeTilt(0f); d.SetBladeAngle(d.maxAngle);
+                Physics.SyncTransforms();
+                float yaw = Vector3.SignedAngle(d.transform.right, Vector3.ProjectOnPlane(sw.right, Vector3.up), Vector3.up);
+                Check(Mathf.Abs(yaw - d.maxAngle) < 2f, $"{d.displayName}: the blade swivels right {yaw:0}° (max {d.maxAngle:0}°)");
+                yield return ShotAt(st + d.transform.forward * (d.bladeWidth * 1.4f + 3f) + Vector3.up * 3f + d.transform.right * 2f, d.bladeEdge.position + Vector3.up * 0.5f, $"Screenshots/dozer_blade_angled_{k}.png");
+                // push with it angled right: dirt rolls off the right end, not the left
+                d.SetBlade(-0.15f);
+                Vector3 fw = d.transform.forward, rt = d.transform.right;
+                float before = site.TotalLoose();
+                for (int i = 0; i < 300; i++) { Vector3 np = d.transform.position + fw * 0.02f; np.y = site.SurfaceY(np); d.transform.position = np; d.Work(1f, 0.02f); }
+                // where the pushed dirt went, sideways from the line the machine drove along
+                float sum = 0f, moment = 0f;
+                for (float a = 0f; a <= 12f; a += 0.5f)
+                    for (float b = -d.bladeWidth * 1.5f; b <= d.bladeWidth * 1.5f; b += 0.5f)
+                    {
+                        float v = site.LooseVolume(st + fw * a + rt * b, 0.25f, out _);
+                        sum += v; moment += v * b;
+                    }
+                float side = sum > 1e-4f ? moment / sum : 0f;
+                Check(site.TotalLoose() - before > 0.2f && side > 0.25f, $"{d.displayName}: an angled blade pushes its dirt off to the right (heap centre {side:+0.00;-0.00} m from the cut line)");
+                yield return ShotAt(st + fw * 8f + rt * 6f + Vector3.up * 4f, st + fw * 3f, $"Screenshots/dozer_windrow_{k}.png");
+                d.SetBladeAngle(0f); d.SetBladeTilt(0f);
+                Destroy(d.gameObject);
+            }
+            Check(k >= 3, $"all the dozers were tried ({k})");
+        }
+
+        /// <summary>The GMT400 pulls a full bowser up an 18-degree ramp in 4-low, and the drive modes and diff lock behave.</summary>
+        IEnumerator PickupHillTests()
+        {
+            var dealer = FindFirstObjectByType<VehicleDealer>();
+            GameObject Prefab(string nm) { foreach (var l in dealer.listings) if (l.name.Contains(nm)) return l.prefab; return null; }
+            var pkPrefab = Prefab("GMT400"); var bwPrefab = Prefab("Fuel Bowser");
+            if (pkPrefab == null || bwPrefab == null) { Check(false, "GMT400 and bowser for the hill test"); yield break; }
+            const float slope = 18f;
+            Vector3 basePt = new Vector3(-150f, 400f, 150f);
+            Quaternion up = Quaternion.Euler(-slope, 0f, 0f); // facing +z, nose up
+            var ramp = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            ramp.name = "Test ramp";
+            ramp.transform.SetPositionAndRotation(basePt + up * new Vector3(0f, -0.5f, 30f), up);
+            ramp.transform.localScale = new Vector3(8f, 1f, 80f);
+            Physics.SyncTransforms();
+            float[] climbed = new float[3];
+            for (int run = 0; run < 3; run++)
+            {
+                // 0: 4-low with a full bowser, 1: 4-high with a full bowser, 2: 2WD alone, rear diff locked vs (logged) open
+                var pk = Instantiate(pkPrefab, basePt + up * new Vector3(0f, 1.2f, 12f), up).GetComponent<DumpPickup>();
+                var prb = pk.GetComponent<Rigidbody>();
+                Trailer bw = null;
+                yield return null;
+                pk.SetDrive(run == 0 ? DumpPickup.DriveMode.FourLow : run == 1 ? DumpPickup.DriveMode.FourHigh : DumpPickup.DriveMode.TwoHigh, run == 2);
+                if (run < 2)
+                {
+                    var pintle = pk.GetComponentInChildren<Hitch>();
+                    bw = Instantiate(bwPrefab, pk.transform.position - pk.transform.forward * 6f, up).GetComponent<Trailer>();
+                    yield return null;
+                    bw.Tank.liters = bw.Tank.capacity;
+                    bw.transform.position += pintle.transform.position - bw.couplerPoint.position;
+                    bw.GetComponent<Rigidbody>().position = bw.transform.position;
+                    Physics.SyncTransforms();
+                    bw.Couple(pintle, true);
+                }
+                for (int i = 0; i < 40; i++) yield return new WaitForFixedUpdate();
+                Vector3 p0 = pk.transform.position;
+                pk.TestDrive(1f);
+                for (int i = 0; i < 50 * 8; i++) yield return new WaitForFixedUpdate();
+                float d = Vector3.Dot(pk.transform.position - p0, up * Vector3.forward);
+                climbed[run] = d;
+                pk.TestDrive(0f);
+                log.AppendLine($"INFO  hill {slope:0}° run {run} ({pk.driveMode}, rear {(pk.rearLocked ? "locked" : "open")}, {(bw != null ? $"bowser {bw.Body.mass:0} kg" : "no trailer")}): climbed {d:0.0} m in 8 s, speed {prb.linearVelocity.magnitude * 3.6f:0} km/h, torque FL {pk.wheels[0].motorTorque:0} RL {pk.wheels[2].motorTorque:0}");
+                if (run == 0) yield return ShotAt(pk.transform.position + pk.transform.right * 9f + Vector3.up * 2f - pk.transform.forward * 4f, pk.transform.position - pk.transform.forward * 3f, "Screenshots/pickup_hill_4lo.png");
+                if (bw != null) Destroy(bw.gameObject);
+                Destroy(pk.gameObject);
+                yield return null;
+            }
+            Check(climbed[0] > 12f, $"in 4-low the GMT400 pulls a full 3,500 L bowser up an {slope:0}° ramp ({climbed[0]:0.0} m in 8 s)");
+            Check(climbed[0] > climbed[1] + 1f || climbed[1] < 10f, $"4-low pulls harder than 4-high up the ramp ({climbed[0]:0.0} vs {climbed[1]:0.0} m)");
+            Check(climbed[2] > 5f, $"on its own in 2WD with the rear locked it still climbs the ramp ({climbed[2]:0.0} m)");
+            Destroy(ramp);
+        }
+
+        /// <summary>Parked machines hold on a 30-degree slope; heavy machines pack the loose dirt they cross, light ones hardly.</summary>
+        IEnumerator HeavyTests()
+        {
+            var site = DigSite.Instance;
+            var dealer = FindFirstObjectByType<VehicleDealer>();
+            // --- parked on a 30 degree ramp, nobody in it, and with the engine idling (occupied machines run the same code)
+            const float slope = 30f;
+            Vector3 basePt = new Vector3(150f, 420f, -150f);
+            Quaternion up = Quaternion.Euler(-slope, 0f, 0f);
+            var ramp = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            ramp.name = "Test ramp 30";
+            ramp.transform.SetPositionAndRotation(basePt + up * new Vector3(0f, -0.5f, 0f), up);
+            ramp.transform.localScale = new Vector3(14f, 1f, 30f);
+            Physics.SyncTransforms();
+            string[] names = { "Mining Dozer", "Medium Dozer", "Bulldozer (small", "Compact Track Loader", "Mini Excavator", "Excavator 20" };
+            foreach (var nm in names)
+            {
+                GameObject pf = null; foreach (var l in dealer.listings) if (l.name.Contains(nm)) { pf = l.prefab; break; }
+                if (pf == null) { log.AppendLine($"INFO  no {nm} for the slope test"); continue; }
+                foreach (float yaw in new[] { 0f, 90f }) // facing up the slope, and across it
+                {
+                    Quaternion rot = up * Quaternion.Euler(0f, yaw, 0f);
+                    var v = Instantiate(pf, basePt + up * new Vector3(0f, 1.0f, 0f), rot).GetComponent<VehicleBase>();
+                    var vrb = v.GetComponent<Rigidbody>(); vrb.isKinematic = false;
+                    for (int i = 0; i < 50 * 2; i++) yield return new WaitForFixedUpdate(); // settle
+                    Vector3 p0 = v.transform.position;
+                    for (int i = 0; i < 50 * 5; i++) yield return new WaitForFixedUpdate();
+                    float slid = Vector3.Distance(v.transform.position, p0);
+                    Check(slid < 0.15f, $"{v.displayName} parked on a {slope:0}° slope ({(yaw == 0f ? "facing up it" : "side-on")}) holds still ({slid:0.00} m in 5 s)");
+                    Destroy(v.gameObject);
+                    yield return null;
+                }
+            }
+            Destroy(ramp);
+
+            // --- packing a loose berm: the 66 t dozer packs its ruts down, the 1 t stand-on hardly
+            foreach (var (nm, heavy) in new[] { ("Mining Dozer", true), ("Stand-On", false) })
+            {
+                GameObject pf = null; foreach (var l in dealer.listings) if (l.name.Contains(nm)) { pf = l.prefab; break; }
+                if (pf == null) { Check(false, $"{nm} for the packing test"); continue; }
+                Vector3 st = new Vector3(heavy ? 70f : 100f, 0f, -110f); st.y = site.SurfaceY(st);
+                // a low loose berm across the path, 6 m ahead
+                Vector3 berm = st + Vector3.forward * 6f;
+                for (int bx = -4; bx <= 4; bx++)
+                    for (int bz = -1; bz <= 1; bz++)
+                    {
+                        Vector3 at = berm + new Vector3(bx * 0.8f, 0f, bz * 0.8f);
+                        site.Deposit(new Vector3(at.x, site.SurfaceY(at), at.z), MaterialLoad.Mix(0.35f, 0f, 0f, 0f, 0f));
+                    }
+                for (int i = 0; i < 30; i++) yield return null;
+                float c0 = site.CompactedVolume;
+                var v = Instantiate(pf, st + Vector3.up * 0.4f, Quaternion.identity).GetComponent<EarthmoverBase>();
+                var vrb = v.GetComponent<Rigidbody>(); vrb.isKinematic = false;
+                if (v is Bulldozer bd) bd.SetBlade(1f); // blade up: drive over it, don't push it
+                if (v is FrontLoader fl) fl.SetPose(fl.armRange.y * 0.6f, 30f);
+                for (int i = 0; i < 25; i++) yield return new WaitForFixedUpdate();
+                v.TestDrive(0.6f);
+                float maxPacked = 0f;
+                for (int i = 0; i < 50 * 10 && Vector3.Dot(v.transform.position - berm, Vector3.forward) < 6f; i++)
+                {
+                    yield return new WaitForFixedUpdate();
+                    if (i % 10 == 0) foreach (float lx in new[] { -1.2f, -0.8f, 0.8f, 1.2f }) maxPacked = Mathf.Max(maxPacked, site.PackedAt(new Vector3(v.transform.position.x + lx * (heavy ? 1.6f : 0.6f), 0f, berm.z)));
+                }
+                v.TestDrive(0f);
+                float squeezed = site.CompactedVolume - c0;
+                if (heavy)
+                {
+                    Check(maxPacked > 0.5f && squeezed > 0.05f, $"{v.displayName} packs the loose berm down in its track ruts (packed {maxPacked * 100f:0}%, {squeezed:0.00} m³ squeezed out)");
+                    yield return ShotAt(berm + new Vector3(6f, 4f, -3f), berm, "Screenshots/dozer_packed_ruts.png");
+                }
+                else Check(maxPacked < 0.2f, $"the light {v.displayName} hardly packs it (packed {maxPacked * 100f:0}%, {squeezed:0.00} m³)");
+                Destroy(v.gameObject);
+                yield return null;
+            }
         }
 
         void Finish()
@@ -491,6 +677,34 @@ namespace FPSBase.DebugTools
                 if (best < float.MaxValue) ringH = best - 1f;
             }
             Check(bw.transform.up.y > 0.95f && ringH > 0.35f, $"unhitched, the bowser stands on its jack (ring {ringH:0.00} m up, upright {bw.transform.up.y:0.00})");
+            pk.TestDrive(0.5f);
+            for (int i = 0; i < 50 * 3; i++) yield return new WaitForFixedUpdate();
+            pk.TestDrive(0f);
+            for (int i = 0; i < 50; i++) yield return new WaitForFixedUpdate();
+            Check(!bw.IgnoresCollisionWith(pk.transform), $"pulled clear of the unhitched bowser, the pickup collides with it again ({Vector3.Distance(pk.transform.position, bw.transform.position):0.0} m apart)");
+            {
+                var cc = pi.GetComponent<CharacterController>();
+                if (cc == null) cc = pi.GetComponentInParent<CharacterController>();
+                Check(cc != null, "player has a character controller");
+                if (cc != null)
+                {
+                    Vector3 keep = cc.transform.position;
+                    Vector3 side = bw.transform.right;
+                    Vector3 c = bw.Tank.transform.position;
+                    Vector3 start = c + side * 3f; start.y = bw.transform.position.y + 0.1f + cc.height * 0.5f - cc.center.y; // standing on the ground beside it (not on the pump canopy above)
+                    cc.enabled = false; cc.transform.position = start; cc.enabled = true;
+                    Physics.SyncTransforms();
+                    for (int i = 0; i < 20; i++) cc.Move(-side * 0.2f);
+                    float reached = Vector3.Dot(cc.transform.position - c, side);
+                    {
+                        var sb = new System.Text.StringBuilder();
+                        foreach (var h in Physics.RaycastAll(start, -side, 6f, ~0, QueryTriggerInteraction.Ignore)) sb.Append(h.collider.name).Append(" @").Append(h.distance.ToString("0.0")).Append(" L").Append(h.collider.gameObject.layer).Append(Physics.GetIgnoreCollision(h.collider, cc) ? " IGN" : "").Append("; ");
+                        log.AppendLine($"INFO  player sweep: cc on {cc.gameObject.name} layer {cc.gameObject.layer} active {cc.gameObject.activeInHierarchy} enabled {cc.enabled} start {start} tank {c} end {cc.transform.position} hits: {sb}");
+                    }
+                    Check(reached > 0.6f, $"walking into the bowser's side, the player is stopped by it ({reached:0.00} m from its middle)");
+                    cc.enabled = false; cc.transform.position = keep; cc.enabled = true;
+                }
+            }
             Destroy(mini.gameObject); Destroy(bw.gameObject); Destroy(pk.gameObject);
             yield return null;
 
@@ -548,7 +762,14 @@ namespace FPSBase.DebugTools
             var ctl = Instantiate(Prefab("Compact Track Loader"), Vector3.down * 400f, Quaternion.identity).GetComponent<EarthmoverBase>();
             Vector3 front = low.deckSocket.position + low.transform.forward * 3.2f;
             ctl.transform.SetPositionAndRotation(G(front) + Vector3.up * 0.3f, Quaternion.LookRotation(-low.transform.forward));
-            if (ctl is FrontLoader carry) carry.SetPose(0f, 30f); // bucket up to carry height, not dragging on the deck
+            if (ctl is FrontLoader carry)
+            {
+                // bucket up to carry height (its edge ~0.6 m above the track bottoms), curled back, not catching the deck
+                float baseY = ctl.transform.position.y - 0.3f;
+                float a = carry.armRange.x;
+                for (; a < carry.armRange.y; a += 1f) { carry.SetPose(a, 30f); if (carry.bucketTip != null && carry.bucketTip.position.y > baseY + 0.6f) break; }
+                log.AppendLine($"INFO  track loader carry pose: arm {a:0} deg, edge {carry.bucketTip.position.y - baseY:0.00} m up");
+            }
             var crb = ctl.GetComponent<Rigidbody>(); crb.isKinematic = false; crb.position = ctl.transform.position; crb.rotation = ctl.transform.rotation;
             Physics.SyncTransforms();
             for (int i = 0; i < 50; i++) yield return new WaitForFixedUpdate();

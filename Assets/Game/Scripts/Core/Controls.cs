@@ -32,6 +32,10 @@ namespace FPSBase.Core
         GraderLeanLeft, GraderLeanRight, GraderRipperDown, GraderRipperUp,
         // multiplayer
         Invite,
+        // dozer blade tilt (one end down) and angle (swivel left / right)
+        BladeTiltLeft, BladeTiltRight, BladeAngleLeft, BladeAngleRight,
+        // pickup transfer case (2WD / 4-high / 4-low) and rear diff lock
+        TransferCase, DiffLock,
     }
 
     /// <summary>Rebindable keyboard controls, saved between sessions. Esc is always the menu key.</summary>
@@ -75,11 +79,17 @@ namespace FPSBase.Core
             new(GameAction.BoxUp, "Dump truck", "Raise dump box", Key.E),
             new(GameAction.BoxDown, "Dump truck", "Lower dump box", Key.Q),
             new(GameAction.Tailgate, "Dump truck", "Tailgate opening (full / half / quarter / spread / latched)", Key.R),
+            new(GameAction.TransferCase, "Dump truck", "Pickup 4x4: 2WD / 4-high / 4-low", Key.X),
+            new(GameAction.DiffLock, "Dump truck", "Rear diff lock on / off", Key.Z),
 
             new(GameAction.BladeUp, "Bulldozer", "Blade up", Key.E),
             new(GameAction.BladeDown, "Bulldozer", "Blade down", Key.Q),
             new(GameAction.RipperUp, "Bulldozer", "Ripper up (big dozers)", Key.X),
             new(GameAction.RipperDown, "Bulldozer", "Ripper down (big dozers)", Key.Z),
+            new(GameAction.BladeTiltLeft, "Bulldozer", "Blade tilt: left end down", Key.R),
+            new(GameAction.BladeTiltRight, "Bulldozer", "Blade tilt: right end down", Key.T),
+            new(GameAction.BladeAngleLeft, "Bulldozer", "Blade swivel left (dirt rolls off the left)", Key.G),
+            new(GameAction.BladeAngleRight, "Bulldozer", "Blade swivel right (dirt rolls off the right)", Key.H),
 
             new(GameAction.ArmsUp, "Loader & skid steer", "Raise arms", Key.E),
             new(GameAction.ArmsDown, "Loader & skid steer", "Lower arms", Key.Q),

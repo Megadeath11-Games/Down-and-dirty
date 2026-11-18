@@ -21,6 +21,10 @@ namespace FPSBase.Vehicles
         public float dampingRatio = 0.8f;
         [Tooltip("Extra gravity on heavy machines so they settle hard and don't bounce or float.")]
         public float gravityScale = 1.7f;
+        [Tooltip("Track / brake grip against sliding downhill (friction coefficient: 0.9 holds on slopes up to ~42 degrees).")]
+        public float holdFriction = 0.9f;
+        /// <summary>0 (light, 1-5 t: twitchy and tippy) .. 1 (50 t and up: soft, heavily damped, smooth over a rough cut). Set from the mass.</summary>
+        public float Heft { get; private set; }
         /// <summary>Colliders the contacts don't stand on (a semi's own trailer and its load).</summary>
         [System.NonSerialized] public System.Func<Collider, bool> ignore;
 
@@ -30,7 +34,7 @@ namespace FPSBase.Vehicles
         public float Clearance { get; private set; }
 
         Vector3[] pts;
-        float[] lift, reachOf;
+        float[] lift, reachOf, smoothDist;
         Rigidbody rb;
         Transform t;
         bool ignorePiles;
@@ -39,6 +43,9 @@ namespace FPSBase.Vehicles
         public void Setup(Rigidbody body, BoxCollider box, bool ignoreDirtPiles)
         {
             rb = body; t = body.transform; ignorePiles = ignoreDirtPiles;
+            Heft = Mathf.InverseLerp(5000f, 50000f, body.mass);
+            // heavy machines: their inertia irons out the ground, so they don't buck over every facet of a cut
+            body.angularDamping = Mathf.Max(body.angularDamping, Mathf.Lerp(0.05f, 9f, Heft));
             if (box == null) return;
             Vector3 c = box.center, s = box.size;
             float bottom = c.y - s.y * 0.5f, top = c.y + s.y * 0.5f;
@@ -55,6 +62,8 @@ namespace FPSBase.Vehicles
                     l.Add(Mathf.Abs(z) > 1f ? Clearance * 0.45f : 0f);
                 }
             pts = p.ToArray(); lift = l.ToArray();
+            smoothDist = new float[pts.Length];
+            for (int i = 0; i < smoothDist.Length; i++) smoothDist[i] = -1f;
             // idlers look much higher, so a steep pile or bank face ahead is climbed instead of rammed
             float idlerReach = Mathf.Max(Clearance + 0.3f, (top - bottom) * 0.75f);
             reachOf = new float[pts.Length];
@@ -89,8 +98,12 @@ namespace FPSBase.Vehicles
             rb.AddForce(Physics.gravity * (gravityScale - 1f), ForceMode.Acceleration);
             float m = rb.mass, g = -Physics.gravity.y * gravityScale;
             int bearing = pts.Length - 4; // the four idler contacts normally carry nothing
-            float k = m * g / (bearing * sag);
-            float cDamp = 2f * dampingRatio * Mathf.Sqrt(k * m / bearing);
+            // heavier = a longer, slower, better damped ride (a 66 t dozer wallows, a 1 t loader chatters)
+            float sagEff = sag * (1f + Heft * 1.4f);
+            float k = m * g / (bearing * sagEff);
+            float cDamp = 2f * Mathf.Min(1.2f, dampingRatio + Heft * 0.35f) * Mathf.Sqrt(k * m / bearing);
+            // and the ground under each contact is felt through a long track frame: smooth it over a few frames
+            float follow = Heft > 0.01f ? 1f - Mathf.Exp(-Time.fixedDeltaTime / (Heft * 0.07f)) : 1f;
             Vector3 up = t.up;
             Touching = 0;
             Vector3 nsum = Vector3.zero;
@@ -98,8 +111,12 @@ namespace FPSBase.Vehicles
             {
                 Vector3 p = t.TransformPoint(pts[i]);
                 float reach = reachOf[i];
-                if (!Cast(p + up * reach, -up, reach + 0.6f, out RaycastHit hit)) continue;
-                float x = reach + sag - lift[i] - hit.distance;
+                if (!Cast(p + up * reach, -up, reach + 0.6f, out RaycastHit hit)) { smoothDist[i] = -1f; continue; }
+                float dist = hit.distance;
+                // smooth only small changes (facets, cut chatter); a real step is felt straight away
+                if (smoothDist[i] >= 0f && Mathf.Abs(dist - smoothDist[i]) < 0.12f) dist = smoothDist[i] = Mathf.Lerp(smoothDist[i], dist, follow);
+                else smoothDist[i] = dist;
+                float x = reach + sagEff - lift[i] - dist;
                 if (x <= 0f) continue;
                 float v = Vector3.Dot(rb.GetPointVelocity(p), up);
                 float f = Mathf.Clamp(k * x - cDamp * v, 0f, m * g * 1.5f);
@@ -107,7 +124,25 @@ namespace FPSBase.Vehicles
                 Touching++;
                 nsum += hit.normal;
             }
-            GroundNormal = Touching > 0 ? nsum.normalized : Vector3.up;
+            Vector3 nNew = Touching > 0 ? nsum.normalized : Vector3.up;
+            GroundNormal = Touching > 0 && Heft > 0.01f ? Vector3.Slerp(GroundNormal, nNew, 1f - Mathf.Exp(-Time.fixedDeltaTime / (Heft * 0.12f))) : nNew;
+            Hold();
+        }
+
+        /// <summary>
+        /// Tracks (and parked brakes) grip: cancel the part of gravity along the ground, as static friction would, up
+        /// to `holdFriction`. Without it the machines creep down every slope, parked or with someone in the seat.
+        /// </summary>
+        void Hold()
+        {
+            if (Touching == 0 || holdFriction <= 0f) return;
+            Vector3 g = Physics.gravity * gravityScale;
+            Vector3 n = GroundNormal;
+            Vector3 along = Vector3.ProjectOnPlane(g, n);
+            float a = along.magnitude;
+            if (a < 1e-3f) return;
+            float hold = Mathf.Min(1f, holdFriction * Mathf.Abs(Vector3.Dot(g, n)) / a) * Grip;
+            rb.AddForce(-along * hold, ForceMode.Acceleration);
         }
 
         bool Cast(Vector3 origin, Vector3 dir, float len, out RaycastHit best)

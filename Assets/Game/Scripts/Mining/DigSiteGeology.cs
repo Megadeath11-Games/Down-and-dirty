@@ -99,6 +99,7 @@ namespace FPSBase.Mining
         {
             loose[z, x] = 0f; looseGold[z, x] = 0f;
             looseSand[z, x] = 0f; looseGravel[z, x] = 0f; looseClay[z, x] = 0f;
+            packed[z, x] = 0f;
         }
 
         /// <summary>All the loose dirt within `radius` of a point, with its make-up.</summary>

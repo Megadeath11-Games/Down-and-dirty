@@ -52,6 +52,9 @@ namespace FPSBase.Mining
         Vector3 origin;
         float[,] orig, native, loose, looseGold, looseSand, looseGravel, looseClay;
         bool[,] trampled;
+        /// <summary>How hard the loose dirt in a cell has been packed by machines (0 = fluffy, 1 = fully: <see cref="CompactShrink"/> less volume).</summary>
+        float[,] packed;
+        public const float CompactShrink = 0.25f;
 
         // change tracking
         int dx0 = int.MaxValue, dz0 = int.MaxValue, dx1 = -1, dz1 = -1;
@@ -91,6 +94,7 @@ namespace FPSBase.Mining
             loose = new float[res, res]; looseGold = new float[res, res];
             looseSand = new float[res, res]; looseGravel = new float[res, res]; looseClay = new float[res, res];
             trampled = new bool[res, res];
+            packed = new float[res, res];
             for (int z = 0; z < res; z++)
                 for (int x = 0; x < res; x++)
                     orig[z, x] = native[z, x] = h[z, x] * sizeY + baseY;
@@ -260,7 +264,9 @@ namespace FPSBase.Mining
             x = Mathf.Clamp(x, 1, res - 2); z = Mathf.Clamp(z, 1, res - 2);
             float v = l.volume - l.rock; // boulders never go into the loose dirt
             if (v <= 0f) return;
+            float was = loose[z, x];
             loose[z, x] += v / cellArea;
+            packed[z, x] *= was / loose[z, x]; // fresh fluffy dirt on top
             looseGold[z, x] += l.goldGrams;
             looseSand[z, x] += l.sand; looseGravel[z, x] += l.gravel; looseClay[z, x] += l.clay;
             Touch(x, z);
@@ -501,7 +507,9 @@ namespace FPSBase.Mining
                         if (excess[k] <= 0f) continue;
                         float f = excess[k] / total;
                         int ax = x + nx[k], az = z + nz[k];
+                        float was = loose[az, ax];
                         loose[az, ax] += move * f; looseGold[az, ax] += g * f;
+                        packed[az, ax] *= was / loose[az, ax];
                         looseSand[az, ax] += sa * f; looseGravel[az, ax] += gr * f; looseClay[az, ax] += cl * f;
                         Queue(ax, az);
                         MarkHeights(ax, az);

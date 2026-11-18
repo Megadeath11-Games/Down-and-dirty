@@ -21,6 +21,18 @@ namespace FPSBase.Vehicles
         public float brakeTorque = 3500f;
         public float maxSteer = 32f;
         public float topSpeedKmh = 95f;
+        [Tooltip("Has a transfer case: 2WD (rear) / 4-high / 4-low. Without one it's rear drive only.")]
+        public bool transferCase;
+        [Tooltip("4-low gear reduction: this much more torque at the wheels, top speed lowRangeTopKmh.")]
+        public float lowRange = 2.6f;
+        public float lowRangeTopKmh = 38f;
+
+        public enum DriveMode { TwoHigh, FourHigh, FourLow }
+        static readonly string[] DriveNames = { "2WD", "4-HIGH", "4-LOW" };
+        public DriveMode driveMode = DriveMode.FourHigh;
+        [Tooltip("Rear diff locked: both rear wheels turn together (one in the air or in mud doesn't steal the drive). Open: the wheel with the least grip gets it.")]
+        public bool rearLocked;
+        public void SetDrive(DriveMode m, bool locked) { driveMode = transferCase ? m : DriveMode.TwoHigh; rearLocked = locked; }
 
         [Header("Dump box")]
         public Transform bedPivot;           // hinge at the back of the box
@@ -169,6 +181,18 @@ namespace FPSBase.Vehicles
                 GameUI.Toast($"Tailgate: {GateNames[gateSetting]}");
             }
             DumpStep(dt);
+            if (transferCase && Controls.Pressed(GameAction.TransferCase))
+            {
+                driveMode = (DriveMode)(((int)driveMode + 1) % 3);
+                GameUI.Toast(driveMode == DriveMode.TwoHigh ? "2WD: rear wheels only (fastest, least grip)"
+                    : driveMode == DriveMode.FourHigh ? "4-HIGH: all four wheels"
+                    : $"4-LOW: all four wheels, {lowRange:0.0}x the pull, top speed {lowRangeTopKmh:0} km/h (hills, mud, heavy trailers)");
+            }
+            if (Controls.Pressed(GameAction.DiffLock))
+            {
+                rearLocked = !rearLocked;
+                GameUI.Toast(rearLocked ? "Rear diff LOCKED: both rear wheels pull together" : "Rear diff open");
+            }
 
             float throttle = Controls.Axis(GameAction.DriveForward, GameAction.DriveBack);
             cab.wheel = Controls.Axis(GameAction.SteerRight, GameAction.SteerLeft);
@@ -214,18 +238,30 @@ namespace FPSBase.Vehicles
             float speed = Vector3.Dot(rb.linearVelocity, transform.forward);
             float kmh = Mathf.Abs(speed) * 3.6f;
             float steerAngle = steer * maxSteer * Mathf.Lerp(1f, 0.35f, kmh / topSpeedKmh);
-            bool braking = (throttle > 0.1f && speed < -0.5f) || (throttle < -0.1f && speed > 0.5f);
+            // S while rolling forward brakes. W while rolling back just drives forward (the engine fights the roll):
+            // on a hill that's what pulls it up again instead of locking the wheels and sliding down
+            // (rolling back faster than a walk with W held, it's lost the hill: brake rather than run away backwards)
+            bool braking = (throttle < -0.1f && speed > 1.5f) || (throttle > 0.1f && speed < -3f);
             if (Mathf.Abs(throttle) > 0.01f && rb.IsSleeping()) rb.WakeUp(); // wheel torque alone doesn't wake a parked truck
+
+            // engine torque to the axles: 2WD sends it all to the rear, 4-high splits it, 4-low multiplies it
+            DriveMode mode = transferCase ? driveMode : DriveMode.TwoHigh;
+            bool low = mode == DriveMode.FourLow;
+            float top = low ? lowRangeTopKmh : topSpeedKmh;
+            float total = (!braking && kmh < top) ? throttle * motorTorque * 4f * (low ? lowRange : 1f) : 0f;
+            float front = mode == DriveMode.TwoHigh ? 0f : total * 0.5f, rear = total - front;
+            AxleTorque(0, 1, front, false);      // the front diff is always open
+            AxleTorque(2, 3, rear, rearLocked);
 
             for (int i = 0; i < wheels.Length; i++)
             {
                 var w = wheels[i];
                 if (w == null) continue;
                 if (i < 2) w.steerAngle = steerAngle;
-                w.motorTorque = (!braking && kmh < topSpeedKmh) ? throttle * motorTorque : 0f;
+                w.motorTorque = axleOut[i];
                 float b = 0f;
                 if (braking) b = brakeTorque;
-                else if (Mathf.Abs(throttle) < 0.05f) b = 250f; // engine braking
+                else if (Mathf.Abs(throttle) < 0.05f) b = kmh < 2.5f ? brakeTorque : 250f; // stopped: hold it on the brakes (no creeping down hills); rolling: engine braking
                 if (handbrake) b = brakeTorque * 1.5f;
                 w.brakeTorque = b;
 
@@ -235,6 +271,32 @@ namespace FPSBase.Vehicles
                     wheelVisuals[i].SetPositionAndRotation(p, q * Quaternion.Euler(0f, 0f, 90f));
                 }
             }
+        }
+
+        readonly float[] axleOut = new float[4];
+
+        /// <summary>
+        /// Split an axle's torque between its two wheels. Open diff: equal torque, but no more than the wheel with
+        /// the least grip can take, so a wheel in the air or spinning in mud robs the other. Locked: the axle turns
+        /// as one, so a wheel with grip gets the drive (all of it if the other is in the air).
+        /// </summary>
+        void AxleTorque(int a, int b, float t, bool locked)
+        {
+            axleOut[a] = axleOut[b] = 0f;
+            if (a >= wheels.Length || b >= wheels.Length || wheels[a] == null || wheels[b] == null) { if (a < wheels.Length && wheels[a] != null) axleOut[a] = t; return; }
+            bool ga = wheels[a].GetGroundHit(out WheelHit ha), gb = wheels[b].GetGroundHit(out WheelHit hb);
+            float half = t * 0.5f;
+            if (locked)
+            {
+                if (ga && !gb) axleOut[a] = t;
+                else if (gb && !ga) axleOut[b] = t;
+                else axleOut[a] = axleOut[b] = half;
+                return;
+            }
+            float k = 1f;
+            if (ga != gb) k = 0.12f; // one wheel hanging: it just spins
+            else if (ga) k = Mathf.Clamp(1f - Mathf.Max(0f, Mathf.Abs(ha.forwardSlip - hb.forwardSlip) - 0.2f) * 1.5f, 0.3f, 1f);
+            axleOut[a] = axleOut[b] = half * k;
         }
 
         public Transform bedMound;           // heaped dirt on top of the flat layer
@@ -275,13 +337,15 @@ namespace FPSBase.Vehicles
                 return $"Fuel {fuel:0.0} / {fuelCapacity:0} L    Speed {kmh:0} km/h\n" +
                        $"Dump box {load.volume:0.00} / {capacity:0.0} m³   ({load.goldGrams:0.0} g gold, {load.Grade:0.0} g/m³)\n" +
                        $"Load: {load.Describe()}\n" +
-                       $"Box tilt {tilt:0}°   Tailgate {GateNames[Mathf.Clamp(gateSetting, 0, GateNames.Length - 1)]}";
+                       $"Box tilt {tilt:0}°   Tailgate {GateNames[Mathf.Clamp(gateSetting, 0, GateNames.Length - 1)]}\n" +
+                       $"Drive {(transferCase ? DriveNames[(int)driveMode] : "rear")}   Rear diff {(rearLocked ? "LOCKED" : "open")}";
             }
         }
 
         public override string HudControls =>
             $"{N(GameAction.DriveForward)}/{N(GameAction.DriveBack)} throttle / brake-reverse · {N(GameAction.SteerLeft)}/{N(GameAction.SteerRight)} steer · {N(GameAction.Handbrake)} handbrake\n" +
             $"{N(GameAction.BoxUp)} raise dump box · {N(GameAction.BoxDown)} lower dump box (pours above {pourStartTilt:0}°) · {N(GameAction.Tailgate)} tailgate opening (crack it and drive to spread gravel)\n" +
+            (transferCase ? $"{N(GameAction.TransferCase)} 2WD / 4-high / 4-low · " : "") + $"{N(GameAction.DiffLock)} rear diff lock\n" +
             $"Mouse look · {N(GameAction.CabView)} cab view · {N(GameAction.Interact)} get out";
 
         static string N(GameAction a) => Controls.N(a);

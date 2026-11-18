@@ -507,6 +507,7 @@ namespace FPSBase.Vehicles
                 if (v.sqrMagnitude < 0.04f) continue;
                 site.Trample(p, ContactRadius);
                 site.Rut(p, ContactRadius, perContact, v);
+                site.Compact(p, ContactRadius * 1.1f, tonnes);
                 site.TrackPress(p, ContactRadius, tonnes, transform.forward, v);
             }
         }

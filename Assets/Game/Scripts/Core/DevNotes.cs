@@ -13,6 +13,22 @@ namespace FPSBase.Core
         /// <summary>Newest first.</summary>
         public static readonly Post[] Blog =
         {
+            new Post { date = "Update 4  ·  Nov 18, 2026", title = "Blade tilt, blade angle, new skid steers",
+                body =
+                "<b>New</b>\n" +
+                "• Dozer blade tilt: R drops the left end, T drops the right end. Good for cutting a ditch or crowning a road.\n" +
+                "• Dozer blade angle (swivel): G swings it left, H swings it right. An angled blade rolls the dirt off its trailing end into a windrow beside you.\n" +
+                "• All three dozers have it (the mining dozer swivels a bit less).\n" +
+                "• GMT400 pickup: X switches 2WD / 4-HIGH / 4-LOW, Z locks the rear diff. 4-low pulls a full fuel bowser up a steep hill.\n" +
+                "• Heavy machines pack loose dirt down under their tracks: cross a berm with the 66 t dozer and its ruts sink in. Light machines hardly pack it.\n\n" +
+                "<b>Changed</b>\n" +
+                "• Skid steers rebuilt: the stand-on, the wheeled skid steer and the compact track loader all have new bodies, cabs, lift towers, longer two-piece arms and a deeper low-back bucket.\n" +
+                "• Track loaders get proper undercarriages: drive sprocket with teeth, idlers and bottom rollers.\n" +
+                "• Machines no longer creep down hills when parked or with you in the seat (tracks grip up to about 42°).\n" +
+                "• Heavy machines ride smoother and heavier over rough cuts; the 1 t loader and mini excavator stay twitchy and tippy.\n" +
+                "• The pickup has a bit more power and its tyres keep their grip when they spin; W while rolling back drives instead of braking.\n" +
+                "• Fixed: after unhitching the fuel bowser, the truck could drive straight through it.\n" +
+                "• The bowser now collides with everything again once you pull away." },
             new Post { date = "Update 3  ·  Nov 18, 2026", title = "Saved worlds, a main menu, and heavy haul",
                 body =
                 "<b>New</b>\n" +
@@ -40,11 +56,23 @@ namespace FPSBase.Core
                 "• Dozer berms build up properly in front of the blade." },
         };
 
-        public const string TestListVersion = "2026-11-18b";
+        public const string TestListVersion = "2026-11-18d";
 
         /// <summary>What's new in this build to try out.</summary>
         public static readonly string[] TestList =
         {
+            "Dozer: R / T tilt the blade (each end drops)",
+            "Dozer: G / H swivel the blade left / right",
+            "Push with the blade angled: dirt rolls off to the side",
+            "Try tilt and swivel on all three dozers",
+            "Look at the new skid steers (stand-on, wheeled, tracked)",
+            "Skid steer: dig a bucket full and dump it",
+            "Pickup: X for 2WD / 4-high / 4-low, Z rear diff lock",
+            "Pull the full bowser up a hill in 4-low",
+            "Unhitch the bowser, drive into it: it's solid",
+            "Park a dozer on a steep pile: it stays put",
+            "Cross a loose berm with the 66 t dozer: the ruts pack down",
+            "Big dozer feels smooth cutting; small machines still twitchy",
             "Main menu: Single Player > start a new world",
             "Esc > Save, then Main Menu > Single Player > Load it: everything is where you left it",
             "Delete a save (asks \"Really delete\" first)",

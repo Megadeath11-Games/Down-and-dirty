@@ -825,7 +825,9 @@ namespace FPSBase.EditorTools
             dz.ripperPivot = ripPivot; dz.ripperShank = shankGrp; dz.ripperTips = tips.ToArray();
             dz.ripRadius = c.ripperShanks == 1 ? 0.55f : 0.32f;
 
-            // ram strokes: blade lift (arm swing) x tilt-free, ripper over its travel
+            // ram strokes: blade lift (arm swing) with the blade tilted and angled both ways, ripper over its travel
+            dz.bladeSwivel = bladeGrp;
+            dz.maxAngle = c.tonnes > 40f ? 18f : 25f;
             for (int i = 0; i <= 16; i++)
             {
                 float u = i / 16f;
@@ -833,7 +835,13 @@ namespace FPSBase.EditorTools
                 float rip = Mathf.Lerp(dz.ripperRange.x, dz.ripperRange.y, u);
                 ripPivot.localRotation = Quaternion.Euler(-rip, 0f, 0f);
                 shankGrp.localRotation = Quaternion.Euler(rip, 0f, 0f);
-                foreach (var r in rams) r.Measure();
+                foreach (float ang in new[] { -dz.maxAngle, 0f, dz.maxAngle })
+                    foreach (float tl in new[] { -dz.maxTilt, 0f, dz.maxTilt })
+                    {
+                        bladeGrp.localRotation = Quaternion.Euler(0f, ang, 0f) * Quaternion.Euler(0f, 0f, tl);
+                        foreach (var r in rams) r.Measure();
+                    }
+                bladeGrp.localRotation = Quaternion.identity;
             }
             arms.localRotation = Quaternion.identity;
             ripPivot.localRotation = Quaternion.Euler(-dz.ripperRange.x, 0f, 0f);

@@ -54,7 +54,8 @@ namespace FPSBase.Mining
             float l = loose[z, x];
             if (l < 0.03f) return maxStep;
             float lv = l * cellArea;
-            float a = reposeAngle + (looseGravel[z, x] / lv) * 4f - (looseSand[z, x] / lv) * 4.5f + (looseClay[z, x] / lv) * 8f;
+            float a = reposeAngle + (looseGravel[z, x] / lv) * 4f - (looseSand[z, x] / lv) * 4.5f + (looseClay[z, x] / lv) * 8f
+                + packed[z, x] * 10f; // packed dirt stands a steeper face
             return cell * Mathf.Tan(a * Mathf.Deg2Rad);
         }
 
@@ -252,6 +253,46 @@ namespace FPSBase.Mining
             if (scuffed && Random.value < 0.35f)
                 DirtGrains.Spray(at + Vector3.up * 0.08f, push * 1.1f + Vector3.up * 0.9f + Random.insideUnitSphere * 0.3f);
         }
+
+        /// <summary>
+        /// A machine of `tonnes` rolls over loose dirt at `at`: its weight packs it down, so the ruts across a berm
+        /// sink in. Heavier machines pack it harder (a 66 t dozer fully, 25 % less volume; a 1 t loader hardly).
+        /// Each pass gets it closer to as packed as that machine can make it. Gold and the dirt's make-up stay.
+        /// </summary>
+        public void Compact(Vector3 at, float radius, float tonnes)
+        {
+            if (!Contains(at)) return;
+            float want = Mathf.Clamp01((tonnes - 2f) / 38f);
+            if (want <= 0f) return;
+            Range(at, radius, out int x0, out int z0, out int x1, out int z1);
+            for (int z = z0; z <= z1; z++)
+                for (int x = x0; x <= x1; x++)
+                {
+                    float rx = origin.x + x * cell - at.x, rz = origin.z + z * cell - at.z;
+                    if (rx * rx + rz * rz > radius * radius) continue;
+                    float l = loose[z, x], p = packed[z, x];
+                    if (l < 0.01f || p >= want - 0.005f) continue;
+                    float p2 = p + (want - p) * 0.3f;
+                    float l2 = l / (1f - CompactShrink * p) * (1f - CompactShrink * p2);
+                    float k = l2 / l;
+                    loose[z, x] = l2; packed[z, x] = p2;
+                    looseSand[z, x] *= k; looseGravel[z, x] *= k; looseClay[z, x] *= k;
+                    compactedVolume += (l - l2) * cellArea;
+                    Touch(x, z);
+                }
+        }
+
+        /// <summary>How packed the loose dirt at a point is (0..1).</summary>
+        public float PackedAt(Vector3 world)
+        {
+            Vector3 p = world - origin;
+            int x = Mathf.Clamp(Mathf.RoundToInt(p.x / cell), 0, res - 1), z = Mathf.Clamp(Mathf.RoundToInt(p.z / cell), 0, res - 1);
+            return loose[z, x] > 0.01f ? packed[z, x] : 0f;
+        }
+
+        float compactedVolume;
+        /// <summary>Loose dirt volume squeezed out by machines packing it (m3, for the test).</summary>
+        public float CompactedVolume => compactedVolume;
 
         float pressedVolume;
         /// <summary>Ground pressed or scrubbed by machine tracks/tyres so far (m3, for the test).</summary>

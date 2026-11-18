@@ -178,6 +178,13 @@ namespace FPSBase.Vehicles
         {
             if (joint != null) Destroy(joint);
             joint = null;
+            // the truck it was hitched to collides with it again once the two are clear of each other
+            // (a semi's own lowboy never does: its gooseneck lives inside the tractor's body box)
+            if (Hitched != null)
+            {
+                var other = Hitched.Vehicle != null ? Hitched.Vehicle.transform : Hitched.Body != null ? Hitched.Body.transform : null;
+                if (other != null && (BuiltOn == null || other != BuiltOn.transform)) rejoin.Add(other);
+            }
             if (Hitched != null && Hitched.Attached == this) Hitched.Attached = null;
             Hitched = null;
             SetBrake(true);
@@ -187,17 +194,53 @@ namespace FPSBase.Vehicles
         public VehicleBase Tractor => Hitched != null ? Hitched.Vehicle : NeckCarrier != null ? NeckCarrier.Vehicle : null;
 
         readonly HashSet<Transform> ignored = new();
+        readonly HashSet<Transform> rejoin = new();
         void IgnoreWith(Transform other)
         {
             if (other == null) return;
             ignored.Add(other);
+            rejoin.Remove(other);
             IgnorePair(GetComponentsInChildren<Collider>(true), other.GetComponentsInChildren<Collider>(true), true);
         }
 
         static void IgnorePair(Collider[] a, Collider[] b, bool ignore)
         {
-            foreach (var x in a) foreach (var y in b) if (x != null && y != null && x != y) Physics.IgnoreCollision(x, y, ignore);
+            // never the player (on foot they must bump into it, whatever they were driving when it was hitched)
+            foreach (var x in a) foreach (var y in b)
+                if (x != null && y != null && x != y && !(x is CharacterController) && !(y is CharacterController)) Physics.IgnoreCollision(x, y, ignore);
         }
+
+        float rejoinTimer;
+        /// <summary>Unhitched trucks that are now clear of it: collide with them again.</summary>
+        void RejoinStep()
+        {
+            if (rejoin.Count == 0 || Hitched != null || (rejoinTimer -= Time.fixedDeltaTime) > 0f) return;
+            rejoinTimer = 0.25f;
+            var mine = GetComponentsInChildren<Collider>(true);
+            List<Transform> done = null;
+            foreach (var other in rejoin)
+            {
+                if (other == null) { (done ??= new()).Add(other); continue; }
+                var theirs = other.GetComponentsInChildren<Collider>(true);
+                bool touching = false;
+                foreach (var x in mine)
+                {
+                    if (x == null || x.isTrigger || x is WheelCollider) continue;
+                    var bx = x.bounds; bx.Expand(0.1f);
+                    foreach (var y in theirs)
+                        if (y != null && !y.isTrigger && !(y is WheelCollider) && bx.Intersects(y.bounds)) { touching = true; break; }
+                    if (touching) break;
+                }
+                if (touching) continue;
+                IgnorePair(mine, theirs, false);
+                ignored.Remove(other);
+                (done ??= new()).Add(other);
+            }
+            if (done != null) foreach (var d in done) rejoin.Remove(d);
+        }
+
+        /// <summary>Tests: is it still ignoring collisions with `other`?</summary>
+        public bool IgnoresCollisionWith(Transform other) => ignored.Contains(other);
 
         void SetBrake(bool on)
         {
@@ -281,6 +324,7 @@ namespace FPSBase.Vehicles
         void FixedUpdate()
         {
             UpdateMass();
+            RejoinStep();
             if (deckArea == null || busy) return;
             if ((scanTimer -= Time.fixedDeltaTime) > 0f) return;
             scanTimer = 0.5f;

@@ -511,7 +511,8 @@ namespace FPSBase.EditorTools
             pk.fuelCapacity = 130f; pk.fuel = 90f; pk.idleBurn = 2.2f; pk.workBurn = 18f;
             pk.capacity = 1.5f; pk.topSpeedKmh = 105f;
             const float mass = 2680f;
-            pk.motorTorque = mass * 0.35f; pk.brakeTorque = mass * 1.35f;
+            pk.motorTorque = mass * 0.45f; pk.brakeTorque = mass * 1.35f; // per wheel in 4-high (a 2WD truck sends 2x that to each rear wheel)
+            pk.transferCase = true; pk.lowRange = 2.6f; pk.lowRangeTopKmh = 38f; pk.driveMode = DumpPickup.DriveMode.FourHigh;
             pk.bedPivot = bedPivot; pk.bedContents = contents.transform; pk.bedMound = mound.transform; pk.bedVolume = vol;
             pk.bedInnerSize = inner;
             pk.tailgatePour = Marker(bedPivot, "PourPoint", new Vector3(0f, 0.25f, -0.25f));
@@ -540,7 +541,8 @@ namespace FPSBase.EditorTools
                 wc.radius = rT; wc.mass = 45f; wc.suspensionDistance = 0.3f; wc.forceAppPointDistance = rT * 0.5f;
                 float spring = perWheel * 9.81f * 8f;
                 wc.suspensionSpring = new JointSpring { spring = spring, damper = spring * 0.1f, targetPosition = 0.5f };
-                var ff = wc.forwardFriction; ff.stiffness = 1.6f; wc.forwardFriction = ff;
+                // a spinning tyre keeps most of its bite (the default curve drops to half, and a pickup with a trailer bogs down)
+                var ff = wc.forwardFriction; ff.stiffness = 1.6f; ff.extremumSlip = 0.35f; ff.extremumValue = 1f; ff.asymptoteSlip = 1.2f; ff.asymptoteValue = 0.85f; wc.forwardFriction = ff;
                 var sf = wc.sidewaysFriction; sf.stiffness = 1.8f; wc.sidewaysFriction = sf;
                 pk.wheels[i] = wc;
                 // the pickup turns its wheel visuals by (pose x 90 deg about z): undo that for a mesh whose axle is x

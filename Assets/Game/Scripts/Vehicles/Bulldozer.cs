@@ -25,6 +25,17 @@ namespace FPSBase.Vehicles
         [Tooltip("How far ahead of the cutting edge the pushed dirt lands (bigger blades roll it further).")]
         public float pushAhead = 0.8f;
 
+        [Header("Blade tilt & angle")]
+        [Tooltip("Tilts (one end down) and angles (swivels left / right) the blade. Empty = the blade itself.")]
+        public Transform bladeSwivel;
+        public float maxTilt = 9f;         // deg, + = left end down
+        public float maxAngle = 25f;       // deg, + = swivelled right (right end back: dirt rolls off the right)
+        public float tiltSpeed = 8f;       // deg/s
+        public float angleSpeed = 16f;     // deg/s
+        float bladeTilt, bladeAngle;
+        Quaternion swivelRest = Quaternion.identity;
+        Transform Swivel => bladeSwivel != null ? bladeSwivel : blade;
+
         [Header("Ripper (optional)")]
         public Transform ripperPivot;      // swings the draft arms (+ = down)
         public Transform ripperShank;      // counter-rotates so the shanks stay upright (parallelogram)
@@ -54,16 +65,19 @@ namespace FPSBase.Vehicles
                 liftPivotY = liftPivot.localPosition.y; // blade height is measured from the track bottom (= ground)
             }
             ripper = ripperRange.x;
+            if (Swivel != null) swivelRest = Swivel.localRotation;
             ApplyBlade();
         }
 
         float netBlade = float.NaN, netRip;
-        public override void NetWrite(System.IO.BinaryWriter w) { base.NetWrite(w); w.Write(bladeHeight); w.Write(ripper); }
-        public override void NetRead(System.IO.BinaryReader r) { base.NetRead(r); netBlade = r.ReadSingle(); netRip = r.ReadSingle(); }
+        float netTilt, netAngle;
+        public override void NetWrite(System.IO.BinaryWriter w) { base.NetWrite(w); w.Write(bladeHeight); w.Write(ripper); w.Write(bladeTilt); w.Write(bladeAngle); }
+        public override void NetRead(System.IO.BinaryReader r) { base.NetRead(r); netBlade = r.ReadSingle(); netRip = r.ReadSingle(); netTilt = r.ReadSingle(); netAngle = r.ReadSingle(); }
         protected override void NetShow(float dt)
         {
             if (float.IsNaN(netBlade)) return;
             bladeHeight = NetIO.Ease(bladeHeight, netBlade, dt); ripper = NetIO.Ease(ripper, netRip, dt);
+            bladeTilt = NetIO.Ease(bladeTilt, netTilt, dt); bladeAngle = NetIO.Ease(bladeAngle, netAngle, dt);
             ApplyBlade();
         }
 
@@ -73,6 +87,11 @@ namespace FPSBase.Vehicles
         public float HeapVolume => heapVolume;
         public bool HasRipper => ripperPivot != null;
         public void SetRipper(float deg) { ripper = Mathf.Clamp(deg, ripperRange.x, ripperRange.y); ApplyBlade(); }
+        /// <summary>Blade tilt (deg, + = left end down) and angle (deg, + = swivelled right).</summary>
+        public void SetBladeTilt(float deg) { bladeTilt = Mathf.Clamp(deg, -maxTilt, maxTilt); ApplyBlade(); }
+        public void SetBladeAngle(float deg) { bladeAngle = Mathf.Clamp(deg, -maxAngle, maxAngle); ApplyBlade(); }
+        public float BladeTilt => bladeTilt;
+        public float BladeAngle => bladeAngle;
 
         void ApplyBlade()
         {
@@ -84,6 +103,8 @@ namespace FPSBase.Vehicles
                 liftPivot.localRotation = Quaternion.Euler(-theta * Mathf.Rad2Deg, 0f, 0f);
             }
             else if (blade != null) blade.localPosition = bladeBase + Vector3.up * bladeHeight;
+            // angle about the vertical, then tilt about the blade's own fore-aft axis
+            if (Swivel != null) Swivel.localRotation = swivelRest * Quaternion.Euler(0f, bladeAngle, 0f) * Quaternion.Euler(0f, 0f, bladeTilt);
             if (ripperPivot != null) ripperPivot.localRotation = Quaternion.Euler(-ripper, 0f, 0f);
             if (ripperShank != null) ripperShank.localRotation = Quaternion.Euler(ripper, 0f, 0f);
         }
@@ -113,10 +134,15 @@ namespace FPSBase.Vehicles
                 if (!HasFuel) ripIn = Mathf.Min(ripIn, 0f);
                 SetRipper(ripper + ripIn * ripperSpeed * dt);
             }
-            cab.right = new Vector2(0f, -bladeIn); // blade joystick: forward = lower
-            cab.aux = ripIn;
+            float tiltIn = Controls.Axis(GameAction.BladeTiltLeft, GameAction.BladeTiltRight);
+            float angleIn = Controls.Axis(GameAction.BladeAngleRight, GameAction.BladeAngleLeft);
+            if (!HasFuel) { tiltIn = 0f; angleIn = 0f; }
+            if (tiltIn != 0f) SetBladeTilt(bladeTilt + tiltIn * tiltSpeed * dt);
+            if (angleIn != 0f) SetBladeAngle(bladeAngle + angleIn * angleSpeed * dt);
+            cab.right = new Vector2(-tiltIn, -bladeIn); // blade joystick: forward = lower, sideways = tilt
+            cab.aux = ripIn != 0f ? ripIn : angleIn;
             Work(ForwardSpeed, dt);
-            workAmount = Mathf.Clamp01(Mathf.Abs(throttle) + Mathf.Abs(bladeIn) * 0.3f + Mathf.Abs(ripIn) * 0.3f + Mathf.Clamp01(pushRate) * 0.5f);
+            workAmount = Mathf.Clamp01(Mathf.Abs(throttle) + (Mathf.Abs(bladeIn) + Mathf.Abs(tiltIn) + Mathf.Abs(angleIn)) * 0.3f + Mathf.Abs(ripIn) * 0.3f + Mathf.Clamp01(pushRate) * 0.5f);
         }
 
         /// <summary>One step of blade (and ripper) work at forward speed `v` (m/s). Public so the automated test can drive it.</summary>
@@ -126,15 +152,34 @@ namespace FPSBase.Vehicles
             if (site == null || bladeEdge == null) return;
             Vector3 edge = bladeEdge.position;
             float moved = 0f, hard = 0f;
+            // the blade's face: an angled blade pushes off to one side, a tilted one cuts deeper at its low end
+            Vector3 bladeRight = Swivel != null ? Swivel.right : transform.right;
+            Vector3 flatRight = Vector3.ProjectOnPlane(bladeRight, Vector3.up).normalized;
+            if (flatRight.sqrMagnitude < 0.5f) flatRight = transform.right;
+            Vector3 f = Vector3.Cross(flatRight, Vector3.up).normalized, r = flatRight;
+            bool square = Mathf.Abs(bladeTilt) < 0.5f && Mathf.Abs(bladeAngle) < 0.5f;
             if (v > 0.05f && site.Contains(edge))
-                moved = site.BladePush(edge, transform.forward, bladeWidth, edge.y, pushAhead, out hard);
+            {
+                if (square) moved = site.BladePush(edge, transform.forward, bladeWidth, edge.y, pushAhead, out hard);
+                else
+                {
+                    const int segs = 4;
+                    float w = bladeWidth / segs;
+                    for (int i = 0; i < segs; i++)
+                    {
+                        Vector3 p = edge + bladeRight * ((i + 0.5f) / segs - 0.5f) * bladeWidth;
+                        if (!site.Contains(p)) continue;
+                        moved += site.BladePush(p, f, w + 0.04f, p.y, pushAhead, out float h);
+                        hard += h;
+                    }
+                }
+            }
             pushRate = Mathf.Lerp(pushRate, moved / Mathf.Max(dt, 1e-4f), 1f - Mathf.Exp(-dt * 6f));
-            if (moved > 0f && (fxTimer -= dt) <= 0f) { PourFx.Dig(edge + transform.forward * 0.6f + Vector3.up * 0.3f); fxTimer = 0.2f; }
+            if (moved > 0f && (fxTimer -= dt) <= 0f) { PourFx.Dig(edge + f * 0.6f + Vector3.up * 0.3f); fxTimer = 0.2f; }
             if (moved > 0f)
             {
                 // the heap rolls: clods come over the top of it and tumble down its front and sides
                 int n = Mathf.Clamp(Mathf.CeilToInt(moved / 0.004f), 1, 5);
-                Vector3 f = transform.forward, r = transform.right;
                 for (int i = 0; i < n; i++)
                 {
                     Vector3 at = edge + f * (pushAhead + Random.Range(-0.1f, 0.3f)) + r * Random.Range(-0.45f, 0.45f) * bladeWidth;
@@ -147,8 +192,8 @@ namespace FPSBase.Vehicles
             if ((heapTimer -= dt) <= 0f || dt > 0.015f && moved > 0f)
             {
                 heapTimer = 0.2f;
-                heapVolume = site.LooseVolume(edge + transform.forward * (pushAhead + 0.1f), bladeWidth * 0.55f, out heapGold);
-                heapMix = site.LooseLoad(edge + transform.forward * (pushAhead + 0.1f), bladeWidth * 0.55f);
+                heapVolume = site.LooseVolume(edge + f * (pushAhead + 0.1f), bladeWidth * 0.55f, out heapGold);
+                heapMix = site.LooseLoad(edge + f * (pushAhead + 0.1f), bladeWidth * 0.55f);
             }
             // a big heap slows the machine down, and so does cutting unbroken ground
             speedFactor = Mathf.Lerp(1f, 0.35f, Mathf.Clamp01(heapVolume / (heapCapacity * 1.4f)));
@@ -182,11 +227,13 @@ namespace FPSBase.Vehicles
         public override string HudBarLabel => $"Dirt in front of the blade: {heapVolume:0.0} / {heapCapacity:0.#} m³" + (pushRate > 0.05f ? "  —  pushing" : "");
         public override string HudBody => $"Fuel {fuel:0.0} / {fuelCapacity:0} L    Speed {Mathf.Abs(ForwardSpeed) * 3.6f:0.0} km/h\n" +
                                           $"Blade height {bladeHeight * 100f:+0;-0;0} cm  ({(bladeHeight < -0.02f ? "cutting" : bladeHeight < 0.08f ? "scraping" : "carried")})\n" +
+                                          $"Blade tilt {(Mathf.Abs(bladeTilt) < 0.5f ? "level" : $"{Mathf.Abs(bladeTilt):0}° {(bladeTilt > 0f ? "left" : "right")} end down")} · angle {(Mathf.Abs(bladeAngle) < 0.5f ? "straight" : $"{Mathf.Abs(bladeAngle):0}° {(bladeAngle > 0f ? "right" : "left")}")}\n" +
                                           $"Heap: {(heapVolume > 0.05f ? heapMix.Describe() : "none")} · {heapGold:0.0} g gold" +
                                           (HasRipper ? "\nRipper " + (RipperDepth > 0.02f ? $"in the ground {RipperDepth * 100f:0} cm" + (ripRate > 0.01f ? " — ripping" : "") : "up") : "");
         public override string HudControls =>
             $"{N(GameAction.DriveForward)}/{N(GameAction.DriveBack)} forward / reverse · {N(GameAction.SteerLeft)}/{N(GameAction.SteerRight)} turn (tracks spin in place)\n" +
             $"{N(GameAction.BladeUp)} blade up · {N(GameAction.BladeDown)} blade down (below 0 cm = cutting)\n" +
+            $"{N(GameAction.BladeTiltLeft)}/{N(GameAction.BladeTiltRight)} tilt blade (left / right end down) · {N(GameAction.BladeAngleLeft)}/{N(GameAction.BladeAngleRight)} swivel blade left / right\n" +
             (HasRipper ? $"{N(GameAction.RipperDown)} ripper down · {N(GameAction.RipperUp)} ripper up (rip hard ground, then push it)\n" : "") +
             "Drive forward to push · stop or back up to leave a pile\n" +
             $"Mouse look · {N(GameAction.CabView)} cab view · {N(GameAction.Interact)} get out";

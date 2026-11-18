@@ -277,25 +277,27 @@ namespace FPSBase.EditorTools
             // blade: origin at its bottom edge, slides up and down
             var blade = Marker(t, "Blade", new Vector3(0f, 0f, 1.55f));
             const float bw = 2.5f;
-            var plate = Part(blade, "Blade Plate", new Vector3(0f, 0.5f, 0.02f), new Vector3(bw, 1.0f, 0.1f), vm.paint);
+            var swivel = Marker(blade, "BladeSwivel", Vector3.zero); // tilts and angles on the push-arm C-frame
+            var plate = Part(swivel, "Blade Plate", new Vector3(0f, 0.5f, 0.02f), new Vector3(bw, 1.0f, 0.1f), vm.paint);
             plate.transform.localRotation = Quaternion.Euler(-6f, 0f, 0f);
-            Part(blade, "Cutting Edge", new Vector3(0f, 0.04f, 0.06f), new Vector3(bw + 0.05f, 0.08f, 0.14f), vm.steel);
-            Part(blade, "End Bit L", new Vector3(-bw / 2f, 0.45f, 0.12f), new Vector3(0.08f, 0.9f, 0.32f), vm.paint);
-            Part(blade, "End Bit R", new Vector3(bw / 2f, 0.45f, 0.12f), new Vector3(0.08f, 0.9f, 0.32f), vm.paint);
+            Part(swivel, "Cutting Edge", new Vector3(0f, 0.04f, 0.06f), new Vector3(bw + 0.05f, 0.08f, 0.14f), vm.steel);
+            Part(swivel, "End Bit L", new Vector3(-bw / 2f, 0.45f, 0.12f), new Vector3(0.08f, 0.9f, 0.32f), vm.paint);
+            Part(swivel, "End Bit R", new Vector3(bw / 2f, 0.45f, 0.12f), new Vector3(0.08f, 0.9f, 0.32f), vm.paint);
+            Part(blade, "Swivel Pivot", new Vector3(0f, 0.35f, -0.08f), new Vector3(0.22f, 0.22f, 0.2f), vm.steel);
             Part(blade, "Push Arm L", new Vector3(-0.9f, 0.35f, -0.7f), new Vector3(0.15f, 0.18f, 1.4f), vm.steel);
             Part(blade, "Push Arm R", new Vector3(0.9f, 0.35f, -0.7f), new Vector3(0.15f, 0.18f, 1.4f), vm.steel);
             var cylL = Part(blade, "Lift Cylinder L", new Vector3(-0.45f, 0.85f, -0.4f), new Vector3(0.1f, 0.1f, 0.9f), vm.steel);
             var cylR = Part(blade, "Lift Cylinder R", new Vector3(0.45f, 0.85f, -0.4f), new Vector3(0.1f, 0.1f, 0.9f), vm.steel);
             cylL.transform.localRotation = cylR.transform.localRotation = Quaternion.Euler(-25f, 0f, 0f);
-            var edge = Marker(blade, "BladeEdge", new Vector3(0f, 0.02f, 0.12f));
-            ToolBox(blade, "Blade", new Vector3(0f, 0.5f, 0.06f), new Vector3(bw, 1.0f, 0.2f), Quaternion.identity);
+            var edge = Marker(swivel, "BladeEdge", new Vector3(0f, 0.02f, 0.12f));
+            ToolBox(swivel, "Blade", new Vector3(0f, 0.5f, 0.06f), new Vector3(bw, 1.0f, 0.2f), Quaternion.identity);
 
             var dz = root.AddComponent<Bulldozer>();
             dz.displayName = "Bulldozer (small crawler)";
             dz.fuelCapacity = 200f; dz.fuel = 160f; dz.idleBurn = 3f; dz.workBurn = 14f;
             dz.driveSpeed = 2.6f; dz.reverseSpeed = 3f; dz.turnSpeed = 35f; dz.turnInPlace = true;
             dz.centerOfMass = new Vector3(0f, 0.45f, 0.1f);
-            dz.blade = blade; dz.bladeEdge = edge; dz.bladeWidth = bw;
+            dz.blade = blade; dz.bladeSwivel = swivel; dz.bladeEdge = edge; dz.bladeWidth = bw;
             dz.exitPoint = Marker(t, "ExitPoint", new Vector3(-1.7f, 0f, -0.5f));
             dz.vehicleCamera = VehicleCam(t, t, seat, 9f, 3f);
             return root;
@@ -457,6 +459,7 @@ namespace FPSBase.EditorTools
             pk.fuelCapacity = s.fuel; pk.fuel = s.fuel * 0.6f; pk.idleBurn = s.workBurn * 0.12f; pk.workBurn = s.workBurn;
             pk.capacity = s.capacity; pk.topSpeedKmh = s.topSpeed;
             pk.motorTorque = s.mass * 0.35f; pk.brakeTorque = s.mass * 1.35f;
+            pk.transferCase = false; pk.rearLocked = false; // rear drive, as before (the diff lock key still works)
             pk.bedPivot = bedPivot; pk.bedContents = contents.transform; pk.bedMound = mound.transform; pk.bedVolume = vol;
             pk.bedInnerSize = new Vector3(bw * 0.94f, bh, bl * 0.95f);
             pk.tailgatePour = Marker(bedPivot, "PourPoint", new Vector3(0f, 0.25f, -0.25f));

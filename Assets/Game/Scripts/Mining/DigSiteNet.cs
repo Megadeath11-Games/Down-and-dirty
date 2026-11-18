@@ -40,7 +40,7 @@ namespace FPSBase.Mining
             w.Write(i);
             w.Write(native[z, x]); w.Write(loose[z, x]); w.Write(looseGold[z, x]);
             w.Write(looseSand[z, x]); w.Write(looseGravel[z, x]); w.Write(looseClay[z, x]);
-            w.Write((byte)(trampled[z, x] ? 1 : 0));
+            w.Write((byte)((trampled[z, x] ? 1 : 0) | (UnityEngine.Mathf.RoundToInt(UnityEngine.Mathf.Clamp01(packed[z, x]) * 127f) << 1)));
         }
 
         /// <summary>Read `count` cells written by WriteCell on another player's game and put them in this ground.</summary>
@@ -53,12 +53,14 @@ namespace FPSBase.Mining
                 {
                     int i = r.ReadInt32();
                     float nat = r.ReadSingle(), lo = r.ReadSingle(), go = r.ReadSingle(), sa = r.ReadSingle(), gr = r.ReadSingle(), cl = r.ReadSingle();
-                    bool tr = r.ReadByte() != 0;
+                    byte tb = r.ReadByte();
+                    bool tr = (tb & 1) != 0;
+                    float pk = (tb >> 1) / 127f;
                     int x = i % res, z = i / res;
                     if (x < 0 || z < 0 || x >= res || z >= res) continue;
                     native[z, x] = nat; loose[z, x] = lo; looseGold[z, x] = go;
                     looseSand[z, x] = sa; looseGravel[z, x] = gr; looseClay[z, x] = cl;
-                    trampled[z, x] = tr;
+                    trampled[z, x] = tr; packed[z, x] = pk;
                     everChanged.Add(i);
                     MarkHeights(x, z);
                 }

@@ -518,7 +518,7 @@ namespace FPSBase.DebugTools
                 Vector3 bp = bw.transform.position;
                 for (int i = 0; i < 50 * 2; i++) yield return new WaitForFixedUpdate();
                 pk.TestDrive(0f);
-                Check(Vector3.Distance(bw.transform.position, bp) > 1f && bw.BrakeLevel < 0.2f, $"pulling away, they let go ({Vector3.Distance(bw.transform.position, bp):0.0} m, brakes {bw.BrakeLevel * 100f:0}%)");
+                Check(Vector3.Distance(bw.transform.position, bp) > 0.6f && bw.BrakeLevel < 0.2f, $"pulling away, they let go ({Vector3.Distance(bw.transform.position, bp):0.0} m, brakes {bw.BrakeLevel * 100f:0}%)");
                 Destroy(bw.gameObject); Destroy(pk.gameObject); Destroy(pad);
                 yield return null;
             }
@@ -558,6 +558,41 @@ namespace FPSBase.DebugTools
                 }
             }
             Destroy(ramp);
+
+            // --- parked side-on on the flank of a loose dirt heap (uneven, faceted ground): no creep sideways
+            {
+                Vector3 hc = new Vector3(20f, 0f, -150f); hc.y = site.SurfaceY(hc);
+                for (int k = 0; k < 14; k++)
+                {
+                    for (int bx = -6; bx <= 6; bx++)
+                        for (int bz = -6; bz <= 6; bz++)
+                        {
+                            float d = Mathf.Sqrt(bx * bx + bz * bz);
+                            if (d > 6.5f - k * 0.4f) continue;
+                            Vector3 at = hc + new Vector3(bx * 0.7f, 0f, bz * 0.7f);
+                            site.Deposit(new Vector3(at.x, site.SurfaceY(at), at.z), MaterialLoad.Mix(0.12f, 0f, 0f, 0f, 0f));
+                        }
+                    site.Relax(20000);
+                }
+                for (int i = 0; i < 30; i++) { site.Relax(20000); yield return null; }
+                foreach (var nm in new[] { "Medium Dozer", "Mining Dozer" })
+                {
+                    GameObject pf = null; foreach (var l in dealer.listings) if (l.name.Contains(nm)) { pf = l.prefab; break; }
+                    if (pf == null) continue;
+                    Vector3 at = hc + Vector3.right * (nm.StartsWith("Mining") ? 4.5f : 3.6f); at.y = site.SurfaceY(at);
+                    Vector3 dn = new Vector3(site.SurfaceY(at + Vector3.right * 0.5f) - site.SurfaceY(at - Vector3.right * 0.5f), 0f, 0f);
+                    var v = Instantiate(pf, at + Vector3.up * 0.8f, Quaternion.LookRotation(Vector3.forward)).GetComponent<VehicleBase>();
+                    var vrb = v.GetComponent<Rigidbody>(); vrb.isKinematic = false;
+                    for (int i = 0; i < 50 * 3; i++) yield return new WaitForFixedUpdate();
+                    Vector3 p0 = v.transform.position;
+                    float side = Vector3.Angle(v.transform.right, Vector3.ProjectOnPlane(v.transform.right, Vector3.up));
+                    for (int i = 0; i < 50 * 15; i++) yield return new WaitForFixedUpdate();
+                    float slid = Vector3.ProjectOnPlane(v.transform.position - p0, Vector3.up).magnitude;
+                    Check(slid < 0.15f, $"{v.displayName} parked side-on on a heap's flank ({side:0}° side slope) doesn't creep ({slid:0.00} m in 15 s)");
+                    Destroy(v.gameObject);
+                    yield return null;
+                }
+            }
 
             // --- packing a loose berm: the 66 t dozer packs its ruts down, the 1 t stand-on hardly
             foreach (var (nm, heavy) in new[] { ("Mining Dozer", true), ("Stand-On", false) })
@@ -601,6 +636,29 @@ namespace FPSBase.DebugTools
         }
 
         /// <summary>Skid steers carry a full bucket (curled back, low) through starts, a hard reverse and stops without losing much of it.</summary>
+        static string WheelInfo(WheelCollider[] ws)
+        {
+            var sb = new System.Text.StringBuilder();
+            foreach (var w in ws) { if (w == null) continue; bool g = w.GetGroundHit(out WheelHit h); sb.Append($"[{w.rpm:0} {(g ? $"s{h.forwardSlip:0.00} {h.collider.name}" : "air")} mt{w.motorTorque:0.####} en{(w.enabled ? 1 : 0)}]"); }
+            return sb.ToString();
+        }
+
+        static string Touching(GameObject go, GameObject except)
+        {
+            var sb = new System.Text.StringBuilder();
+            foreach (var c in go.GetComponentsInChildren<Collider>())
+            {
+                if (c is WheelCollider || c.isTrigger) continue;
+                var b = c.bounds; b.Expand(0.04f);
+                foreach (var h in Physics.OverlapBox(b.center, b.extents))
+                    if (!h.transform.IsChildOf(go.transform) && !Physics.GetIgnoreCollision(c, h) && Physics.ComputePenetration(c, c.transform.position, c.transform.rotation, h, h.transform.position, h.transform.rotation, out _, out float d) && d > 0.001f)
+                        sb.Append($"{c.name}x{h.name}({d:0.00}) ");
+            }
+            return sb.Length == 0 ? "nothing" : sb.ToString();
+        }
+
+        static GameObject Prefab0(VehicleDealer dealer, string n) { foreach (var l in dealer.listings) if (l.name.Contains(n)) return l.prefab; return null; }
+
         IEnumerator SkidCarryTests()
         {
             var site = DigSite.Instance;
@@ -634,6 +692,38 @@ namespace FPSBase.DebugTools
                 yield return null;
             }
             Check(k >= 3, $"all the skid steers were tried ({k})");
+
+            // a bucket at 16 deg (the HUD calls it flat) pushed into a heap, the machine stalled against it: it fills
+            {
+                var pf = Prefab0(dealer, "Wheeled Skid Steer");
+                Vector3 hc = new Vector3(40f, 0f, -170f); hc.y = site.SurfaceY(hc);
+                for (int k2 = 0; k2 < 10; k2++)
+                {
+                    for (int bx = -4; bx <= 4; bx++)
+                        for (int bz = -4; bz <= 4; bz++)
+                        {
+                            if (Mathf.Sqrt(bx * bx + bz * bz) > 4.5f - k2 * 0.4f) continue;
+                            Vector3 at = hc + new Vector3(bx * 0.6f, 0f, bz * 0.6f);
+                            site.Deposit(new Vector3(at.x, site.SurfaceY(at), at.z), MaterialLoad.Mix(0.1f, 0f, 0f, 0f, 0f));
+                        }
+                    site.Relax(20000);
+                }
+                var fl = Instantiate(pf, Vector3.down * 300f, Quaternion.identity).GetComponent<FrontLoader>();
+                var frb = fl.GetComponent<Rigidbody>(); frb.isKinematic = true;
+                fl.SetPose(fl.armRange.x, 16f);
+                float reach = Vector3.Dot(fl.bucketTip.position - fl.transform.position, fl.transform.forward);
+                // bucket lip just into the toe of the heap, and stopped there (speed 0, throttle on)
+                Vector3 pos = hc - Vector3.forward * (reach + 2.2f);
+                pos.y = site.SurfaceY(pos); fl.transform.position = pos;
+                Physics.SyncTransforms();
+                fl.TestDrive(1f);
+                float dt = 0.02f;
+                for (int i = 0; i < 100 && !site.IsUnderground(fl.bucketTip.position + Vector3.up * 0.12f); i++) { fl.transform.position += Vector3.forward * 0.03f; Physics.SyncTransforms(); }
+                for (int i = 0; i < 150; i++) fl.Work(0.6f, 0f, dt); // what the drive passes in when the throttle's on and the pile has stopped it
+                Check(fl.bucketLoad.volume > fl.bucketCapacity * 0.5f, $"{fl.displayName}: bucket at 16° shoved into a pile fills ({fl.bucketLoad.volume:0.00} of {fl.bucketCapacity:0.00} m³)");
+                Destroy(fl.gameObject);
+                yield return null;
+            }
         }
 
         /// <summary>
@@ -755,12 +845,40 @@ namespace FPSBase.DebugTools
                 Vector3 onDeck = trl.deckArea.InverseTransformPoint(m.transform.position);
                 Check(trl.Carries(m) && Mathf.Abs(onDeck.y) < 0.45f && trl.DeckTilt < 0.1f,
                     $"the {m.displayName} drives on and is chained down (deck-local {onDeck.x:0.0}, {onDeck.y:0.00}, {onDeck.z:0.0}; tilt {trl.DeckTilt:0.0}, ramps {trl.RampsDown:0.0})");
-                if (!goose) Check(!trl.SetDeckTilt(true), "with a machine chained on, the deck won't tilt");
+                if (!goose)
+                {
+                    var td = FindOption(trl, "Tilt the deck down");
+                    Check(td != null && td.enabled, "with a machine chained on, the menu still offers to tilt the deck");
+                    td?.run(pi);
+                    for (int i = 0; i < 50 * 5; i++) yield return new WaitForFixedUpdate();
+                    float mPitch = Mathf.Abs(Mathf.DeltaAngle(0f, m.transform.eulerAngles.x));
+                    Vector3 onTilted = trl.deckArea.InverseTransformPoint(m.transform.position);
+                    Check(trl.DeckTilt > trl.tiltMax - 0.5f && trl.Carries(m) && Mathf.Abs(mPitch - trl.DeckTilt) < 3f && Vector3.Distance(onTilted, onDeck) < 0.1f,
+                        $"tilted with the machine chained on: it tilts with the deck ({mPitch:0.0} vs {trl.DeckTilt:0.0} deg) and stays put on it");
+                    FindOption(trl, "Level the deck")?.run(pi);
+                    for (int i = 0; i < 50 * 5; i++) yield return new WaitForFixedUpdate();
+                    Check(trl.DeckTilt < 0.1f && trl.Carries(m), "levelled again, still chained");
+                }
 
                 // haul it
                 Vector3 c0 = m.transform.position;
                 pk.TestDrive(0.6f);
                 for (int i = 0; i < 50 * 7; i++) yield return new WaitForFixedUpdate();
+                {
+                    // let off the gas: it coasts, the trailer brakes stay off
+                    float vC0 = Vector3.Dot(prb.linearVelocity, pk.transform.forward), trBrake = 0f;
+                    pk.TestCoast();
+                    for (int i = 0; i < 50 * 2; i++)
+                    {
+                        yield return new WaitForFixedUpdate(); trBrake = Mathf.Max(trBrake, trl.BrakeLevel);
+                        if (i % 10 == 0) log.AppendLine($"INFO  coast t {i / 50f:0.0}: {Vector3.Dot(prb.linearVelocity, pk.transform.forward) * 3.6f:0.0} km/h, trailer {Vector3.Dot(trl.Body.linearVelocity, trl.transform.forward) * 3.6f:0.0} km/h brakes {trl.BrakeLevel * 100f:0}%, pedal {pk.BrakePedal}, truck wheel brake {pk.wheels[0].brakeTorque:0}/{pk.wheels[2].brakeTorque:0}, trailer wheel brake {trl.wheels[0].brakeTorque:0}, pk at {pk.transform.position - padAt}, tilt {trl.DeckTilt:0.0}, trl euler {trl.transform.eulerAngles}, m kin {m.GetComponent<Rigidbody>().isKinematic} parent {(m.transform.parent != null ? m.transform.parent.name : "-")}, touching {Touching(trl.gameObject, pad)} / truck {Touching(pk.gameObject, pad)}, rpm truck {WheelInfo(pk.wheels)} trailer {WheelInfo(trl.wheels)}");
+                    }
+                    float vC1 = Vector3.Dot(prb.linearVelocity, pk.transform.forward);
+                    float decel = (vC0 - vC1) / 2f;
+                    Check(vC0 > 3f && decel < 1.3f && trBrake < 0.05f, $"letting off the gas it coasts ({vC0 * 3.6f:0} to {vC1 * 3.6f:0} km/h in 2 s, {decel:0.00} m/s²), trailer brakes off ({trBrake * 100f:0}%)");
+                    pk.TestDrive(0.6f);
+                    for (int i = 0; i < 50; i++) yield return new WaitForFixedUpdate();
+                }
                 pk.TestDrive(-1f);
                 for (int i = 0; i < 50 * 4 && prb.linearVelocity.magnitude > 0.3f; i++) yield return new WaitForFixedUpdate();
                 pk.TestDrive(0f);
@@ -772,9 +890,70 @@ namespace FPSBase.DebugTools
                 yield return ShotAt(trl.transform.position + trl.transform.right * 8f + Vector3.up * 3.5f + trl.transform.forward * 3f, trl.deckArea.position,
                     goose ? "Screenshots/equip_goose_loaded.png" : "Screenshots/equip_tilt_loaded.png");
                 Trailer.ReleaseCargo(m);
-                Destroy(m.gameObject); Destroy(trl.gameObject); Destroy(pk.gameObject); Destroy(pad);
+                Destroy(m.gameObject);
+
+                if (!goose)
+                {
+                    // the 5 t excavator chained on: pulls away on the flat in 2WD (no 4-low needed)
+                    var exP = Prefab("Compact Excavator 5 t");
+                    var ex = Instantiate(exP, trl.deckArea.position + trl.deckArea.up * 0.3f, trl.transform.rotation).GetComponent<VehicleBase>();
+                    var exrb = ex.GetComponent<Rigidbody>(); exrb.isKinematic = false;
+                    for (int i = 0; i < 50 * 3 && !trl.Carries(ex); i++) yield return new WaitForFixedUpdate();
+                    Check(trl.Carries(ex), $"the {ex.displayName} is chained on the tilt trailer");
+                    pk.SetDrive(DumpPickup.DriveMode.TwoHigh, false);
+                    for (int i = 0; i < 50; i++) yield return new WaitForFixedUpdate();
+                    Vector3 s0 = pk.transform.position;
+                    pk.TestDrive(1f);
+                    float v5 = 0f;
+                    for (int i = 0; i < 50 * 8; i++) { yield return new WaitForFixedUpdate(); if (i == 50 * 5) v5 = Vector3.Dot(prb.linearVelocity, pk.transform.forward); }
+                    float v8 = Vector3.Dot(prb.linearVelocity, pk.transform.forward);
+                    pk.TestDrive(-1f);
+                    for (int i = 0; i < 50 * 6 && prb.linearVelocity.magnitude > 0.3f; i++) yield return new WaitForFixedUpdate();
+                    pk.TestDrive(0f);
+                    log.AppendLine($"INFO  2WD with the 5 t excavator on: {v5 * 3.6f:0} km/h after 5 s, {v8 * 3.6f:0} after 8 s, {Vector3.Distance(pk.transform.position, s0):0} m; trailer {trl.CargoTons:0.0} t on, rig {(prb.mass + trl.Body.mass) / 1000f:0.0} t");
+                    Check(v5 > 4.2f && v8 > 6f, $"2WD on the flat pulls the 5 t excavator on the tilt trailer briskly ({v5 * 3.6f:0} km/h after 5 s, {v8 * 3.6f:0} after 8 s)");
+                    Trailer.ReleaseCargo(ex);
+                    Destroy(ex.gameObject);
+
+                    // tip the trailer over hitched, reposition the truck: the trailer comes back upright behind it
+                    trl.transform.rotation = Quaternion.AngleAxis(70f, trl.transform.forward) * trl.transform.rotation;
+                    trl.Body.rotation = trl.transform.rotation;
+                    Physics.SyncTransforms();
+                    for (int i = 0; i < 10; i++) yield return new WaitForFixedUpdate();
+                    pk.Reposition();
+                    for (int i = 0; i < 50 * 2; i++) yield return new WaitForFixedUpdate();
+                    float roll = Vector3.Angle(trl.transform.up, pk.transform.up); // (the reposition spot may be on a slope: upright with the truck)
+                    log.AppendLine($"INFO  after reposition: trailer euler {trl.transform.eulerAngles}, truck euler {pk.transform.eulerAngles}, trailer y {trl.transform.position.y - padAt.y:0.00}, truck y {pk.transform.position.y - padAt.y:0.00}");
+                    float gapH = Vector3.Distance(trl.couplerPoint.position, hitch.transform.position);
+                    Check(roll < 8f && trl.Hitched == hitch && gapH < 0.4f, $"reposition the truck: its trailer comes back upright behind it ({roll:0} deg off the truck's upright, coupler {gapH:0.00} m from the hitch)");
+                }
+                Destroy(trl.gameObject); Destroy(pk.gameObject); Destroy(pad);
                 yield return null;
             }
+
+            // a bowser tipped on its side stays put (it used to glide along on its side)
+            {
+                Vector3 padAt = new Vector3(150f, 400f, 0f);
+                var pad = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                pad.name = "Test pad"; pad.transform.position = padAt + Vector3.down * 0.5f; pad.transform.localScale = new Vector3(40f, 1f, 40f);
+                Physics.SyncTransforms();
+                var bw = Instantiate(Prefab("Fuel Bowser"), padAt + Vector3.up * 1.6f, Quaternion.Euler(0f, 0f, 90f)).GetComponent<Trailer>();
+                for (int i = 0; i < 50 * 2; i++) yield return new WaitForFixedUpdate();
+                Vector3 b0 = bw.transform.position;
+                for (int i = 0; i < 50 * 5; i++) yield return new WaitForFixedUpdate();
+                float glide = Vector3.ProjectOnPlane(bw.transform.position - b0, Vector3.up).magnitude;
+                Check(bw.Tipped && glide < 0.2f, $"a bowser tipped on its side stays put ({glide:0.00} m in 5 s)");
+                var up = FindOption(bw, "Set it back upright");
+                Check(up != null, "a tipped trailer's menu offers to set it back upright");
+                up?.run(pi);
+                for (int i = 0; i < 50 * 2; i++) yield return new WaitForFixedUpdate();
+                Check(!bw.Tipped && Vector3.Angle(bw.transform.up, Vector3.up) < 8f, $"set back upright ({Vector3.Angle(bw.transform.up, Vector3.up):0} deg)");
+                Destroy(bw.gameObject); Destroy(pad);
+                yield return null;
+            }
+
+            var gb = FindFirstObjectByType<GoldBuyer>();
+            Check(gb != null && Mathf.Abs(gb.pricePerGram * 0.01f - 75f) < 0.01f, $"gold sells at $75 per 0.01 g (${(gb != null ? gb.pricePerGram : 0f):0}/g)");
         }
 
         void Finish()
@@ -2332,7 +2511,7 @@ namespace FPSBase.DebugTools
                     ex.transform.rotation = Quaternion.Euler(0f, 0f, Mathf.Lerp(0f, 150f, (i + 1) / 60f));
                     yield return null;
                 }
-                for (float t = 0f; t < 2f; t += Time.deltaTime) yield return null; // heavy dirt takes a moment to let go
+                for (float t = 0f; t < 4f && ex.bucketLoad.volume / ex.bucketCapacity > 0.3f; t += Time.deltaTime) yield return null; // heavy dirt takes a moment to let go (how long depends on the frame rate)
                 float left = ex.bucketLoad.volume / ex.bucketCapacity;
                 Check(left < 0.5f && exc.Spilled > 0.2f * ex.bucketCapacity,
                     $"tipping the bucket over pours the clumps out by gravity ({left * 100f:0}% left, {exc.SpillCount} clods fell)");

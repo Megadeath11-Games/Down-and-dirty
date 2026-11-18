@@ -6,7 +6,7 @@ namespace FPSBase.Mining
     /// <summary>Buys your cleaned-up gold for cash.</summary>
     public class GoldBuyer : Interactable
     {
-        public float pricePerGram = 95f;
+        public float pricePerGram = 7500f; // 0.01 g = $75
 
         public override string Prompt => $"Gold buyer  (${pricePerGram:0}/g)";
 

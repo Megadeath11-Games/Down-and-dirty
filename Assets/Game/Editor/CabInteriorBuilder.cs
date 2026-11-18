@@ -21,14 +21,15 @@ namespace FPSBase.EditorTools
         };
 
         /// <summary>Builds the station next to `eye` (same parent) and returns its controls.</summary>
-        static CabControls CabInterior(Transform eye, CabStyle style, CabMats m, string id)
+        static CabControls CabInterior(Transform eye, CabStyle style, CabMats m, string id, float eyeAboveFloor = 1.24f, bool ownSeat = false)
         {
+            float fy = 1.24f - eyeAboveFloor; // the station below the seat is laid out for a 1.24 m eye height: lift it to this cab's floor
             var node = Node(eye.parent, "Cab Interior", eye.localPosition);
             var cc = node.gameObject.AddComponent<CabControls>();
             var g = new Geo();
             Vector3 P(float x, float y, float z) => new Vector3(x, y, z);
 
-            if (style != CabStyle.StandOn)
+            if (style != CabStyle.StandOn && !ownSeat)
             {
                 // suspension seat on its pedestal
                 g.Box(m.dark, P(0f, -1.0f, -0.1f), P(0.3f, 0.3f, 0.3f));
@@ -69,7 +70,7 @@ namespace FPSBase.EditorTools
             // feet: resting spots, or pedals that swing
             Transform Pedal(string name, float x, string asset)
             {
-                var pv = Node(node, name, P(x, -1.2f, 0.36f));
+                var pv = Node(node, name, P(x, -1.2f + fy, 0.36f));
                 var gp = new Geo();
                 gp.Box(m.dark, P(0f, 0.09f, 0.04f), P(0.1f, 0.2f, 0.025f), Quaternion.Euler(-35f, 0f, 0f));
                 gp.Box(m.metal, P(0f, 0.09f, 0.056f), P(0.09f, 0.17f, 0.006f), Quaternion.Euler(-35f, 0f, 0f));
@@ -128,7 +129,7 @@ namespace FPSBase.EditorTools
                 {
                     cc.leftPedal = Pedal("Brake Pedal", -0.06f, "_Cab_PedalL");
                     cc.rightPedal = Pedal("Throttle Pedal", 0.16f, "_Cab_PedalR");
-                    cc.leftFoot = Node(node, "Left Foot Rest", P(-0.2f, -1.2f, 0.4f));
+                    cc.leftFoot = Node(node, "Left Foot Rest", P(-0.2f, -1.2f + fy, 0.4f));
                     cc.rightFoot = Node(cc.rightPedal, "Foot", P(0f, 0.1f, 0.06f));
                     // steering column and wheel; the wheel turns about its own z (the column)
                     var col = Quaternion.Euler(-62f, 0f, 0f);

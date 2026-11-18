@@ -286,13 +286,13 @@ namespace FPSBase.Vehicles
             MaxTilt = Mathf.Max(MaxTilt * 0.999f, tilt);
             bool grounded = suspension.Contacts > 0 ? suspension.Touching > 0
                 : Physics.Raycast(transform.position + Vector3.up * 0.3f * sizeScale, Vector3.down, 0.6f * sizeScale + 0.1f, ~0, QueryTriggerInteraction.Ignore);
-            if (!grounded) return;
+            if (!grounded) { suspension.ResetTrack(); return; }
             // tracks grip hard: set the velocity along the ground, keep what the springs and gravity do across it
             Vector3 n = suspension.Touching > 0 ? suspension.GroundNormal : Vector3.up;
             Vector3 fwd = Vector3.ProjectOnPlane(transform.forward, n).normalized;
             Vector3 v = rb.linearVelocity;
             float grip = suspension.Grip;
-            rb.linearVelocity = Vector3.Lerp(v, fwd * trackInput * driveSpeed + n * Vector3.Dot(v, n), grip);
+            rb.linearVelocity = suspension.Contacts > 0 ? suspension.TrackVelocity(v, fwd * trackInput * driveSpeed, n, grip) : Vector3.Lerp(v, fwd * trackInput * driveSpeed + n * Vector3.Dot(v, n), grip);
             if (Mathf.Abs(turnInput) > 0.01f)
                 rb.MoveRotation(rb.rotation * Quaternion.Euler(0f, turnInput * turnSpeed * Time.fixedDeltaTime, 0f));
             rb.angularVelocity = new Vector3(rb.angularVelocity.x, 0f, rb.angularVelocity.z);

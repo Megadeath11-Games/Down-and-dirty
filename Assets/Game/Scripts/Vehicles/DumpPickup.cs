@@ -92,7 +92,7 @@ namespace FPSBase.Vehicles
             if (float.IsNaN(netTilt)) return;
             SetTilt(NetIO.Ease(tilt, netTilt, dt));
             gateSwing = NetIO.Ease(gateSwing, netGate, dt);
-            if (tailgate != null) tailgate.localRotation = Quaternion.Euler(-gateSwing, 0f, 0f);
+            if (tailgate != null) tailgate.localRotation = Quaternion.Euler(gateSwing, 0f, 0f); // swings out the back
             UpdateContents();
         }
 
@@ -100,6 +100,8 @@ namespace FPSBase.Vehicles
         {
             rb = GetComponent<Rigidbody>();
             rb.centerOfMass = new Vector3(0f, 0.35f, 0.2f);
+            // the same fine wheel substeps at every speed: switching counts at 5 m/s made heavy-laden wheels lock up
+            if (wheels != null && wheels.Length > 0 && wheels[0] != null) wheels[0].ConfigureVehicleSubsteps(5f, 12, 12);
             if (gooseneckBall != null) gooseneckBall.SetActive(gooseneckFitted);
             if (bedContents != null)
             {
@@ -242,10 +244,13 @@ namespace FPSBase.Vehicles
         }
 
         // nobody in the cab: the box stays where it was left and keeps emptying
-        protected override void IdleUpdate(float dt) { DumpStep(dt); ApplyDrive(testThrottle, 0f, Mathf.Abs(testThrottle) < 0.01f); }
+        protected override void IdleUpdate(float dt) { DumpStep(dt); ApplyDrive(testThrottle, 0f, Mathf.Abs(testThrottle) < 0.01f && !testCoast); }
         float testThrottle;
         /// <summary>Automated tests: drive with nobody in the cab.</summary>
-        public void TestDrive(float throttle) => testThrottle = throttle;
+        public void TestDrive(float throttle) { testThrottle = throttle; testCoast = false; }
+        /// <summary>Tests: off the gas with nobody in it, without the parked handbrake (like a driver coasting).</summary>
+        public void TestCoast() { testThrottle = 0f; testCoast = true; }
+        bool testCoast;
 
         /// <summary>
         /// Tipping: once the box is steep enough the load slides back against the tailgate, which swings open as far
@@ -259,7 +264,7 @@ namespace FPSBase.Vehicles
             // the gate hangs from its top hinge: the load pushes it open when tipped, it swings shut as the box comes down
             float want = tilt > pourStartTilt * 0.6f ? gate * tailgateMaxSwing * Mathf.Clamp01((tilt - pourStartTilt * 0.6f) / 12f) : 0f;
             gateSwing = Mathf.MoveTowards(gateSwing, want, 90f * dt);
-            if (tailgate != null) tailgate.localRotation = Quaternion.Euler(-gateSwing, 0f, 0f);
+            if (tailgate != null) tailgate.localRotation = Quaternion.Euler(gateSwing, 0f, 0f); // swings out the back
             if (!flowing || tailgatePour == null) return;
             float f = Mathf.InverseLerp(pourStartTilt, maxTilt, tilt);
             var pour = load.Take(pourRate * (0.25f + f) * Mathf.Pow(gate, 1.2f) * dt);
@@ -271,8 +276,9 @@ namespace FPSBase.Vehicles
             UpdateContents();
         }
 
-        float lastThrottle;
+        float lastThrottle; bool lastBraking, lastHandbrake;
         protected override bool DriveInput => Mathf.Abs(lastThrottle) > 0.05f;
+        public override int BrakePedal => lastBraking || lastHandbrake ? 1 : 0;
 
         void ApplyDrive(float throttle, float steer, bool handbrake)
         {
@@ -284,6 +290,7 @@ namespace FPSBase.Vehicles
             // on a hill that's what pulls it up again instead of locking the wheels and sliding down
             // (rolling back faster than a walk with W held, it's lost the hill: brake rather than run away backwards)
             bool braking = (throttle < -0.1f && speed > 1.5f) || (throttle > 0.1f && speed < -3f);
+            lastBraking = braking; lastHandbrake = handbrake;
             if (Mathf.Abs(throttle) > 0.01f && rb.IsSleeping()) rb.WakeUp(); // wheel torque alone doesn't wake a parked truck
 
             // engine torque to the axles: 2WD sends it all to the rear, 4-high splits it, 4-low multiplies it
@@ -300,10 +307,11 @@ namespace FPSBase.Vehicles
                 var w = wheels[i];
                 if (w == null) continue;
                 if (i < 2) w.steerAngle = steerAngle;
-                w.motorTorque = axleOut[i];
+                // (exactly zero motor torque makes a WheelCollider grab like a brake and lock up: a hair of torque lets it roll)
+                w.motorTorque = Mathf.Abs(axleOut[i]) < 1e-3f ? 1e-4f : axleOut[i];
                 float b = 0f;
                 if (braking) b = brakeTorque;
-                else if (Mathf.Abs(throttle) < 0.05f) b = kmh < 2.5f ? brakeTorque : 250f; // stopped: hold it on the brakes (no creeping down hills); rolling: engine braking
+                else if (Mathf.Abs(throttle) < 0.05f) b = kmh < 1.2f ? brakeTorque : 70f; // stopped: hold it on the brakes (no creeping down hills); rolling: a light engine drag, it coasts
                 // anti-lock: a locked wheel has no side grip and lets the tail swing round; ease off as it starts to skid
                 if (braking && !handbrake && w.GetGroundHit(out WheelHit wh) && Mathf.Abs(wh.forwardSlip) > 0.4f) b *= 0.35f;
                 if (handbrake) b = brakeTorque * 1.5f;

@@ -16,6 +16,9 @@ namespace FPSBase.Vehicles
         public bool AllowMouse { get; set; } = true;
 
         float yawOffset, pitchOffset;
+        float zoom = 1f;
+        /// <summary>Chase camera zoom (1 = default distance; scroll in to shrink, out to grow).</summary>
+        public float Zoom => zoom;
         bool cabView;
         /// <summary>True while looking out from the seat.</summary>
         public bool CabView => cabView;
@@ -30,7 +33,18 @@ namespace FPSBase.Vehicles
             var kb = Keyboard.current;
             bool blocked = GameUI.Instance != null && GameUI.Instance.BlocksGameplay;
 
-            if (!blocked && Controls.Pressed(GameAction.CabView) && seat != null) cabView = !cabView;
+            if (!blocked && Controls.Pressed(GameAction.CabView) && seat != null)
+            {
+                cabView = !cabView;
+                yawOffset = 0f; pitchOffset = 0f; // into the seat (or back out): looking straight ahead
+            }
+            // scroll wheel zooms the chase camera (not in the seat, and not when the mouse runs the machine)
+            if (!blocked && AllowMouse && !cabView && mouse != null)
+            {
+                float sc = mouse.scroll.ReadValue().y;
+                if (sc > 0.01f) zoom *= 0.88f; else if (sc < -0.01f) zoom /= 0.88f;
+                zoom = Mathf.Clamp(zoom, 0.35f, 3f);
+            }
 
             if (!blocked && AllowMouse && mouse != null)
             {
@@ -51,7 +65,7 @@ namespace FPSBase.Vehicles
 
             var rot = Quaternion.Euler(pitch + pitchOffset, baseYaw + yawOffset, 0f);
             Vector3 pivot = target.position + Vector3.up * height;
-            Vector3 want = pivot - rot * Vector3.forward * distance;
+            Vector3 want = pivot - rot * Vector3.forward * distance * zoom;
             // keep the camera out of the ground
             if (Physics.Linecast(pivot, want, out RaycastHit hit, ~0, QueryTriggerInteraction.Ignore) && !hit.collider.transform.IsChildOf(transform.root))
                 want = hit.point + hit.normal * 0.3f;

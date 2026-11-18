@@ -218,6 +218,8 @@ namespace FPSBase.Vehicles
         protected virtual bool DriveInput => false;
         /// <summary>The driver is on the throttle (a trailer's brakes let go when it pulls away).</summary>
         public bool Throttling => DriveInput;
+        /// <summary>The driver's brake pedal for a trailer's brake controller: 1 on, 0 off, -1 this vehicle doesn't say (the trailer goes by how hard it slows).</summary>
+        public virtual int BrakePedal => -1;
 
         void Bury()
         {

@@ -88,6 +88,24 @@ namespace FPSBase.Vehicles
             b.size = new Vector3(s.x, y1 - y0, s.z * lengthFraction);
         }
 
+        Vector3 lastSet; bool hasLast;
+        /// <summary>
+        /// Tracks grip: the velocity along the ground becomes `along` (blended by Grip), the part across the ground
+        /// is kept. The tracks also take back the little the springs and gravity added since the last step (it
+        /// added up to a slow sideways creep down every slope); a real shove from a collision is left alone.
+        /// </summary>
+        public Vector3 TrackVelocity(Vector3 v, Vector3 along, Vector3 n, float grip)
+        {
+            Vector3 vPlane = Vector3.ProjectOnPlane(v, n);
+            Vector3 drift = hasLast ? Vector3.ProjectOnPlane(v - lastSet, n) : Vector3.zero;
+            if (drift.magnitude > 0.15f) drift = Vector3.zero;
+            Vector3 set = Vector3.Lerp(vPlane, along - drift, grip);
+            lastSet = set; hasLast = true;
+            return set + n * Vector3.Dot(v, n);
+        }
+        /// <summary>Off the ground (or not driving the body): forget the last step.</summary>
+        public void ResetTrack() => hasLast = false;
+
         /// <summary>How much of the drive the tracks get (0..1): full with a third of the contacts down, some even when high-centred.</summary>
         public float Grip => Contacts == 0 ? 1f : Touching == 0 ? 0f : Mathf.Clamp(Touching / (Contacts * 0.34f), 0.45f, 1f);
 

@@ -82,14 +82,14 @@ namespace FPSBase.Vehicles
             float target = (throttle >= 0f ? throttle * driveSpeed : throttle * reverseSpeed) * speedFactor;
             bool slowing = Mathf.Abs(target) < Mathf.Abs(speed) || target * speed < 0f;
             speed = Mathf.MoveTowards(speed, target, (slowing && brakeDecel > 0f ? brakeDecel : acceleration) * Time.fixedDeltaTime);
-            if (!grounded) return;
+            if (!grounded) { suspension.ResetTrack(); return; }
             // tracks grip: set the velocity along the ground, keep what the springs/gravity do across it
             Vector3 n = suspension.Touching > 0 ? suspension.GroundNormal : Vector3.up;
             Vector3 fwd = Vector3.ProjectOnPlane(transform.forward, n).normalized;
             Vector3 v = rb.linearVelocity;
             float vn = Vector3.Dot(v, n);
             float grip = suspension.Grip;
-            rb.linearVelocity = Vector3.Lerp(v, fwd * speed + n * vn, grip);
+            rb.linearVelocity = suspension.Contacts > 0 ? suspension.TrackVelocity(v, fwd * speed, n, grip) : Vector3.Lerp(v, fwd * speed + n * vn, grip);
             float turnFactor = turnInPlace ? 1f : Mathf.Clamp(speed / 1.2f, -1f, 1f);
             if (!turnInPlace && Mathf.Abs(speed) < 0.05f) turnFactor = 0f;
             if (Mathf.Abs(steer) > 0.01f)

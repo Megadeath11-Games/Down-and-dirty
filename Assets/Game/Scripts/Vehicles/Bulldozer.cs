@@ -157,6 +157,10 @@ namespace FPSBase.Vehicles
             Vector3 flatRight = Vector3.ProjectOnPlane(bladeRight, Vector3.up).normalized;
             if (flatRight.sqrMagnitude < 0.5f) flatRight = transform.right;
             Vector3 f = Vector3.Cross(flatRight, Vector3.up).normalized, r = flatRight;
+            // the dirt rides along the blade face and only part of it slides off the trailing end: push it mostly
+            // the way the machine is going (straight off the face, all of it went sideways in a few metres)
+            Vector3 travel = Vector3.ProjectOnPlane(transform.forward, Vector3.up).normalized;
+            if (travel.sqrMagnitude > 0.5f && Vector3.Dot(f, travel) > 0f) f = Vector3.Slerp(travel, f, 0.75f).normalized;
             bool square = Mathf.Abs(bladeTilt) < 0.5f && Mathf.Abs(bladeAngle) < 0.5f;
             if (v > 0.05f && site.Contains(edge))
             {

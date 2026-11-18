@@ -109,7 +109,8 @@ namespace FPSBase.Vehicles
             if (!HasFuel) { armIn = Mathf.Min(armIn, 0f); tiltIn = 0f; }
             SetPose(arm + armIn * armSpeed * dt, tilt + tiltIn * tiltSpeed * dt);
             cab.right = new Vector2(tiltIn, -armIn); // loader joystick: forward = lower, right = dump
-            Work(ForwardSpeed, tiltIn, dt);
+            // shoving into a pile counts as driving into it even when the pile has stopped the machine
+            Work(Mathf.Max(ForwardSpeed, throttle > 0.1f ? throttle * 0.6f : 0f), tiltIn, dt);
             workAmount = Mathf.Clamp01(Mathf.Abs(throttle) + Mathf.Abs(armIn) * 0.5f + Mathf.Abs(tiltIn) * 0.3f);
         }
 
@@ -153,14 +154,16 @@ namespace FPSBase.Vehicles
         {
             Vector3 tip = bucketTip.position;
             var site = DigSite.Instance;
-            bool inDirt = DirtPile.FindContaining(tip) != null || (site != null && site.IsUnderground(tip));
+            // the cutting edge, or just above it (a flat or tipped-forward bucket's lip can ride on the pile's skin)
+            Vector3 lip = tip + Vector3.up * 0.12f + transform.forward * 0.08f;
+            bool inDirt = DirtPile.FindContaining(tip) != null || (site != null && (site.IsUnderground(tip) || site.IsUnderground(lip)));
 
             // a full bucket held low acts like a small dozer blade and shoves dirt along
             if (site != null && bucketLoad.volume >= bucketCapacity * 0.98f && v > 0.05f && tilt < 15f && site.Contains(tip))
                 site.BladePush(tip, transform.forward, 1.9f, tip.y + 0.05f);
 
             // fill: bucket roughly flat and pushed into dirt, or curled while in the dirt
-            if (inDirt && tilt < 15f && bucketLoad.volume < bucketCapacity)
+            if (inDirt && tilt < dumpAngle && bucketLoad.volume < bucketCapacity)
             {
                 float want = Mathf.Max(v, 0f) * fillRate * dt + Mathf.Max(-tiltIn, 0f) * curlFillRate * dt;
                 want = Mathf.Min(want, bucketCapacity - bucketLoad.volume);

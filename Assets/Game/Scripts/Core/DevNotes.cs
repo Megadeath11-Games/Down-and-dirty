@@ -13,6 +13,24 @@ namespace FPSBase.Core
         /// <summary>Newest first.</summary>
         public static readonly Post[] Blog =
         {
+            new Post { date = "Update 6  ·  Nov 19, 2026", title = "Trailer fixes, $75 gold, camera zoom",
+                body =
+                "<b>Changed / fixed</b>\n" +
+                "• Tilt-deck trailer: you can tilt the deck with a machine chained on; it tilts with the deck.\n" +
+                "• Gooseneck trailer: both ramps are there now (the second one was missing).\n" +
+                "• Dump box tailgates swing out the back as the box tips, instead of into the box.\n" +
+                "• Pickup: letting off the gas coasts instead of braking hard; fixed the wheels locking up around 18 km/h with a heavy trailer on.\n" +
+                "• Trailer brakes only come on when you brake (or stop): no more dragging over bumps and round corners.\n" +
+                "• A chained machine's wheels no longer drag the trailer along.\n" +
+                "• The pickup pulls the 5 t excavator on the tilt trailer in 2WD on flat ground (about 30 km/h in 8 s).\n" +
+                "• A tipped trailer stays put instead of gliding along on its side, and its menu can set it back upright.\n" +
+                "• Repositioning or towing a truck brings its trailer back upright, straight behind it.\n" +
+                "• Gold sells for $7,500 a gram ($75 per 0.01 g).\n" +
+                "• Pickup cab: your feet, the pedals and the seat no longer stick out under the truck.\n" +
+                "• Driving: switching to first person (V) looks straight ahead; the scroll wheel zooms the third-person camera.\n" +
+                "• Tracked machines no longer creep sideways down slopes and heap flanks, parked or driving.\n" +
+                "• An angled blade carries more of its load, so less rolls off the side.\n" +
+                "• Loader buckets fill at any angle short of dumping (the HUD's \"flat\"), and fill when you shove into a pile even if it stops you.\n" },
             new Post { date = "Update 5  ·  Nov 18, 2026", title = "Equipment trailers, heavy dirt and proper towing",
                 body =
                 "<b>New</b>\n" +
@@ -71,44 +89,30 @@ namespace FPSBase.Core
                 "• Dozer berms build up properly in front of the blade." },
         };
 
-        public const string TestListVersion = "2026-11-18f";
+        public const string TestListVersion = "2026-11-19a";
 
         /// <summary>What's new in this build to try out.</summary>
         public static readonly string[] TestList =
         {
-            "Buy the 7 t tilt trailer, hitch it to the pickup",
-            "Tilt the deck down, drive a skid steer on, level it",
-            "Fit the gooseneck ball (pickup menu), hitch the 10 t gooseneck",
-            "Gooseneck: lower the ramps, drive the track loader or 5 t excavator on",
-            "Haul a machine on each trailer: it stays chained",
-            "Carry a full skid steer bucket around: it stays in",
-            "Drive a loaded truck over bumps: the dirt feels heavy",
-            "Tow the full bowser and brake hard: no spin, no jackknife",
+            "Tilt deck: tilt it down with a machine chained on, it rides down with the deck",
+            "Gooseneck: both ramps are there and fold down",
+            "Dump box: the tailgate swings out the back as it tips",
+            "Pickup: let off the gas, it coasts (no hard braking)",
+            "Pull the tilt trailer with the 5 t excavator on flat ground in 2WD",
+            "Tow over bumps and round corners: the trailer doesn't drag its brakes",
+            "Tip the bowser over: it stays put (no gliding)",
+            "Reposition the pickup with a trailer on: the trailer comes back upright",
+            "Sell gold: 0.01 g pays $75",
+            "Pickup cab: no feet, pedals or seat showing under the truck",
+            "Driving in 3rd person, press V: first person looks straight ahead",
+            "Driving in 3rd person, scroll to zoom in and out",
+            "Dozer parked sideways on a slope: it doesn't slide",
+            "Tilted blade: clears a windrow without most of it rolling off",
+            "Skid steer: push into a pile with the bucket flat, it fills",
             "Turn sharply with the bowser on: it hits the truck, not through it",
-            "Tow the bowser over humps: the trailer flexes",
-            "Dozer: R / T tilt the blade (each end drops)",
-            "Dozer: G / H swivel the blade left / right",
-            "Push with the blade angled: dirt rolls off to the side",
-            "Try tilt and swivel on all three dozers",
-            "Look at the new skid steers (stand-on, wheeled, tracked)",
-            "Skid steer: dig a bucket full and dump it",
-            "Pickup: X for 2WD / 4-high / 4-low, Z rear diff lock",
-            "Pull the full bowser up a hill in 4-low",
-            "Unhitch the bowser, drive into it: it's solid",
             "Park a dozer on a steep pile: it stays put",
-            "Cross a loose berm with the 66 t dozer: the ruts pack down",
-            "Big dozer feels smooth cutting; small machines still twitchy",
-            "Main menu: Single Player > start a new world",
-            "Esc > Save, then Main Menu > Single Player > Load it: everything is where you left it",
-            "Delete a save (asks \"Really delete\" first)",
             "Multiplayer: host a new world, a friend joins",
             "Multiplayer: save as host, then host the saved world again",
-            "Look at a machine and scroll: the selected option is readable",
-            "Starter GMT400: take the tidy tank out / put it back (box empty)",
-            "Refuel a machine from the pickup's tidy tank",
-            "Bowser: hitch to the pickup, tow it, unhitch it",
-            "Bowser: refill it at the gas station (scroll menu)",
-            "Semi: detach the gooseneck, the deck drops to the ground",
             "Drive a machine onto the lowboy and park: it gets chained down",
             "Hook the gooseneck back on and haul: the load's tyres / tracks stay still",
             "Get in the carried machine: the chains come off",

@@ -57,7 +57,7 @@ namespace FPSBase.Vehicles
         /// <summary>Tilt the deck down (rear on the ground) or back up level. False if it can't now.</summary>
         public bool SetDeckTilt(bool down)
         {
-            if (tiltDeck == null || (down && cargo.Count > 0)) return false;
+            if (tiltDeck == null) return false;
             tiltTarget = down ? tiltMax : 0f;
             return true;
         }
@@ -70,6 +70,9 @@ namespace FPSBase.Vehicles
         }
         /// <summary>Tests: jump straight to a deck / ramp position.</summary>
         public void SnapDeck() { tilt = tiltTarget; rampAmt = rampTarget; ApplyDeck(); }
+
+        /// <summary>Chained machines ride on this: the tilting deck (so they tilt with it), else the trailer.</summary>
+        Transform CargoParent => tiltDeck != null ? tiltDeck : transform;
 
         public bool CanCarry(VehicleBase v)
         {
@@ -138,7 +141,7 @@ namespace FPSBase.Vehicles
             return v.GetComponentInChildren<Trailer>(true);
         }
 
-        class Cargo { public VehicleBase v; public Rigidbody rb; public bool kin; public RigidbodyInterpolation interp; public Transform parent; public float mass; }
+        class Cargo { public VehicleBase v; public Rigidbody rb; public bool kin; public RigidbodyInterpolation interp; public Transform parent; public float mass; public List<WheelCollider> wheelsOff; }
         readonly List<Cargo> cargo = new();
         float scanTimer;
         public int CargoCount => cargo.Count;
@@ -149,6 +152,7 @@ namespace FPSBase.Vehicles
         {
             rb = GetComponent<Rigidbody>();
             emptyMass = rb.mass;
+            if (wheels != null && wheels.Length > 0 && wheels[0] != null) wheels[0].ConfigureVehicleSubsteps(5f, 12, 12); // (as the pickup: no lock-ups crossing 5 m/s)
             if (jack != null) jackRest = jack.localPosition;
             // built riding on its truck: never collide with it (the gooseneck sits right in the tractor's body box)
             var pv = transform.parent != null ? transform.parent.GetComponentInParent<VehicleBase>() : null;
@@ -438,29 +442,58 @@ namespace FPSBase.Vehicles
             float slowing = -towDecel * Mathf.Sign(Mathf.Abs(vT) > 0.05f ? vT : s);
             var tractor = Hitched.Vehicle;
             bool pulling = tractor != null && tractor.Throttling;
+            // the controller is wired to the truck's brake pedal: off the pedal the trailer rolls free (coasting,
+            // bumps and corners slow the truck too, but mustn't drag the trailer brakes on)
+            int pedal = tractor != null ? tractor.BrakePedal : -1;
             if (Mathf.Abs(vT) < 0.25f && !pulling && Mathf.Abs(towDecel) < 0.6f) want = 1f; // truck stopped: hold with it
+            else if (pedal == 0) want = 0f;
+            else if (pedal == 1) want = Mathf.Clamp01(Mathf.Max(0f, slowing - 0.4f) / 6f + 0.3f);
             else if (slowing > 0.4f) want = Mathf.Clamp01((slowing - 0.4f) / 6f + 0.1f);
             BrakeLevel = pulling && want < 0.5f ? Mathf.MoveTowards(BrakeLevel, want, dt * 12f) : Mathf.MoveTowards(BrakeLevel, want, dt * 6f);
             float r = wheels[0] != null ? wheels[0].radius : 0.4f;
             // torque for the trailer's own mass to slow like the truck (a touch more, so the hitch pulls rather than pushes)
             float perWheel = BrakeLevel >= 0.999f && Mathf.Abs(vT) < 0.25f ? parkBrake
-                : rb.mass * Mathf.Max(0f, slowing) * brakeGain * r / wheels.Length;
+                : want <= 0f ? 0f : rb.mass * Mathf.Max(0f, slowing) * brakeGain * r / wheels.Length;
             perWheel = Mathf.Min(perWheel, parkBrake * 2f) * (BrakeLevel > 0.01f ? 1f : 0f);
             foreach (var w in wheels)
                 if (w != null) { w.brakeTorque = perWheel; w.motorTorque = perWheel > 0f ? 0f : 1e-4f; }
+        }
+
+        bool tippedWheelsOff;
+        /// <summary>Lying on its side or roof: the wheels are in the air, so they mustn't act on anything.</summary>
+        public bool Tipped => transform.up.y < 0.5f;
+        void TipStep()
+        {
+            bool off = Tipped && Hitched == null;
+            if (off == tippedWheelsOff || wheels == null) return;
+            tippedWheelsOff = off;
+            foreach (var w in wheels) if (w != null) w.enabled = !off;
+        }
+
+        /// <summary>Set a tipped trailer back on its wheels where it lies.</summary>
+        public void SetUpright()
+        {
+            Vector3 p = transform.position;
+            float y = FPSBase.Mining.VehicleDealer.GroundAt(p).y;
+            transform.SetPositionAndRotation(new Vector3(p.x, Mathf.Max(p.y, y) + 0.6f, p.z), Quaternion.Euler(0f, transform.eulerAngles.y, 0f));
+            rb.position = transform.position; rb.rotation = transform.rotation;
+            if (!rb.isKinematic) { rb.linearVelocity = Vector3.zero; rb.angularVelocity = Vector3.zero; }
+            Physics.SyncTransforms();
+            TipStep();
         }
 
         void FixedUpdate()
         {
             UpdateMass();
             RejoinStep();
+            TipStep();
             if (Hitched != null) BrakeStep();
             DeckStep(Time.fixedDeltaTime);
             if (deckArea == null || busy) return;
             if ((scanTimer -= Time.fixedDeltaTime) > 0f) return;
             scanTimer = 0.5f;
             for (int i = cargo.Count - 1; i >= 0; i--)
-                if (cargo[i].v == null || cargo[i].v.Occupied || cargo[i].v.transform.parent != transform) Release(cargo[i]);
+                if (cargo[i].v == null || cargo[i].v.Occupied || cargo[i].v.transform.parent != CargoParent) Release(cargo[i]);
             ScanDeck();
         }
 
@@ -499,7 +532,11 @@ namespace FPSBase.Vehicles
             vrb.linearVelocity = Vector3.zero; vrb.angularVelocity = Vector3.zero;
             vrb.isKinematic = true;
             vrb.interpolation = RigidbodyInterpolation.None;
-            v.transform.SetParent(transform, true);
+            // its wheels off while it rides: a chained machine's (braked) wheels would feel the deck moving under
+            // them and drag the whole rig to a stop
+            c.wheelsOff = new List<WheelCollider>();
+            foreach (var w in v.GetComponentsInChildren<WheelCollider>()) if (w.enabled) { w.enabled = false; c.wheelsOff.Add(w); }
+            v.transform.SetParent(CargoParent, true);
             var mine = GetComponentsInChildren<Collider>(true);
             var theirs = v.GetComponentsInChildren<Collider>(true);
             IgnorePair(theirs, mine, true);
@@ -515,7 +552,8 @@ namespace FPSBase.Vehicles
             UpdateMass();
             if (c.v == null) return;
             c.v.RidingTrailer = false;
-            if (c.v.transform.parent == transform) c.v.transform.SetParent(c.parent, true);
+            if (c.v.transform.parent == transform || c.v.transform.parent == CargoParent) c.v.transform.SetParent(c.parent, true);
+            if (c.wheelsOff != null) foreach (var w in c.wheelsOff) if (w != null) w.enabled = true;
             if (c.rb != null)
             {
                 c.rb.position = c.v.transform.position; c.rb.rotation = c.v.transform.rotation;
@@ -551,6 +589,12 @@ namespace FPSBase.Vehicles
             foreach (var (t, p, r) in hooked)
             {
                 t.transform.SetPositionAndRotation(v.transform.TransformPoint(p), v.transform.rotation * r);
+                if (t.Hitched != null && t.couplerPoint != null)
+                {
+                    // upright and straight behind the truck, its coupler on the hitch (whatever state it was in)
+                    t.transform.rotation = Quaternion.Euler(0f, v.transform.eulerAngles.y, 0f);
+                    t.transform.position += t.Hitched.transform.position - t.couplerPoint.position;
+                }
                 t.rb.position = t.transform.position; t.rb.rotation = t.transform.rotation;
                 if (!t.rb.isKinematic) { t.rb.linearVelocity = Vector3.zero; t.rb.angularVelocity = Vector3.zero; }
             }
@@ -586,14 +630,16 @@ namespace FPSBase.Vehicles
         public void AddOptions(List<InteractOption> list)
         {
             bool moving = Tractor != null && Tractor.GetComponent<Rigidbody>() is Rigidbody trb && !trb.isKinematic && trb.linearVelocity.magnitude > 0.6f;
+            if (Tipped && Hitched == null)
+                list.Add(new InteractOption { label = "Set it back upright", enabled = true, run = p => { SetUpright(); GameUI.Toast($"{displayName} set back on its wheels"); } });
             if (tiltDeck != null)
             {
                 bool down = tiltTarget > 0.5f;
                 list.Add(down
                     ? new InteractOption { label = "Level the deck   (hydraulic tilt up: ready to haul)", enabled = !moving, note = "stop first",
                         run = p => { SetDeckTilt(false); GameUI.Toast("Deck tilting up level: park a machine on it and it gets chained down"); } }
-                    : new InteractOption { label = "Tilt the deck down   (rear on the ground: drive on over the back)", enabled = !moving && cargo.Count == 0,
-                        note = moving ? "stop first" : "unchain the machine first (get in it)",
+                    : new InteractOption { label = "Tilt the deck down   (rear on the ground: drive on over the back)", enabled = !moving,
+                        note = "stop first",
                         run = p => { SetDeckTilt(true); GameUI.Toast("Deck tilting down: drive on over the back, then level it"); } });
             }
             if (ramps != null && ramps.Length > 0)

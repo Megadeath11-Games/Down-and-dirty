@@ -564,7 +564,7 @@ namespace FPSBase.EditorTools
             }
 
             var seat = Marker(t, "CabView", Cb(-0.12f, 0.98f, -0.40f));
-            CabInterior(seat, CabStyle.Truck, CabMatsFrom(fm, red), id);
+            CabInterior(seat, CabStyle.Truck, CabMatsFrom(fm, red), id, eyeAboveFloor: 0.95f, ownSeat: true); // its own bench seat, floor 0.95 m under the eye
             pk.vehicleCamera = VehicleCam(t, t, seat, 8f, 2.6f);
             return root;
         }
@@ -703,7 +703,7 @@ namespace FPSBase.EditorTools
                     gr.Box(accent, F(0f, rampLen * 0.5f, 0f), FS(0.07f, rampLen, rampW));
                     foreach (int e in new[] { -1, 1 }) gr.Box(frame, F(0.02f, rampLen * 0.5f, e * rampW * 0.47f), FS(0.1f, rampLen, 0.05f));
                     for (int k = 0; k < 10; k++) gr.Box(frame, F(0.05f, 0.15f + k * (rampLen - 0.3f) / 9f, 0f), FS(0.04f, 0.04f, rampW * 0.9f)); // cleats
-                    gr.Attach(rp, id + "_Ramp");
+                    gr.Attach(rp, id + (s < 0 ? "_RampL" : "_RampR")); // (one asset each: a shared name overwrote the first ramp)
                     ColBox(rp, "Ramp", F(0f, rampLen * 0.5f, 0f), FS(0.08f, rampLen, rampW));
                     rampList.Add(rp);
                 }

@@ -314,6 +314,7 @@ namespace FPSBase.Vehicles
         {
             var c = new Cargo { v = v, rb = vrb, kin = vrb.isKinematic, interp = vrb.interpolation, parent = v.transform.parent, mass = vrb.mass };
             cargo.Add(c);
+            v.RidingTrailer = true;
             vrb.linearVelocity = Vector3.zero; vrb.angularVelocity = Vector3.zero;
             vrb.isKinematic = true;
             vrb.interpolation = RigidbodyInterpolation.None;
@@ -332,6 +333,7 @@ namespace FPSBase.Vehicles
             cargo.Remove(c);
             UpdateMass();
             if (c.v == null) return;
+            c.v.RidingTrailer = false;
             if (c.v.transform.parent == transform) c.v.transform.SetParent(c.parent, true);
             if (c.rb != null)
             {

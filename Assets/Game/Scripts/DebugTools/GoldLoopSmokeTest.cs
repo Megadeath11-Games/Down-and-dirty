@@ -584,6 +584,8 @@ namespace FPSBase.DebugTools
             for (int i = 0; i < 50 * 3; i++) yield return new WaitForFixedUpdate();
             Check(low.NeckOn && low.Hitched == semi.fifthWheel && low.Carries(ctl), "gooseneck back on: hitched, the machine still chained on the deck");
             Vector3 c0 = ctl.transform.position;
+            var cta = ctl.GetComponentInChildren<TrackAnimator>();
+            float belt0 = cta != null ? cta.Travel(0) : 0f, belt1 = cta != null ? cta.Travel(1) : 0f;
             semi.TestDrive(0.6f);
             for (int i = 0; i < 50 * 6; i++) yield return new WaitForFixedUpdate();
             semi.TestDrive(0f);
@@ -591,9 +593,11 @@ namespace FPSBase.DebugTools
             Vector3 still = low.deckArea.InverseTransformPoint(ctl.transform.position);
             Check(Vector3.Distance(ctl.transform.position, c0) > 8f && Mathf.Abs(still.z - onDeck.z) < 0.2f && semi.LoadFraction > 0.1f,
                 $"the load rides along ({Vector3.Distance(ctl.transform.position, c0):0.0} m, slid {Mathf.Abs(still.z - onDeck.z):0.00} m, load {semi.LoadFraction * 100f:0}% of {low.payloadTons:0} t)");
+            float beltRun = cta != null ? Mathf.Max(Mathf.Abs(cta.Travel(0) - belt0), Mathf.Abs(cta.Travel(1) - belt1)) : 0f;
+            Check(cta != null && ctl.RidingTrailer && beltRun < 0.05f, $"the chained machine's tracks hold still while the lowboy drives ({beltRun:0.00} m of belt)");
             yield return ShotAt(low.transform.position + low.transform.right * 9f + Vector3.up * 4f + low.transform.forward * 2f, low.deckArea.position, "Screenshots/transport_loaded.png");
             Trailer.ReleaseCargo(ctl);
-            Check(!low.Carries(ctl) && !crb.isKinematic && ctl.transform.parent == null, "getting in (or towing) the machine takes the chains off");
+            Check(!low.Carries(ctl) && !crb.isKinematic && ctl.transform.parent == null && !ctl.RidingTrailer, "getting in (or towing) the machine takes the chains off");
 
             Destroy(ctl.gameObject);
             foreach (var s in semis) { if (s.Towing != null) Destroy(s.Towing.gameObject); Destroy(s.gameObject); }

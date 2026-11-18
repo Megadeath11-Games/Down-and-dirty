@@ -106,9 +106,14 @@ namespace FPSBase.Vehicles
                 mat = shoeMaterial.enableInstancing ? shoeMaterial : new Material(shoeMaterial) { enableInstancing = true };
         }
 
+        VehicleBase owner;
+        bool ownerLooked;
+
         void LateUpdate()
         {
             if (belts == null) return;
+            if (!ownerLooked) { owner = GetComponentInParent<VehicleBase>(); ownerLooked = true; }
+            bool riding = owner != null && owner.RidingTrailer; // carried on a lowboy: the belts stay put
             Vector3 fwd = transform.forward;
             foreach (var b in belts)
             {
@@ -118,7 +123,7 @@ namespace FPSBase.Vehicles
                 {
                     float v = Vector3.Dot(w - b.lastWorld, fwd);
                     // not a teleport / recover (a long frame can legitimately move a few metres)
-                    if (Mathf.Abs(v) < Mathf.Max(3f, Time.deltaTime * 40f))
+                    if (!riding && Mathf.Abs(v) < Mathf.Max(3f, Time.deltaTime * 40f))
                     {
                         b.travelled += v;
                         // counter-clockwise belt: the bottom run (on the ground) runs backward past the machine

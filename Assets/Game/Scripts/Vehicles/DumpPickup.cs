@@ -229,7 +229,7 @@ namespace FPSBase.Vehicles
                 if (handbrake) b = brakeTorque * 1.5f;
                 w.brakeTorque = b;
 
-                if (wheelVisuals.Length > i && wheelVisuals[i] != null)
+                if (wheelVisuals.Length > i && wheelVisuals[i] != null && !RidingTrailer) // on a trailer deck the tyres hold still
                 {
                     w.GetWorldPose(out Vector3 p, out Quaternion q);
                     wheelVisuals[i].SetPositionAndRotation(p, q * Quaternion.Euler(0f, 0f, 90f));

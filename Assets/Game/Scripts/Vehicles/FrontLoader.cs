@@ -135,7 +135,7 @@ namespace FPSBase.Vehicles
             float yaw = transform.eulerAngles.y;
             float yawRate = Time.deltaTime > 1e-5f ? Mathf.DeltaAngle(lastYaw, yaw) * Mathf.Deg2Rad / Time.deltaTime : 0f;
             lastYaw = yaw;
-            if (wheelVisuals == null || spins == null) return;
+            if (wheelVisuals == null || spins == null || RidingTrailer) return; // chained on a trailer: wheels hold still
             for (int i = 0; i < wheelVisuals.Length; i++)
             {
                 var w = wheelVisuals[i];

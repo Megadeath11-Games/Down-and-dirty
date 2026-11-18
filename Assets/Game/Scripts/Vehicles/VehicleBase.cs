@@ -54,6 +54,8 @@ namespace FPSBase.Vehicles
         public float NetSpeed { get; set; }
         /// <summary>Same on every player's game: which machine this is.</summary>
         public int NetId { get; set; }
+        /// <summary>Chained down on a trailer deck: it moves with the trailer, its own wheels and tracks don't turn.</summary>
+        public bool RidingTrailer { get; set; }
         float netWork;
         RigidbodyInterpolation netInterp = RigidbodyInterpolation.Interpolate;
         /// <summary>The local player got in / out (the network session claims the machine).</summary>

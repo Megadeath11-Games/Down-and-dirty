@@ -260,6 +260,8 @@ namespace FPSBase.Core
 
         // ------------------------------------------------------------------ look-at prompt / menu
 
+        GUIStyle optStyle, optSelStyle;
+
         void DrawLookPrompt()
         {
             var opts = player.Options;
@@ -272,8 +274,19 @@ namespace FPSBase.Core
             }
             GUI.Label(new Rect(cx - 300, y, 600, 26), player.Current.Prompt, prompt);
             y += 28;
-            float w = 420f, h = 26f;
-            GUI.color = new Color(0f, 0f, 0f, 0.45f);
+            optStyle ??= new GUIStyle(hudSmall) { wordWrap = false, clipping = TextClipping.Clip, alignment = TextAnchor.MiddleLeft };
+            optSelStyle ??= new GUIStyle(optStyle) { fontStyle = FontStyle.Bold };
+            const float h = 24f;
+            var texts = new string[opts.Count];
+            float w = 360f;
+            for (int i = 0; i < opts.Count; i++)
+            {
+                var o = opts[i];
+                texts[i] = (i == player.Selected ? $"[{key}]  " : "      ") + o.label + (!o.enabled && !string.IsNullOrEmpty(o.note) ? $"   ({o.note})" : "");
+                w = Mathf.Max(w, optSelStyle.CalcSize(new GUIContent("[" + key + "]  " + o.label + (!o.enabled && !string.IsNullOrEmpty(o.note) ? $"   ({o.note})" : ""))).x + 16f);
+            }
+            w = Mathf.Min(w, Screen.width - 40f);
+            GUI.color = new Color(0f, 0f, 0f, 0.55f);
             GUI.DrawTexture(new Rect(cx - w / 2f - 6, y - 3, w + 12, opts.Count * h + 6), Texture2D.whiteTexture);
             for (int i = 0; i < opts.Count; i++)
             {
@@ -281,8 +294,7 @@ namespace FPSBase.Core
                 bool sel = i == player.Selected;
                 if (sel) { GUI.color = new Color(1f, 0.8f, 0.3f, 0.35f); GUI.DrawTexture(new Rect(cx - w / 2f - 4, y + i * h, w + 8, h - 2), Texture2D.whiteTexture); }
                 GUI.color = !o.enabled ? new Color(1f, 1f, 1f, 0.45f) : sel ? new Color(1f, 0.92f, 0.6f) : Color.white;
-                string text = (sel ? $"[{key}]  " : "      ") + o.label + (!o.enabled && !string.IsNullOrEmpty(o.note) ? $"   ({o.note})" : "");
-                GUI.Label(new Rect(cx - w / 2f, y + i * h, w, h), text, sel ? prompt : hudSmall);
+                GUI.Label(new Rect(cx - w / 2f + 4, y + i * h, w - 4, h), texts[i], sel ? optSelStyle : optStyle);
             }
             GUI.color = Color.white;
         }

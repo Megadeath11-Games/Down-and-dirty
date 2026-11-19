@@ -14,7 +14,7 @@ namespace FPSBase.Core
         /// <summary>The main menu is up (the world waits behind it).</summary>
         public bool InMainMenu => menuOpen;
         bool menuOpen;
-        enum MenuScreen { Main, Single, Multi, Blog }
+        enum MenuScreen { Main, Single, Multi, Blog, Options }
         MenuScreen screen;
         string newWorldName = "My claim";
         string menuMessage;
@@ -71,6 +71,10 @@ namespace FPSBase.Core
             menuBare = false;
             yield return Shot("menu_main.png");
             Debug.Log($"[Music] now playing: {MusicPlayer.NowPlaying ?? "(nothing)"}");
+            screen = MenuScreen.Options; pauseTab = 1; yield return Shot("menu_options_audio.png");
+            pauseTab = 2; yield return Shot("menu_options_graphics.png");
+            pauseTab = 3; controlsOpen = true; yield return Shot("menu_options_keys.png");
+            controlsOpen = false; pauseTab = 0;
             screen = MenuScreen.Blog; yield return Shot("menu_blog.png");
             screen = MenuScreen.Single; RefreshSaves(SaveGame.Mode.SinglePlayer); yield return Shot("menu_single.png");
             screen = MenuScreen.Multi; RefreshSaves(SaveGame.Mode.Multiplayer); yield return Shot("menu_multi.png");
@@ -248,6 +252,7 @@ namespace FPSBase.Core
         void DrawMainMenu()
         {
             MenuStyles();
+            if (screen == MenuScreen.Options && !loading) { if (controlsOpen) DrawControlsMenu(); else DrawOptionsMenu(); return; }
             // behind: the machines at work (MenuScene), darkened at the edges; or plain dark earth if there's none
             bool scene = MenuBackdropShowing;
             FPSBase.UI.ShopTheme.Fill(new Rect(0, 0, Screen.width, Screen.height), new Color(0.06f, 0.042f, 0.026f, scene ? 0.18f : 0.94f));
@@ -281,11 +286,40 @@ namespace FPSBase.Core
             GUILayout.Space(8);
             if (GUILayout.Button("Multiplayer", menuButton, GUILayout.Height(58))) { screen = MenuScreen.Multi; RefreshSaves(SaveGame.Mode.Multiplayer); menuMessage = null; }
             GUILayout.Space(8);
+            if (GUILayout.Button("Options", menuButton2, GUILayout.Height(48))) { screen = MenuScreen.Options; pauseScroll = Vector2.zero; menuMessage = null; }
+            GUILayout.Space(8);
             if (GUILayout.Button("Dev Blog: what's new", menuButton2, GUILayout.Height(48))) { screen = MenuScreen.Blog; menuScroll = Vector2.zero; menuMessage = null; }
             GUILayout.Space(8);
             if (GUILayout.Button("Quit", menuButton2, GUILayout.Height(48))) QuitGame();
             GUILayout.Space(20);
             GUILayout.Label("Esc in the game opens the pause menu: save your world there.", menuSub);
+        }
+
+        /// <summary>The settings before you load in: the same tabs as the pause menu (game, audio, graphics, key bindings).</summary>
+        void DrawOptionsMenu()
+        {
+            FPSBase.UI.ShopTheme.Fill(new Rect(0, 0, Screen.width, Screen.height), new Color(0.06f, 0.042f, 0.026f, MenuBackdropShowing ? 0.3f : 0.94f));
+            float w = Mathf.Min(620f, Screen.width - 40f), h = Mathf.Min(720f, Screen.height - 40f);
+            var r = new Rect((Screen.width - w) / 2f, (Screen.height - h) / 2f, w, h);
+            GUI.Box(r, GUIContent.none, menuPanel);
+            GUILayout.BeginArea(new Rect(r.x + 20, r.y + 14, w - 40, h - 28));
+            GUILayout.Label("Options", header);
+            GUILayout.Space(6);
+            int tab = GUILayout.Toolbar(pauseTab, PauseTabs, FPSBase.UI.ShopTheme.Toolbar, GUILayout.Height(34));
+            if (tab != pauseTab) { pauseTab = tab; pauseScroll = Vector2.zero; }
+            GUILayout.Space(10);
+            pauseScroll = GUILayout.BeginScrollView(pauseScroll);
+            switch (pauseTab)
+            {
+                case 0: GameTab(); break;
+                case 1: AudioTab(); break;
+                case 2: GraphicsTab(); break;
+                default: ControlsTab(); break;
+            }
+            GUILayout.EndScrollView();
+            GUILayout.Space(8);
+            if (GUILayout.Button("Back  (Esc)", GUILayout.Height(36))) { screen = MenuScreen.Main; capturing = null; }
+            GUILayout.EndArea();
         }
 
         void NewWorldRow(string button, System.Action start)

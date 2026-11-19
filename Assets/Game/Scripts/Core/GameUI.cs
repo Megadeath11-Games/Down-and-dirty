@@ -104,29 +104,19 @@ namespace FPSBase.Core
             if (menuOpen)
             {
                 MenuUpdate();
-                if (menuOpen && Controls.MenuBack(true) && screen != MenuScreen.Main) { screen = MenuScreen.Main; menuMessage = null; }
+                if (capturing.HasValue) CaptureKey(kb);
+                else if (menuOpen && Controls.MenuBack(true))
+                {
+                    if (controlsOpen) controlsOpen = false;
+                    else if (screen != MenuScreen.Main) { screen = MenuScreen.Main; menuMessage = null; }
+                }
                 if (menuOpen) Time.timeScale = FPSBase.Net.NetSession.InSession ? 1f : 0f;
                 if (menuOpen && AudioListener.pause != (Time.timeScale == 0f)) AudioListener.pause = Time.timeScale == 0f;
                 Cursor.lockState = CursorLockMode.None;
                 Cursor.visible = true;
                 return;
             }
-            if (capturing.HasValue)
-            {
-                // waiting for the player to press the new key for an action
-                if (kb != null)
-                {
-                    if (kb.escapeKey.wasPressedThisFrame) capturing = null;
-                    else
-                        foreach (var k in kb.allKeys)
-                            if (k != null && k.wasPressedThisFrame && k.keyCode != Key.None)
-                            {
-                                Controls.Set(capturing.Value, k.keyCode);
-                                capturing = null;
-                                break;
-                            }
-                }
-            }
+            if (capturing.HasValue) CaptureKey(kb);
             else if (!paused && Controls.Pressed(GameAction.Map))
             {
                 if (panelTitle == "Map" && panelDraw != null) ClosePanel(); else OpenPanel("Map", DrawMap, 1120f);
@@ -662,6 +652,20 @@ namespace FPSBase.Core
             }
             if (GUI.Button(new Rect(r.xMax - 200, r.yMax - 48, 182, 36), Controls.HasPad ? "Close  (Esc / B)" : "Close  (Esc)", FPSBase.UI.ShopTheme.PlainButton)) ClosePanel();
             GUI.skin = oldSkin;
+        }
+
+        /// <summary>Waiting for the player to press the new key for an action (Esc cancels).</summary>
+        void CaptureKey(Keyboard kb)
+        {
+            if (kb == null || !capturing.HasValue) return;
+            if (kb.escapeKey.wasPressedThisFrame) { capturing = null; return; }
+            foreach (var k in kb.allKeys)
+                if (k != null && k.wasPressedThisFrame && k.keyCode != Key.None)
+                {
+                    Controls.Set(capturing.Value, k.keyCode);
+                    capturing = null;
+                    return;
+                }
         }
 
         void DrawControlsMenu()

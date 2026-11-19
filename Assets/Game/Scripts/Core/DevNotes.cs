@@ -13,6 +13,9 @@ namespace FPSBase.Core
         /// <summary>Newest first.</summary>
         public static readonly Post[] Blog =
         {
+            new Post { date = "Update 16  ·  Nov 19, 2026", title = "Options on the main menu",
+                body =
+                "• The main menu has an Options button: set the sound and music volumes, graphics, the camera and mouse, the excavator controls and every key binding before you load into a world. It's the same settings as the pause menu, and they're saved for next time.\n" },
             new Post { date = "Update 15  ·  Nov 19, 2026", title = "Down and Dirty, and every excavator function at once",
                 body =
                 "<b>New</b>\n" +
@@ -185,11 +188,12 @@ namespace FPSBase.Core
                 "• Dozer berms build up properly in front of the blade." },
         };
 
-        public const string TestListVersion = "2026-11-19j";
+        public const string TestListVersion = "2026-11-19k";
 
         /// <summary>What's new in this build to try out.</summary>
         public static readonly string[] TestList =
         {
+            "Main menu > Options: change the volumes, graphics and a key binding before loading in, then check they stuck in the game",
             "Excavator: hold stick in + curl + swing together (try the number pad 8/5/4/6 for boom and bucket): the panel shows all of them moving",
             "The game starts as Down and Dirty, and your saved worlds are still there",
             "Main menu: an excavator loads dump trucks behind the menu while a dozer pushes dirt to it",

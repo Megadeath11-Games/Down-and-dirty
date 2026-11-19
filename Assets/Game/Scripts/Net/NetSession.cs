@@ -110,6 +110,12 @@ namespace FPSBase.Net
                 var w = Begin(MsgPlantLoad); w.Write(PlantIndex(p)); NetIO.Write(w, l);
                 Send(HostSteam, w, true);
             };
+            Trailer.NetDeckChanged = t =>
+            {
+                if (!InSession || t == null || t.NetKey == 0) return;
+                var w = Begin(MsgTrailerDeck); w.Write(t.NetKey); w.Write(t.TiltTarget); w.Write(t.RampTarget);
+                Send(w, true, null); // to everyone: their decks start moving now, and whoever runs it keeps it
+            };
             WashPlant.NetAction = (p, a) =>
             {
                 if (!InSession) return;
@@ -404,7 +410,7 @@ namespace FPSBase.Net
 
         const byte MsgHello = 1, MsgPlayer = 2, MsgVehicles = 3, MsgClaim = 4, MsgSpawn = 5, MsgTerrain = 6, MsgLoad = 7, MsgBye = 8,
             MsgPlant = 9, MsgPlantLoad = 10, MsgPlantAction = 11, MsgPlantGold = 12, MsgTrailers = 13,
-            MsgJobs = 14, MsgJobAction = 15, MsgJobPay = 16, MsgPiles = 17;
+            MsgJobs = 14, MsgJobAction = 15, MsgJobPay = 16, MsgPiles = 17, MsgTrailerDeck = 18;
         const int ChReliable = 0, ChFast = 1;
 
         static BinaryWriter Begin(byte type)
@@ -538,6 +544,7 @@ namespace FPSBase.Net
                     break;
                 }
                 case MsgTrailers: ReadTrailers(from, r); break;
+                case MsgTrailerDeck: { var t = FindTrailer(r.ReadInt32()); float tt = r.ReadSingle(), rt = r.ReadSingle(); t?.NetApplyDeck(tt, rt); break; }
                 case MsgJobs: if (!IsHost && FPSBase.City.Jobs.Instance != null) FPSBase.City.Jobs.Instance.Read(r, true); break;
                 case MsgJobAction:
                 {

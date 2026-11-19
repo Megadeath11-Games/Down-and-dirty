@@ -525,6 +525,36 @@ namespace FPSBase.DebugTools
                     yield return Expect(() => TrailerById(tid) != null && TrailerById(tid).Hitched != null, 4f, "hitched to it");
                 }
                 yield return Sync("tow-checked");
+
+                // the deck: the host (who runs the trailer) tilts it, then the friend levels it from the ground
+                {
+                    int tid = int.Parse(File.ReadAllText(Path.Combine(dir, "host.val.tow")));
+                    var dt = TrailerById(tid);
+                    if (host && dt != null) dt.SetDeckTilt(true);
+                    if (!host)
+                    {
+                        float t0 = Time.unscaledTime;
+                        yield return Expect(() => dt != null && dt.DeckTilt > 1.5f, 1.5f, "the host tilts the deck: it starts tilting on your game straight away", () => dt != null ? $"{dt.DeckTilt:0.0}° after {Time.unscaledTime - t0:0.00} s" : "no trailer");
+                        Info($"deck started moving here {Time.unscaledTime - t0:0.00} s after the host worked it");
+                    }
+                    yield return Seconds(4f);
+                    yield return Sync("deck-down");
+                    if (!host)
+                    {
+                        if (dt != null) dt.SetDeckTilt(false);
+                        yield return Seconds(2f);
+                        Check(dt != null && dt.TiltTarget < 0.5f && dt.DeckTilt < dt.tiltMax - 2f, $"you level the deck of a trailer on the host's truck: it keeps going on your game ({(dt != null ? dt.DeckTilt : -1f):0.0}°)");
+                    }
+                    else
+                    {
+                        float t0 = Time.unscaledTime;
+                        yield return Expect(() => dt != null && dt.TiltTarget < 0.5f && dt.DeckTilt < dt.tiltMax - 1.5f, 2f, "the friend levels the deck: it moves on your game straight away", () => dt != null ? $"{dt.DeckTilt:0.0}°, target {dt.TiltTarget:0}" : "no trailer");
+                        Info($"deck started levelling here {Time.unscaledTime - t0:0.00} s after the friend worked it");
+                    }
+                    yield return Seconds(4f);
+                    yield return Sync("deck-up");
+                    Check(dt != null && dt.DeckTilt < 0.5f, $"the deck ends level on your game ({(dt != null ? dt.DeckTilt : -1f):0.0}°)");
+                }
                 if (host) { foreach (var v in VehicleBase.All) if (v != null && v.Occupied) { v.Exit(); break; } yield return Frames(10); }
             }
             yield return Sync("tow-done");

@@ -58,15 +58,34 @@ namespace FPSBase.Vehicles
         public bool SetDeckTilt(bool down)
         {
             if (tiltDeck == null) return false;
+            float was = tiltTarget;
             tiltTarget = down ? tiltMax : 0f;
+            if (was != tiltTarget) DeckChanged();
             return true;
         }
         /// <summary>Lower or fold up the loading ramps.</summary>
         public bool SetRamps(bool down)
         {
             if (ramps == null || ramps.Length == 0) return false;
+            float was = rampTarget;
             rampTarget = down ? 1f : 0f;
+            if (was != rampTarget) DeckChanged();
             return true;
+        }
+
+        /// <summary>Multiplayer: tell every game straight away that the deck / ramps were worked here.</summary>
+        public static System.Action<Trailer> NetDeckChanged;
+        public float TiltTarget => tiltTarget;
+        public float RampTarget => rampTarget;
+        float netDeckHold; // (just worked here: don't let an older update from the trailer's runner undo it)
+        void DeckChanged() { netDeckHold = Time.unscaledTime + 1.5f; NetDeckChanged?.Invoke(this); }
+
+        /// <summary>A friend worked the deck / ramps: start moving them now, whoever runs the trailer.</summary>
+        public void NetApplyDeck(float tilt, float ramp)
+        {
+            if (tiltDeck != null) tiltTarget = Mathf.Clamp(tilt, 0f, tiltMax);
+            if (ramps != null && ramps.Length > 0) rampTarget = Mathf.Clamp01(ramp);
+            netDeckHold = Time.unscaledTime + 1.5f;
         }
         /// <summary>Tests: jump straight to a deck / ramp position.</summary>
         public void SnapDeck() { tilt = tiltTarget; rampAmt = rampTarget; ApplyDeck(); }
@@ -191,8 +210,11 @@ namespace FPSBase.Vehicles
             Hitch h = null;
             var v = vid != 0 ? find(vid) : null;
             if (v != null && hi >= 0) { var hs = v.GetComponentsInChildren<Hitch>(true); if (hi < hs.Length) h = hs[hi]; }
-            tiltTarget = tiltDeck != null ? Mathf.Clamp(tt, 0f, tiltMax) : 0f;
-            rampTarget = ramps != null && ramps.Length > 0 ? Mathf.Clamp01(rt) : 0f;
+            if (Time.unscaledTime >= netDeckHold)
+            {
+                tiltTarget = tiltDeck != null ? Mathf.Clamp(tt, 0f, tiltMax) : 0f;
+                rampTarget = ramps != null && ramps.Length > 0 ? Mathf.Clamp01(rt) : 0f;
+            }
             if (Tank != null) Tank.liters = Mathf.Clamp(lit, 0f, Tank.capacity);
             if (busy) return;
             if (gooseneck != null && neck != NeckOn)

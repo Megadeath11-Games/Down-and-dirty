@@ -13,6 +13,10 @@ namespace FPSBase.Core
         /// <summary>Newest first.</summary>
         public static readonly Post[] Blog =
         {
+            new Post { date = "Update 17  ·  Nov 19, 2026", title = "Trailer decks move right away for everyone",
+                body =
+                "• When a friend tilts a trailer's deck or works its ramps, it starts moving on your screen straight away (it used to wait for the trailer's next update, up to half a second plus the lag).\n" +
+                "• Tilting or levelling the deck of a trailer hitched to a friend's truck now works: before, their game put it straight back.\n" },
             new Post { date = "Update 16  ·  Nov 19, 2026", title = "Options on the main menu",
                 body =
                 "• The main menu has an Options button: set the sound and music volumes, graphics, the camera and mouse, the excavator controls and every key binding before you load into a world. It's the same settings as the pause menu, and they're saved for next time.\n" },
@@ -188,11 +192,12 @@ namespace FPSBase.Core
                 "• Dozer berms build up properly in front of the blade." },
         };
 
-        public const string TestListVersion = "2026-11-19k";
+        public const string TestListVersion = "2026-11-19l";
 
         /// <summary>What's new in this build to try out.</summary>
         public static readonly string[] TestList =
         {
+            "Multiplayer: your friend tilts a trailer deck: it moves on your screen right away. Then tilt one hitched to their truck yourself",
             "Main menu > Options: change the volumes, graphics and a key binding before loading in, then check they stuck in the game",
             "Excavator: hold stick in + curl + swing together (try the number pad 8/5/4/6 for boom and bucket): the panel shows all of them moving",
             "The game starts as Down and Dirty, and your saved worlds are still there",

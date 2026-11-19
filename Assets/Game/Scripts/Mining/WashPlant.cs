@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using FPSBase.Core;
 using UnityEngine;
 
@@ -65,6 +66,47 @@ namespace FPSBase.Mining
         public float rocksRejected;
         float lastRejectToast = -10f;
 
+        // ---------------------------------------------------------------- multiplayer
+        // The host's plant is the real one: it washes the dirt and keeps the sluice. On a friend's game the plant
+        // mirrors the host's (hopper, sluice gold, fuel, upgrades); dirt dumped into it there is sent to the host,
+        // and the panel's buttons ask the host (the gold from a clean-up comes back to whoever cleaned up).
+        public static readonly List<WashPlant> All = new();
+        void OnEnable() => All.Add(this);
+        void OnDisable() => All.Remove(this);
+        /// <summary>On a friend's game in a multiplayer session: shows the host's plant, doesn't run its own.</summary>
+        public bool NetMirror { get; set; }
+        public static System.Action<WashPlant, MaterialLoad> NetForwardLoad;
+        /// <summary>Panel button on a friend's game: 0 clean up, 1 refuel, 2 run, 3 stop, 4+k upgrade track k.</summary>
+        public static System.Action<WashPlant, int> NetAction;
+        UpgradeTrack[] Tracks => new[] { throughput, recovery, scrubber, hopperSize };
+
+        /// <summary>Host: a friend pressed a panel button. Returns the gold to hand them (clean-up), else 0.</summary>
+        public float ApplyNetAction(int a)
+        {
+            if (a == 0) { float g = sluiceGold; sluiceGold = 0f; UpdateVisuals(); return g; }
+            if (a == 1) fuel = fuelCapacity;
+            else if (a == 2) running = true;
+            else if (a == 3) running = false;
+            else if (a >= 4 && a - 4 < 4) { var t = Tracks[a - 4]; if (!t.Maxed) t.level++; }
+            UpdateVisuals();
+            return 0f;
+        }
+
+        public void NetWrite(System.IO.BinaryWriter w)
+        {
+            FPSBase.Vehicles.NetIO.Write(w, hopper);
+            w.Write(sluiceGold); w.Write(fuel); w.Write(running); w.Write(totalProcessed); w.Write(rocksRejected);
+            foreach (var t in Tracks) w.Write((byte)t.level);
+        }
+
+        public void NetRead(System.IO.BinaryReader r)
+        {
+            hopper = FPSBase.Vehicles.NetIO.ReadLoad(r);
+            sluiceGold = r.ReadSingle(); fuel = r.ReadSingle(); running = r.ReadBoolean(); totalProcessed = r.ReadSingle(); rocksRejected = r.ReadSingle();
+            foreach (var t in Tracks) t.level = Mathf.Clamp(r.ReadByte(), 0, t.values.Length - 1);
+            UpdateVisuals();
+        }
+
         /// <summary>Gold recovery right now (0..1) for a feed with this much clay in it.</summary>
         public float RecoveryFor(float clayFraction) => recovery.Value / 100f * (1f - scrubber.Value / 100f * Mathf.Clamp01(clayFraction * 1.4f));
 
@@ -91,12 +133,21 @@ namespace FPSBase.Mining
                 Boulder.SpawnFromLoad(at, rocks);
                 if (Time.time - lastRejectToast > 4f) { GameUI.Toast($"The grizzly rejected {rocks.volume:0.0#} m³ of rocks"); lastRejectToast = Time.time; }
             }
+            if (NetMirror && NetForwardLoad != null)
+            {
+                // a friend's game: the dirt goes into the host's plant (it shows up here with the host's next update)
+                NetForwardLoad(this, l);
+                hopper.Add(l); // shown straight away; the host's state replaces it a moment later
+                UpdateVisuals();
+                return;
+            }
             hopper.Add(l);
             UpdateVisuals();
         }
 
         void Update()
         {
+            if (NetMirror) return; // the host's plant does the washing
             if (!running || hopper.IsEmpty) return;
             if (fuel <= 0f) return;
             // sticky clay feeds slower and rolls gold away in clay balls
@@ -138,12 +189,23 @@ namespace FPSBase.Mining
             GUILayout.Label($"Gold in sluice box: {sluiceGold:0.00} g");
             GUILayout.Label($"Feed rate {throughput.Value:0.0} m³/min · Recovery {recovery.Value:0}% · Processed {totalProcessed:0.0} m³ total");
             GUILayout.Label($"Generator fuel: {fuel:0} / {fuelCapacity:0} L");
-            running = GUILayout.Toggle(running, " Plant running");
+            bool run = GUILayout.Toggle(running, " Plant running");
+            if (run != running) { running = run; if (NetMirror) NetAction?.Invoke(this, run ? 2 : 3); }
 
             GUILayout.Space(8);
             GUI.enabled = sluiceGold > 0.001f;
             if (GUILayout.Button($"Clean up sluice  (collect {sluiceGold:0.00} g gold)", GUILayout.Height(34)))
             {
+                if (NetMirror && NetAction != null)
+                {
+                    // the host's sluice: it sends the gold back to us
+                    NetAction(this, 0);
+                    GameUI.Toast("Cleaning up the sluice…");
+                    sluiceGold = 0f;
+                    UpdateVisuals();
+                    GUI.enabled = true;
+                    return;
+                }
                 eco.AddGold(sluiceGold);
                 GameUI.Toast($"Cleaned up {sluiceGold:0.00} g of gold");
                 sluiceGold = 0f;
@@ -152,7 +214,7 @@ namespace FPSBase.Mining
             float need = fuelCapacity - fuel;
             GUI.enabled = need > 0.5f;
             if (GUILayout.Button($"Refill generator  ({need:0} L for ${need * fuelPrice:N0})", GUILayout.Height(30)))
-                if (eco.TrySpend(need * fuelPrice)) fuel = fuelCapacity;
+                if (eco.TrySpend(need * fuelPrice)) { fuel = fuelCapacity; if (NetMirror) NetAction?.Invoke(this, 1); }
             GUI.enabled = true;
 
             GUILayout.Space(10);
@@ -170,7 +232,11 @@ namespace FPSBase.Mining
             if (t.Maxed) GUILayout.Label("MAX");
             else if (GUILayout.Button($"→ {t.values[t.level + 1]:0.##} {t.unit}  ${t.NextCost:N0}"))
             {
-                if (eco.TrySpend(t.NextCost)) { t.level++; GameUI.Toast($"{t.name} upgraded to {t.Value:0.##} {t.unit}"); }
+                if (eco.TrySpend(t.NextCost))
+                {
+                    t.level++; GameUI.Toast($"{t.name} upgraded to {t.Value:0.##} {t.unit}");
+                    if (NetMirror) NetAction?.Invoke(this, 4 + System.Array.IndexOf(Tracks, t));
+                }
             }
             GUILayout.EndHorizontal();
         }

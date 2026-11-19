@@ -341,10 +341,17 @@ namespace FPSBase.Vehicles
         {
             if (Occupied) return;
             TakeOver();
-            float yaw = transform.eulerAngles.y;
+            float yaw = Heading();
             Vector3 at = VehicleSpot.FindFree(transform.position, yaw, LocalBounds, transform, 25f);
             Place(at, yaw);
             GameUI.Toast($"{displayName} repositioned");
+        }
+
+        /// <summary>The way it points on the map, even rolled on its side or roof (eulerAngles.y can swing round then).</summary>
+        float Heading()
+        {
+            Vector3 f = Vector3.ProjectOnPlane(transform.forward, Vector3.up);
+            return f.sqrMagnitude > 1e-4f ? Quaternion.LookRotation(f).eulerAngles.y : transform.eulerAngles.y;
         }
 
         /// <summary>A tow truck takes it to `dest` (paid); the player rides along and gets dropped next to it.</summary>
@@ -355,7 +362,7 @@ namespace FPSBase.Vehicles
             float cost = TowCost(dest);
             if (eco != null && !eco.TrySpend(cost)) return false;
             TakeOver();
-            float yaw = transform.eulerAngles.y;
+            float yaw = Heading();
             Vector3 at = VehicleSpot.FindFree(dest, yaw, LocalBounds, transform, 40f);
             Place(at, yaw);
             if (player != null)

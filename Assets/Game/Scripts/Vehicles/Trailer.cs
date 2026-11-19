@@ -108,6 +108,102 @@ namespace FPSBase.Vehicles
         public Transform deckArea;
         public Vector2 deckSize = new Vector2(2.6f, 6.4f);
 
+        // ------------------------------------------------------------------ multiplayer
+        // Whoever drives the truck a trailer is hitched to runs it and sends where it is and what it's doing; on
+        // everyone else's game it's a copy that follows (kinematic, no joint). A parked trailer belongs to whoever
+        // used it last (hitched it, unhitched it, or used its menu): `NetSeq` goes up each time someone takes it.
+
+        /// <summary>Network id: scene trailers 1.., bought ones like bought machines; a semi's own lowboy uses minus the semi's id.</summary>
+        public int NetId { get; set; }
+        public int NetKey => NetId != 0 ? NetId : BuiltOn != null && BuiltOn.NetId != 0 ? -BuiltOn.NetId : 0;
+        /// <summary>Another player runs it: a copy that follows their updates.</summary>
+        public bool NetRemote { get; private set; }
+        /// <summary>Parked: the player whose game last ran it (0 = this game).</summary>
+        [System.NonSerialized] public ulong NetHeldBy;
+        /// <summary>This game ran it last (sends its updates while parked).</summary>
+        [System.NonSerialized] public bool NetMine;
+        [System.NonSerialized] public int NetSeq;
+        Vector3 netPos; Quaternion netRot; bool netHas;
+        float[] netSpin; Vector3 netLast; bool netLastHas;
+
+        /// <summary>This player uses it (menu, hitching): it's ours now, everyone else follows us.</summary>
+        public void NetTake()
+        {
+            if (NetMine && !NetRemote && NetHeldBy == 0) return;
+            NetSeq++; NetMine = true; NetHeldBy = 0;
+            NetSetRemote(false);
+        }
+
+        public void NetSetRemote(bool remote)
+        {
+            if (remote == NetRemote) return;
+            NetRemote = remote;
+            if (rb == null) rb = GetComponent<Rigidbody>();
+            if (remote)
+            {
+                if (joint != null) { Destroy(joint); joint = null; }
+                rb.isKinematic = true;
+                netHas = false; netLastHas = false;
+            }
+            else
+            {
+                if (!busy) rb.isKinematic = false;
+                // runs here again: put the hitch joint back
+                if (Hitched != null && joint == null && NeckOn && !busy)
+                {
+                    var h = Hitched; Hitched = null;
+                    if (h.Attached == this) h.Attached = null;
+                    Couple(h, false);
+                }
+                rb.WakeUp();
+            }
+        }
+
+        public void NetTarget(Vector3 p, Quaternion q) { netPos = p; netRot = q; netHas = true; }
+
+        /// <summary>What it's hitched to and what it's doing (position and rotation go separately).</summary>
+        public void NetWriteState(System.IO.BinaryWriter w)
+        {
+            var hh = Hitched != null ? Hitched : NeckCarrier;
+            int vid = 0, hi = -1;
+            if (hh != null && hh.Vehicle != null)
+            {
+                vid = hh.Vehicle.NetId;
+                hi = System.Array.IndexOf(hh.Vehicle.GetComponentsInChildren<Hitch>(true), hh);
+            }
+            w.Write(vid); w.Write((sbyte)hi); w.Write(NeckOn);
+            w.Write(tiltTarget); w.Write(rampTarget); w.Write(Tank != null ? Tank.liters : 0f);
+        }
+
+        public void NetReadState(System.IO.BinaryReader r, System.Func<int, VehicleBase> find)
+        {
+            int vid = r.ReadInt32(); int hi = r.ReadSByte(); bool neck = r.ReadBoolean();
+            float tt = r.ReadSingle(), rt = r.ReadSingle(), lit = r.ReadSingle();
+            Hitch h = null;
+            var v = vid != 0 ? find(vid) : null;
+            if (v != null && hi >= 0) { var hs = v.GetComponentsInChildren<Hitch>(true); if (hi < hs.Length) h = hs[hi]; }
+            tiltTarget = tiltDeck != null ? Mathf.Clamp(tt, 0f, tiltMax) : 0f;
+            rampTarget = ramps != null && ramps.Length > 0 ? Mathf.Clamp01(rt) : 0f;
+            if (Tank != null) Tank.liters = Mathf.Clamp(lit, 0f, Tank.capacity);
+            if (busy) return;
+            if (gooseneck != null && neck != NeckOn)
+            {
+                if (!neck)
+                {
+                    if (Hitched == null && h != null && h.Attached == null) { Hitched = h; h.Attached = this; }
+                    DetachNeck();
+                }
+                else AttachNeck(true); // (once the copies line up; the next update tries again)
+                return;
+            }
+            if (!NeckOn) return;
+            if (h != Hitched)
+            {
+                if (Hitched != null) Uncouple();
+                if (h != null && h.Attached == null) Couple(h, false);
+            }
+        }
+
         static readonly List<Trailer> all = new();
         public static IReadOnlyList<Trailer> All => all;
         void OnEnable() => all.Add(this);
@@ -185,6 +281,7 @@ namespace FPSBase.Vehicles
             if (Hitched == null && PendingCouple != null && PendingCouple.Attached == null) Couple(PendingCouple, true);
             PendingCouple = null;
             if (Hitched == null) SetBrake(true);
+            if (NetRemote) rb.isKinematic = true;
             UpdateMass();
         }
 
@@ -216,6 +313,13 @@ namespace FPSBase.Vehicles
         public void Couple(Hitch h, bool snap)
         {
             if (h == null || joint != null) return;
+            if (NetRemote)
+            {
+                h.Attached = this; Hitched = h;
+                SetBrake(false);
+                return;
+            }
+            if (h.Vehicle != null && !h.Vehicle.NetRemote) NetTake(); // our truck: the trailer runs on our game now
             if (snap && couplerPoint != null)
             {
                 Vector3 delta = h.transform.position - couplerPoint.position;
@@ -408,7 +512,7 @@ namespace FPSBase.Vehicles
             rb.position = transform.position; rb.rotation = transform.rotation;
             Physics.SyncTransforms();
             rb.ResetCenterOfMass();
-            rb.isKinematic = false;
+            rb.isKinematic = NetRemote;
             if (h != null) Couple(h, false);
             busy = false;
         }
@@ -475,7 +579,16 @@ namespace FPSBase.Vehicles
         {
             Vector3 p = transform.position;
             float y = FPSBase.Mining.VehicleDealer.GroundAt(p).y;
-            transform.SetPositionAndRotation(new Vector3(p.x, Mathf.Max(p.y, y) + 0.6f, p.z), Quaternion.Euler(0f, transform.eulerAngles.y, 0f));
+            // (flat on its side transform.forward still points along it: keep that heading)
+            Vector3 fw = Vector3.ProjectOnPlane(transform.forward, Vector3.up);
+            float yaw = fw.sqrMagnitude > 1e-4f ? Quaternion.LookRotation(fw).eulerAngles.y : transform.eulerAngles.y;
+            if (Hitched != null && couplerPoint != null)
+            {
+                // on the hitch: upright with its ring on the hook, pointing the way it lies
+                transform.rotation = Quaternion.Euler(0f, yaw, 0f);
+                transform.position += Hitched.transform.position - couplerPoint.position;
+            }
+            else transform.SetPositionAndRotation(new Vector3(p.x, Mathf.Max(p.y, y) + 0.6f, p.z), Quaternion.Euler(0f, yaw, 0f));
             rb.position = transform.position; rb.rotation = transform.rotation;
             if (!rb.isKinematic) { rb.linearVelocity = Vector3.zero; rb.angularVelocity = Vector3.zero; }
             Physics.SyncTransforms();
@@ -500,6 +613,7 @@ namespace FPSBase.Vehicles
         static readonly Collider[] hits = new Collider[64];
         void ScanDeck()
         {
+            if (NetRemote) return;
             if (tilt > 0.5f) return; // machines get chained once the deck is level
             Vector3 half = new Vector3(deckSize.x * 0.5f, 1.4f, deckSize.y * 0.5f);
             int n = Physics.OverlapBoxNonAlloc(deckArea.position + deckArea.up * 1.45f, half, hits, deckArea.rotation, ~0, QueryTriggerInteraction.Ignore);
@@ -605,7 +719,33 @@ namespace FPSBase.Vehicles
         float[] spin;
         void Update()
         {
+            if (NetRemote && netHas && !busy)
+            {
+                float k = 1f - Mathf.Exp(-12f * Time.deltaTime);
+                if ((transform.position - netPos).sqrMagnitude > 100f) transform.SetPositionAndRotation(netPos, netRot);
+                else transform.SetPositionAndRotation(Vector3.Lerp(transform.position, netPos, k), Quaternion.Slerp(transform.rotation, netRot, k));
+                // towed: keep the coupler on the hitch of our copy of their truck (both copies are smoothed on their own)
+                if (Hitched != null && NeckOn && couplerPoint != null && (Hitched.transform.position - couplerPoint.position).sqrMagnitude < 9f)
+                    transform.position += Hitched.transform.position - couplerPoint.position;
+            }
             if (wheels == null || wheelVisuals == null) return;
+            if (NetRemote)
+            {
+                // the wheel physics is off on a copy: roll them by how far it moves
+                if (netSpin == null || netSpin.Length != wheels.Length) netSpin = new float[wheels.Length];
+                Vector3 pos = transform.position;
+                float moved = netLastHas ? Vector3.Dot(pos - netLast, transform.forward) : 0f;
+                if (Mathf.Abs(moved) > Mathf.Max(3f, Time.deltaTime * 40f)) moved = 0f;
+                netLast = pos; netLastHas = true;
+                for (int i = 0; i < wheels.Length && i < wheelVisuals.Length; i++)
+                {
+                    if (wheels[i] == null || wheelVisuals[i] == null) continue;
+                    netSpin[i] = Mathf.Repeat(netSpin[i] + moved / Mathf.Max(0.1f, wheels[i].radius) * Mathf.Rad2Deg, 360f);
+                    wheels[i].GetWorldPose(out Vector3 p, out _);
+                    wheelVisuals[i].SetPositionAndRotation(p, transform.rotation * Quaternion.Euler(netSpin[i], 0f, 0f));
+                }
+                return;
+            }
             for (int i = 0; i < wheels.Length && i < wheelVisuals.Length; i++)
             {
                 if (wheels[i] == null || wheelVisuals[i] == null) continue;
@@ -613,6 +753,8 @@ namespace FPSBase.Vehicles
                 wheelVisuals[i].SetPositionAndRotation(p, q);
             }
         }
+        /// <summary>Tests: how far wheel `i` has rolled on a copy (deg).</summary>
+        public float NetWheelSpin(int i) => netSpin != null && i < netSpin.Length ? netSpin[i] : 0f;
 
         // ------------------------------------------------------------------ look-at menu
 
@@ -629,8 +771,20 @@ namespace FPSBase.Vehicles
         /// <summary>The trailer's own choices (shown on the trailer, and on the truck pulling it).</summary>
         public void AddOptions(List<InteractOption> list)
         {
+            int first = list.Count;
+            AddOptionsInner(list);
+            for (int i = first; i < list.Count; i++)
+            {
+                var run = list[i].run;
+                if (run == null) continue;
+                list[i].run = p => { var tr = Tractor; if (tr == null || !tr.NetRemote) NetTake(); run(p); };
+            }
+        }
+
+        void AddOptionsInner(List<InteractOption> list)
+        {
             bool moving = Tractor != null && Tractor.GetComponent<Rigidbody>() is Rigidbody trb && !trb.isKinematic && trb.linearVelocity.magnitude > 0.6f;
-            if (Tipped && Hitched == null)
+            if (transform.up.y < 0.85f) // leaning hard or on its side, hitched or not
                 list.Add(new InteractOption { label = "Set it back upright", enabled = true, run = p => { SetUpright(); GameUI.Toast($"{displayName} set back on its wheels"); } });
             if (tiltDeck != null)
             {

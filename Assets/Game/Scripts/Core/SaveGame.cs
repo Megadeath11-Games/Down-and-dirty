@@ -287,7 +287,7 @@ namespace FPSBase.Core
                     int hitchedTo = r.ReadInt32();
                     if (dealer == null || listing < 0 || listing >= dealer.listings.Length || dealer.listings[listing].prefab == null) continue;
                     var go = UnityEngine.Object.Instantiate(dealer.listings[listing].prefab, p, q);
-                    BoughtFrom.Mark(go, listing);
+                    Net.NetSession.NotifySpawn(go, listing);
                     var t = go.GetComponent<Trailer>();
                     if (t == null) continue;
                     if (t.Tank != null) t.Tank.liters = Mathf.Clamp(liters, 0f, t.Tank.capacity);

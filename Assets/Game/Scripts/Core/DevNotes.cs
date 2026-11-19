@@ -13,6 +13,19 @@ namespace FPSBase.Core
         /// <summary>Newest first.</summary>
         public static readonly Post[] Blog =
         {
+            new Post { date = "Update 7  ·  Nov 19, 2026", title = "Multiplayer: trailers, wheels, wash plant",
+                body =
+                "<b>Multiplayer fixes</b>\n" +
+                "• Trailers stay in sync: whoever drives the truck runs its trailer, and everyone else sees it follow on the hitch, wheels rolling, deck tilting, ramps and gooseneck moving.\n" +
+                "• A parked trailer belongs to whoever used it last; hitch it or use its menu and it's yours.\n" +
+                "• Trailers bought on their own (bowser, tilt deck, gooseneck) now show up for everyone, and after loading a save.\n" +
+                "• Friends' pickups and dump trucks roll their wheels on your screen.\n" +
+                "• The wash plant is shared: the host's plant does the washing, and everyone sees what's in the hopper and the sluice. Dump into it on any game and it goes in. Cleaning up the sluice pays whoever cleans it.\n" +
+                "• A friend's gooseneck ball shows in their pickup's bed.\n" +
+                "<b>Also fixed</b>\n" +
+                "• Haul Truck 25t: the back axle was stuck under the truck and didn't drive. Both rear axles show and pull now.\n" +
+                "• Fuel bowser (and every trailer): \"Set it back upright\" shows whenever it's leaning over, hitched or not. Hitched, it stands back up with its ring on the hook.\n" +
+                "• Repositioning or towing a truck that's rolled on its side keeps the way it was pointing, and its trailer comes back upright behind it.\n" },
             new Post { date = "Update 6  ·  Nov 19, 2026", title = "Trailer fixes, $75 gold, camera zoom",
                 body =
                 "<b>Changed / fixed</b>\n" +
@@ -89,11 +102,21 @@ namespace FPSBase.Core
                 "• Dozer berms build up properly in front of the blade." },
         };
 
-        public const string TestListVersion = "2026-11-19a";
+        public const string TestListVersion = "2026-11-19b";
 
         /// <summary>What's new in this build to try out.</summary>
         public static readonly string[] TestList =
         {
+            "Multiplayer: a friend tows a trailer, it stays on their hitch on your screen",
+            "Multiplayer: a friend tilts a deck / lowers ramps: you see it",
+            "Multiplayer: hitch a trailer your friend parked, tow it: they see it follow",
+            "Multiplayer: a friend buys a trailer: it appears for you",
+            "Multiplayer: a friend's pickup drives by: its wheels roll",
+            "Multiplayer: a friend dumps into the wash plant: you see it in the hopper",
+            "Multiplayer (not host): clean up the sluice, you get the gold",
+            "Haul Truck 25t: all three axles show and it drives",
+            "Tip the fuel bowser over: its menu sets it back upright (hitched or not)",
+            "Roll the pickup with the bowser on, reposition: both come back upright",
             "Tilt deck: tilt it down with a machine chained on, it rides down with the deck",
             "Gooseneck: both ramps are there and fold down",
             "Dump box: the tailgate swings out the back as it tips",

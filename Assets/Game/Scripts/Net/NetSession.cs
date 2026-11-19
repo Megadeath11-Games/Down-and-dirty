@@ -69,6 +69,18 @@ namespace FPSBase.Net
             VehicleBase.NetEntered = v => { if (InSession) SendClaim(v, true); };
             VehicleBase.NetExited = v => { if (InSession) SendClaim(v, false); };
             VehicleBase.NetForwardLoad = ForwardLoad;
+            WashPlant.NetForwardLoad = (p, l) =>
+            {
+                if (!InSession) return;
+                var w = Begin(MsgPlantLoad); w.Write(PlantIndex(p)); NetIO.Write(w, l);
+                Send(SteamMatchmaking.GetLobbyOwner(lobby), w, true);
+            };
+            WashPlant.NetAction = (p, a) =>
+            {
+                if (!InSession) return;
+                var w = Begin(MsgPlantAction); w.Write(PlantIndex(p)); w.Write(a);
+                Send(SteamMatchmaking.GetLobbyOwner(lobby), w, true);
+            };
             try
             {
                 if (!Packsize.Test()) { Status = "Steamworks.NET was built for the wrong platform"; return; }
@@ -233,6 +245,9 @@ namespace FPSBase.Net
             // their machines run here again
             foreach (var v in VehicleBase.All)
                 if (owner.TryGetValue(v.NetId, out var o) && o == p) { v.SetNetRemote(false); owner.Remove(v.NetId); }
+            // and the trailers they had parked
+            foreach (var t in Trailer.All)
+                if (t != null && t.NetHeldBy == p.m_SteamID) { t.NetHeldBy = 0; t.NetMine = true; }
             CloseSession(p);
         }
 
@@ -272,7 +287,8 @@ namespace FPSBase.Net
 
         // ------------------------------------------------------------------ messages
 
-        const byte MsgHello = 1, MsgPlayer = 2, MsgVehicles = 3, MsgClaim = 4, MsgSpawn = 5, MsgTerrain = 6, MsgLoad = 7, MsgBye = 8;
+        const byte MsgHello = 1, MsgPlayer = 2, MsgVehicles = 3, MsgClaim = 4, MsgSpawn = 5, MsgTerrain = 6, MsgLoad = 7, MsgBye = 8,
+            MsgPlant = 9, MsgPlantLoad = 10, MsgPlantAction = 11, MsgPlantGold = 12, MsgTrailers = 13;
         const int ChReliable = 0, ChFast = 1;
 
         static BinaryWriter Begin(byte type)
@@ -374,26 +390,50 @@ namespace FPSBase.Net
                 case MsgSpawn: ReadSpawn(from, r); break;
                 case MsgTerrain: ReadTerrain(r); break;
                 case MsgLoad: ReadLoad(r); break;
+                case MsgPlant: { var p = Plant(r.ReadInt32()); if (p != null && !IsHost) p.NetRead(r); break; }
+                case MsgPlantLoad: { var p = Plant(r.ReadInt32()); var l = NetIO.ReadLoad(r); if (p != null && IsHost) { p.Receive(l); plantTimer = 0f; } break; }
+                case MsgPlantAction:
+                {
+                    var p = Plant(r.ReadInt32()); int a = r.ReadInt32();
+                    if (p == null || !IsHost) break;
+                    float g = p.ApplyNetAction(a);
+                    if (a == 0) { var w = Begin(MsgPlantGold); w.Write(g); Send(from, w, true); }
+                    plantTimer = 0f;
+                    break;
+                }
+                case MsgPlantGold:
+                {
+                    float g = r.ReadSingle();
+                    Economy.Instance?.AddGold(g);
+                    GameUI.Toast($"Cleaned up {g:0.00} g of gold");
+                    break;
+                }
+                case MsgTrailers: ReadTrailers(from, r); break;
                 case MsgBye: break;
             }
         }
 
         // ------------------------------------------------------------------ the loop
 
-        float playerTimer, vehicleTimer, slowTimer, terrainTimer;
+        float playerTimer, vehicleTimer, slowTimer, terrainTimer, plantTimer;
 
         void Update()
         {
             if (!SteamOk) return;
+            bool mirror = InSession && !IsHost; // (back to running its own plant once you leave)
+            foreach (var p in WashPlant.All) if (p != null) p.NetMirror = mirror;
+            if (!InSession) foreach (var t in Trailer.All) if (t != null && t.NetRemote) { t.NetHeldBy = 0; t.NetMine = true; t.NetSetRemote(false); }
             SteamAPI.RunCallbacks();
             if (!InSession) return;
+            if (IsHost && (plantTimer -= Time.unscaledDeltaTime) <= 0f) { plantTimer = 0.25f; SendPlants(null); }
             Receive();
             FlushBacklog();
             float dt = Time.unscaledDeltaTime;
             if ((playerTimer -= dt) <= 0f) { playerTimer = 1f / 15f; SendPlayer(); }
             bool slow = (slowTimer -= dt) <= 0f;
             if (slow) slowTimer = 0.5f;
-            if ((vehicleTimer -= dt) <= 0f) { vehicleTimer = 1f / 15f; SendVehicles(slow); }
+            TrailerOwnership();
+            if ((vehicleTimer -= dt) <= 0f) { vehicleTimer = 1f / 15f; SendVehicles(slow); SendTrailers(slow, null); }
             if ((terrainTimer -= dt) <= 0f) { terrainTimer = 0.12f; SendTerrain(); }
             ShowRemotes(Time.deltaTime);
         }
@@ -419,6 +459,102 @@ namespace FPSBase.Net
                 return c != 0 ? c : Mathf.RoundToInt(pa.z * 10f).CompareTo(Mathf.RoundToInt(pb.z * 10f));
             });
             for (int i = 0; i < list.Count; i++) if (list[i].NetId == 0) list[i].NetId = i + 1;
+            // the scene's own trailers (not a semi's lowboy, which goes by its semi; not bought ones)
+            var tl = new List<Trailer>(FindObjectsByType<Trailer>(FindObjectsInactive.Include, FindObjectsSortMode.None));
+            tl.RemoveAll(t => t.NetId != 0 || t.transform.parent != null || t.GetComponent<BoughtFrom>() != null);
+            tl.Sort((a, b) =>
+            {
+                int c = string.CompareOrdinal(a.name, b.name);
+                if (c != 0) return c;
+                Vector3 pa = a.transform.position, pb = b.transform.position;
+                c = Mathf.RoundToInt(pa.x * 10f).CompareTo(Mathf.RoundToInt(pb.x * 10f));
+                return c != 0 ? c : Mathf.RoundToInt(pa.z * 10f).CompareTo(Mathf.RoundToInt(pb.z * 10f));
+            });
+            for (int i = 0; i < tl.Count; i++) tl[i].NetId = i + 1;
+        }
+
+        static Trailer FindTrailer(int key)
+        {
+            if (key == 0) return null;
+            foreach (var t in Trailer.All) if (t != null && t.NetKey == key) return t;
+            return null;
+        }
+
+        readonly Dictionary<Trailer, int> spawnedTrailers = new();
+
+        /// <summary>
+        /// Who runs each trailer: hitched, whoever runs the truck; parked, whoever used it last. A copy (someone
+        /// else's) follows their updates.
+        /// </summary>
+        void TrailerOwnership()
+        {
+            foreach (var t in Trailer.All)
+            {
+                if (t == null || t.NetKey == 0) continue;
+                var tr = t.Tractor;
+                if (tr != null && !tr.NetRemote) { t.NetMine = true; t.NetHeldBy = 0; }
+                bool remote = tr != null ? tr.NetRemote : t.NetHeldBy != 0;
+                t.NetSetRemote(remote);
+            }
+        }
+
+        void SendTrailers(bool slowTick, CSteamID? to)
+        {
+            var w = Begin(MsgTrailers);
+            long countPos = w.BaseStream.Position;
+            w.Write(0);
+            int n = 0;
+            foreach (var t in Trailer.All)
+            {
+                if (t == null || t.NetKey == 0 || t.NetRemote) continue;
+                var tr = t.Tractor;
+                bool ours = tr != null ? !tr.NetRemote : t.NetMine;
+                if (!ours) continue;
+                var rb = t.Body;
+                bool moving = rb != null && !rb.isKinematic && rb.linearVelocity.sqrMagnitude > 0.01f;
+                if (to == null && !moving && !slowTick) continue;
+                w.Write(t.NetKey); w.Write(t.NetSeq);
+                WriteV3(w, t.transform.position); WriteQ(w, t.transform.rotation);
+                t.NetWriteState(w);
+                n++;
+            }
+            if (n == 0) return;
+            long end = w.BaseStream.Position;
+            w.BaseStream.Position = countPos; w.Write(n); w.BaseStream.Position = end;
+            if (to != null) Send(to.Value, w, true); else Send(w, false, null);
+        }
+
+        void ReadTrailers(CSteamID from, BinaryReader r)
+        {
+            int n = r.ReadInt32();
+            for (int i = 0; i < n; i++)
+            {
+                int key = r.ReadInt32(), seq = r.ReadInt32();
+                Vector3 p = ReadV3(r); Quaternion q = ReadQ(r);
+                var t = FindTrailer(key);
+                if (t == null)
+                {
+                    // (unknown here: skip its state)
+                    r.ReadInt32(); r.ReadSByte(); r.ReadBoolean(); r.ReadSingle(); r.ReadSingle(); r.ReadSingle();
+                    continue;
+                }
+                var tr = t.Tractor;
+                long statePos = r.BaseStream.Position;
+                // what it's hitched to, by their account
+                int vid = r.ReadInt32(); r.BaseStream.Position = statePos;
+                var theirTruck = vid != 0 ? Find(vid) : null;
+                bool onTheirTruck = theirTruck != null && theirTruck.NetRemote;
+                bool accept;
+                if (tr != null && !tr.NetRemote) accept = false;             // it's on our truck: ours
+                else if (onTheirTruck || tr != null) accept = true;           // on their truck (or one they run)
+                else accept = seq > t.NetSeq || (seq == t.NetSeq && !t.NetMine) || t.NetHeldBy == from.m_SteamID;
+                if (!accept) { r.ReadInt32(); r.ReadSByte(); r.ReadBoolean(); r.ReadSingle(); r.ReadSingle(); r.ReadSingle(); continue; }
+                t.NetSeq = Mathf.Max(t.NetSeq, seq);
+                t.NetHeldBy = from.m_SteamID; t.NetMine = false; // their game runs it
+                t.NetSetRemote(true);
+                t.NetTarget(p, q);
+                t.NetReadState(r, Find);
+            }
         }
 
         static VehicleBase Find(int id)
@@ -432,7 +568,17 @@ namespace FPSBase.Net
         {
             BoughtFrom.Mark(go, listing);
             var v = go.GetComponent<VehicleBase>();
-            if (v == null) return;
+            if (v == null)
+            {
+                var tl = go.GetComponent<Trailer>();
+                if (tl == null) return;
+                tl.NetId = SpawnIdBase + UnityEngine.Random.Range(1, int.MaxValue - SpawnIdBase - 1);
+                tl.NetMine = true;
+                if (Instance == null) return;
+                Instance.spawnedTrailers[tl] = listing;
+                if (InSession) Instance.SendSpawnTrailer(tl, listing, null);
+                return;
+            }
             v.NetId = SpawnIdBase + UnityEngine.Random.Range(1, int.MaxValue - SpawnIdBase - 1);
             if (Instance == null) return;
             Instance.spawnedListing[v] = listing;
@@ -449,18 +595,39 @@ namespace FPSBase.Net
             if (to.HasValue) Send(to.Value, w, true); else Send(w, true, null);
         }
 
+        void SendSpawnTrailer(Trailer t, int listing, CSteamID? to)
+        {
+            if (t == null) return;
+            var w = Begin(MsgSpawn);
+            w.Write(t.NetId); w.Write(listing); w.Write(t.name);
+            WriteV3(w, t.transform.position); WriteQ(w, t.transform.rotation);
+            w.Write(t.NetRemote && t.NetHeldBy != 0 ? t.NetHeldBy : me.m_SteamID);
+            if (to.HasValue) Send(to.Value, w, true); else Send(w, true, null);
+        }
+
         void ReadSpawn(CSteamID from, BinaryReader r)
         {
             int id = r.ReadInt32(), listing = r.ReadInt32();
             string name = r.ReadString();
             Vector3 p = ReadV3(r); Quaternion q = ReadQ(r);
             var own = new CSteamID(r.ReadUInt64());
-            if (Find(id) != null) return;
+            if (Find(id) != null || FindTrailer(id) != null) return;
             var dealer = FindFirstObjectByType<VehicleDealer>();
             if (dealer == null || listing < 0 || listing >= dealer.listings.Length || dealer.listings[listing].prefab == null) return;
             var go = Instantiate(dealer.listings[listing].prefab, p, q);
             go.name = name;
             BoughtFrom.Mark(go, listing);
+            if (go.GetComponent<VehicleBase>() == null && go.GetComponent<Trailer>() is Trailer tl)
+            {
+                tl.NetId = id;
+                spawnedTrailers[tl] = listing;
+                if (own == me) { tl.NetMine = true; return; }
+                tl.NetHeldBy = own.m_SteamID; tl.NetMine = false;
+                tl.NetSetRemote(true);
+                tl.NetTarget(p, q);
+                GameUI.Toast($"{SteamFriends.GetFriendPersonaName(from)} bought a {name}");
+                return;
+            }
             var v = go.GetComponent<VehicleBase>();
             v.NetId = id;
             spawnedListing[v] = listing;
@@ -510,7 +677,7 @@ namespace FPSBase.Net
             {
                 if (v.NetRemote || v.NetId == 0) continue;
                 var rb = v.GetComponent<Rigidbody>();
-                bool moving = v.Occupied || (rb != null && !rb.isKinematic && rb.linearVelocity.sqrMagnitude > 0.01f);
+                bool moving = v.Occupied || v.RidingTrailer || (rb != null && !rb.isKinematic && rb.linearVelocity.sqrMagnitude > 0.01f);
                 if (!moving && !slowTick) continue;
                 w.Write(v.NetId);
                 w.Write(v.Occupied);
@@ -697,12 +864,37 @@ namespace FPSBase.Net
             DigSite.Instance?.ReadCells(new BinaryReader(raw), n);
         }
 
+        // ------------------------------------------------------------------ wash plant (the host's is the real one)
+
+        /// <summary>The plants in the same order on every game (by where they stand).</summary>
+        static List<WashPlant> Plants()
+        {
+            var list = new List<WashPlant>(WashPlant.All);
+            list.RemoveAll(p => p == null);
+            list.Sort((a, b) => { var pa = a.transform.position; var pb = b.transform.position; int c = pa.x.CompareTo(pb.x); return c != 0 ? c : pa.z.CompareTo(pb.z); });
+            return list;
+        }
+        static int PlantIndex(WashPlant p) => Plants().IndexOf(p);
+        static WashPlant Plant(int i) { var l = Plants(); return i >= 0 && i < l.Count ? l[i] : null; }
+
+        void SendPlants(CSteamID? to)
+        {
+            var list = Plants();
+            for (int i = 0; i < list.Count; i++)
+            {
+                var w = Begin(MsgPlant); w.Write(i); list[i].NetWrite(w);
+                if (to != null) Send(to.Value, w, true); else Send(w, false, null);
+            }
+        }
+
         /// <summary>A player joined: send them the worked ground, the machines bought so far and where everything is.</summary>
         void SendWorldTo(CSteamID to)
         {
             var site = DigSite.Instance;
             if (site != null) SendCells(site.TakeChangedCells(true), to);
+            if (IsHost) SendPlants(to);
             foreach (var kv in spawnedListing) if (kv.Key != null) SendSpawn(kv.Key, kv.Value, to);
+            foreach (var kv in spawnedTrailers) if (kv.Key != null) SendSpawnTrailer(kv.Key, kv.Value, to);
             // the machines this game runs: their owner (us), where they are and what's in them
             foreach (var v in VehicleBase.All)
             {
@@ -713,6 +905,7 @@ namespace FPSBase.Net
                 v.NetWrite(w);
                 Send(to, w, true);
             }
+            SendTrailers(true, to); // and the trailers this game runs
         }
 
         // ------------------------------------------------------------------ helpers

@@ -36,7 +36,7 @@ namespace FPSBase.DebugTools
                     {
                         case "dig": yield return DigCycleTests(); break;
                         case "fleet2": yield return Fleet2Tests(); break;
-                        case "net": yield return NetSyncTests(); break;
+                        case "net": yield return NetSyncTests(); yield return NetMirrorTests(); break;
                         case "update3": yield return Update3Tests(); break;
                         case "berm": yield return BermTests(); break;
                         case "services": yield return ServiceTests(); break;
@@ -657,6 +657,129 @@ namespace FPSBase.DebugTools
             return sb.Length == 0 ? "nothing" : sb.ToString();
         }
 
+        /// <summary>
+        /// Multiplayer bits that don't need Steam: a friend's pickup rolls its wheels on your screen as it moves; on a
+        /// friend's game the wash plant sends dumped dirt to the host and shows the host's plant.
+        /// </summary>
+        IEnumerator NetMirrorTests()
+        {
+            var site = DigSite.Instance;
+            var dealer = FindFirstObjectByType<VehicleDealer>();
+            var pf = Prefab0(dealer, "GMT400");
+            Vector3 at = new Vector3(30f, 0f, -175f); at.y = site.SurfaceY(at);
+            var pk = Instantiate(pf, at + Vector3.up * 0.6f, Quaternion.identity).GetComponent<DumpPickup>();
+            yield return null;
+            pk.SetNetRemote(true);
+            var ms0 = new System.IO.MemoryStream(); pk.NetWrite(new System.IO.BinaryWriter(ms0)); ms0.Position = 0; pk.NetRead(new System.IO.BinaryReader(ms0));
+            Quaternion r0 = pk.wheelVisuals[0].rotation;
+            float s0 = pk.NetWheelSpin(0);
+            for (int i = 0; i < 60; i++) { pk.transform.position += pk.transform.forward * 0.08f; yield return null; }
+            float rolled = Mathf.DeltaAngle(s0, pk.NetWheelSpin(0));
+            float expect = 60 * 0.08f / pk.wheels[0].radius * Mathf.Rad2Deg;
+            Check(Mathf.Abs(Mathf.Repeat(expect, 360f) - Mathf.Repeat(pk.NetWheelSpin(0) - s0, 360f)) < 25f && Quaternion.Angle(r0, pk.wheelVisuals[0].rotation) > 5f,
+                $"a friend's pickup driving on your screen rolls its wheels ({Mathf.Repeat(pk.NetWheelSpin(0) - s0, 360f):0}° for {Mathf.Repeat(expect, 360f):0}° expected)");
+            Destroy(pk.gameObject);
+
+            // a friend tows a trailer: your copy rides on your copy of their truck, follows it and matches its deck
+            {
+                Vector3 padAt = new Vector3(-150f, 400f, 150f);
+                var pad = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                pad.name = "Test pad"; pad.transform.position = padAt + Vector3.down * 0.5f; pad.transform.localScale = new Vector3(60f, 1f, 200f);
+                Physics.SyncTransforms();
+                var trP = Prefab0(dealer, "Tilt-Deck Equipment Trailer");
+                Vector3 off = Vector3.right * 20f;
+                // their game: the truck and its trailer, running for real
+                var pa = Instantiate(pf, padAt + new Vector3(0f, 1.2f, -40f), Quaternion.identity).GetComponent<DumpPickup>();
+                // your game: copies of both
+                var pb = Instantiate(pf, padAt + off + new Vector3(0f, 1.2f, -40f), Quaternion.identity).GetComponent<DumpPickup>();
+                pa.NetId = pb.NetId = 777001;
+                yield return null;
+                pb.SetNetRemote(true);
+                Hitch ha = null, hb = null;
+                foreach (var h in pa.GetComponentsInChildren<Hitch>()) if (h.type == HitchType.Pintle) ha = h;
+                foreach (var h in pb.GetComponentsInChildren<Hitch>()) if (h.type == HitchType.Pintle) hb = h;
+                var ta = Instantiate(trP, pa.transform.position - Vector3.forward * 7f, Quaternion.identity).GetComponent<Trailer>();
+                var tb = Instantiate(trP, pb.transform.position - Vector3.forward * 7f, Quaternion.identity).GetComponent<Trailer>();
+                ta.NetId = tb.NetId = 777002;
+                yield return null;
+                ta.transform.position += ha.transform.position - ta.couplerPoint.position; ta.Body.position = ta.transform.position;
+                Physics.SyncTransforms();
+                ta.Couple(ha, true);
+                tb.NetSetRemote(true);
+                for (int i = 0; i < 50; i++) yield return new WaitForFixedUpdate();
+                System.Func<int, VehicleBase> findB = id => id == pa.NetId ? pb : null;
+                void Relay()
+                {
+                    // what their game sends, applied on yours (the pickup through its own update, the trailer through its)
+                    pb.transform.SetPositionAndRotation(pa.transform.position + off, pa.transform.rotation);
+                    var m1 = new System.IO.MemoryStream(); pa.NetWrite(new System.IO.BinaryWriter(m1)); m1.Position = 0; pb.NetRead(new System.IO.BinaryReader(m1));
+                    var m2 = new System.IO.MemoryStream(); ta.NetWriteState(new System.IO.BinaryWriter(m2)); m2.Position = 0;
+                    tb.NetTarget(ta.transform.position + off, ta.transform.rotation);
+                    tb.NetReadState(new System.IO.BinaryReader(m2), findB);
+                }
+                Relay();
+                yield return null;
+                Check(tb.Hitched == hb && tb.Body.isKinematic && tb.GetComponent<ConfigurableJoint>() == null,
+                    $"your copy of a friend's trailer is hitched to your copy of their truck, with no physics of its own (hitched {(tb.Hitched == hb)}, kinematic {tb.Body.isKinematic})");
+                pa.TestDrive(0.6f);
+                float gapW = 0f, angW = 0f, tS0 = tb.NetWheelSpin(0);
+                for (float t = 0f, i = 0; t < 6f; t += Time.deltaTime, i++)
+                {
+                    Relay();
+                    yield return null; // (what you see: measured after the frame's update, as drawn)
+                    if (t > 1f) { gapW = Mathf.Max(gapW, Vector3.Distance(tb.couplerPoint.position, hb.transform.position)); angW = Mathf.Max(angW, Quaternion.Angle(tb.transform.rotation, ta.transform.rotation)); }
+                }
+                pa.TestDrive(-1f);
+                for (int i = 0; i < 50 * 3; i++) { yield return new WaitForFixedUpdate(); Relay(); }
+                pa.TestDrive(0f);
+                Check(gapW < 0.05f && angW < 6f && Vector3.Distance(ta.transform.position, padAt) > 5f, $"it follows their trailer as they tow it, its coupler staying on the hitch ({gapW:0.00} m off, {angW:0.0}° behind)");
+                Check(Mathf.Abs(tb.NetWheelSpin(0) - tS0) > 1f, $"and its wheels roll ({tb.NetWheelSpin(0) - tS0:0}°)");
+                ta.SetDeckTilt(true);
+                for (int i = 0; i < 50 * 5; i++) { yield return new WaitForFixedUpdate(); Relay(); }
+                Check(Mathf.Abs(tb.DeckTilt - ta.DeckTilt) < 0.5f && ta.DeckTilt > 5f, $"they tilt the deck: yours tilts too ({tb.DeckTilt:0.0} vs {ta.DeckTilt:0.0}°)");
+                ta.SetDeckTilt(false);
+                for (int i = 0; i < 50 * 5; i++) { yield return new WaitForFixedUpdate(); Relay(); }
+                ta.Uncouple();
+                Relay();
+                yield return null;
+                Check(tb.Hitched == null && hb.Attached == null, "they unhitch it: your copy unhitches too");
+                // you take the parked trailer: it runs on your game again
+                tb.NetTake();
+                Check(!tb.NetRemote && !tb.Body.isKinematic && tb.NetMine, "you use the parked trailer: it runs on your game (they'd follow yours)");
+                Destroy(ta.gameObject); Destroy(tb.gameObject); Destroy(pa.gameObject); Destroy(pb.gameObject); Destroy(pad);
+                yield return null;
+            }
+
+            var plant = FindFirstObjectByType<WashPlant>();
+            if (plant == null) { Check(false, "a wash plant for the multiplayer test"); yield break; }
+            var keepFwd = WashPlant.NetForwardLoad;
+            var saved = new System.IO.MemoryStream(); plant.NetWrite(new System.IO.BinaryWriter(saved));
+            float sentVol = 0f;
+            WashPlant.NetForwardLoad = (p, l) => sentVol += l.volume;
+            plant.hopper = default;
+            plant.NetMirror = true;
+            plant.Receive(MaterialLoad.Mix(0.8f, 4f, 0f, 0f, 0f));
+            Check(Mathf.Abs(sentVol - 0.8f) < 0.01f, $"on a friend's game, dirt dumped in the wash plant goes to the host's plant ({sentVol:0.00} of 0.80 m³ sent)");
+            float before = plant.hopper.volume;
+            for (int i = 0; i < 30; i++) yield return null;
+            Check(Mathf.Abs(plant.hopper.volume - before) < 1e-4f, "a friend's copy of the plant doesn't wash it itself (the host does)");
+            // the host's plant, with a friend's load in it, as everyone else's game shows it
+            var host = new System.IO.MemoryStream(); var hw = new System.IO.BinaryWriter(host);
+            var hostState = MaterialLoad.Mix(2.4f, 9f, 0f, 0f, 0f);
+            plant.hopper = hostState; plant.sluiceGold = 3.5f;
+            plant.NetWrite(hw);
+            plant.hopper = default; plant.sluiceGold = 0f;
+            host.Position = 0; plant.NetRead(new System.IO.BinaryReader(host));
+            Check(Mathf.Abs(plant.hopper.volume - 2.4f) < 0.01f && Mathf.Abs(plant.sluiceGold - 3.5f) < 0.01f && host.Position == host.Length,
+                $"the host's plant shows on everyone's game: hopper {plant.hopper.volume:0.0} m³, sluice {plant.sluiceGold:0.0} g");
+            Check(plant.hopperContents == null || plant.hopperContents.gameObject.activeSelf, "and its hopper shows the dirt");
+            float g = plant.ApplyNetAction(0);
+            Check(Mathf.Abs(g - 3.5f) < 0.01f && plant.sluiceGold == 0f, $"a friend cleaning up the host's sluice gets its gold ({g:0.0} g)");
+            plant.NetMirror = false;
+            WashPlant.NetForwardLoad = keepFwd;
+            saved.Position = 0; plant.NetRead(new System.IO.BinaryReader(saved));
+        }
+
         static GameObject Prefab0(VehicleDealer dealer, string n) { foreach (var l in dealer.listings) if (l.name.Contains(n)) return l.prefab; return null; }
 
         IEnumerator SkidCarryTests()
@@ -1055,6 +1178,78 @@ namespace FPSBase.DebugTools
             float gap = Vector3.Distance(pintle.transform.position, bw.couplerPoint.position);
             Check(Vector3.Distance(bw.transform.position, b0) > 6f && gap < 0.25f && bw.transform.up.y > 0.9f,
                 $"the pickup pulls the bowser ({Vector3.Distance(bw.transform.position, b0):0.0} m, ring {gap:0.00} m from the hook, upright {bw.transform.up.y:0.00})");
+            {
+                // tip the bowser over hitched (and the truck with it), reposition the truck: the bowser comes back upright on the hook
+                Vector3 rigP = pk.transform.position; Quaternion rigR = pk.transform.rotation;
+                bw.transform.rotation = Quaternion.AngleAxis(85f, bw.transform.forward) * bw.transform.rotation;
+                bwrb.rotation = bw.transform.rotation;
+                Physics.SyncTransforms();
+                for (int i = 0; i < 50 * 2; i++) yield return new WaitForFixedUpdate();
+                log.AppendLine($"INFO  bowser tipped: up {bw.transform.up.y:0.00}, hitched {bw.Hitched != null}, truck up {pk.transform.up.y:0.00}");
+                pk.Reposition();
+                for (int i = 0; i < 50 * 3; i++) yield return new WaitForFixedUpdate();
+                float bRoll = Vector3.Angle(bw.transform.up, pk.transform.up);
+                float bGap = Vector3.Distance(pintle.transform.position, bw.couplerPoint.position);
+                Check(bRoll < 8f && bw.Hitched == pintle && bGap < 0.4f, $"reposition the truck: its tipped bowser comes back upright on the hook ({bRoll:0} deg off the truck's upright, ring {bGap:0.00} m from the hook, up {bw.transform.up.y:0.00})");
+                // leaning on the hook: its own menu sets it back upright, still hitched
+                bw.transform.rotation = Quaternion.AngleAxis(60f, bw.transform.forward) * bw.transform.rotation;
+                bwrb.rotation = bw.transform.rotation;
+                Physics.SyncTransforms();
+                for (int i = 0; i < 50; i++) yield return new WaitForFixedUpdate();
+                var up = FindOption(bw, "Set it back upright");
+                Check(up != null, $"a hitched bowser leaning on its side offers \"Set it back upright\" (up {bw.transform.up.y:0.00})");
+                up?.run(pi);
+                for (int i = 0; i < 50 * 2; i++) yield return new WaitForFixedUpdate();
+                Check(bw.transform.up.y > 0.9f && bw.Hitched == pintle && Vector3.Distance(pintle.transform.position, bw.couplerPoint.position) < 0.4f,
+                    $"and it stands back up on the hook (up {bw.transform.up.y:0.00}, ring {Vector3.Distance(pintle.transform.position, bw.couplerPoint.position):0.00} m)");
+                // unhitched and on its side: the same
+                bw.Uncouple();
+                bw.transform.rotation = Quaternion.AngleAxis(88f, bw.transform.forward) * bw.transform.rotation;
+                bwrb.rotation = bw.transform.rotation;
+                Physics.SyncTransforms();
+                for (int i = 0; i < 50 * 2; i++) yield return new WaitForFixedUpdate();
+                up = FindOption(bw, "Set it back upright");
+                up?.run(pi);
+                for (int i = 0; i < 50 * 2; i++) yield return new WaitForFixedUpdate();
+                Check(up != null && bw.transform.up.y > 0.9f, $"an unhitched bowser on its side sets back upright from its menu (up {bw.transform.up.y:0.00})");
+                // put the rig back where it was for the pump tests
+                pk.transform.SetPositionAndRotation(rigP + Vector3.up * 0.3f, rigR);
+                pkrb.position = pk.transform.position; pkrb.rotation = rigR; pkrb.linearVelocity = Vector3.zero; pkrb.angularVelocity = Vector3.zero;
+                Physics.SyncTransforms();
+                for (int i = 0; i < 30; i++) yield return new WaitForFixedUpdate();
+                bw.transform.SetPositionAndRotation(pk.transform.position - pk.transform.forward * 5f, pk.transform.rotation);
+                bwrb.position = bw.transform.position; bwrb.rotation = bw.transform.rotation;
+                Physics.SyncTransforms();
+                for (int i = 0; i < 30; i++) yield return new WaitForFixedUpdate();
+                bw.transform.position += pintle.transform.position - bw.couplerPoint.position;
+                bwrb.position = bw.transform.position;
+                Physics.SyncTransforms();
+                FindOption(bw, "Hitch to")?.run(pi);
+            }
+            {
+                // the 25 t haul truck: all three axles' wheels sit on their wheels and all four rear wheels drive
+                var hp = Prefab("Haul Truck");
+                Check(hp != null, "dealer sells the 25 t haul truck");
+                if (hp != null)
+                {
+                    Vector3 hAt = VehicleSpot.FindFree(yard + new Vector3(-14f, 0f, -10f), 90f, VehicleSpot.LocalBounds(hp.transform), null, 60f);
+                    var ht = Instantiate(hp, hAt + Vector3.up * 0.8f, yawX).GetComponent<DumpPickup>();
+                    for (int i = 0; i < 50 * 2; i++) yield return new WaitForFixedUpdate();
+                    ht.TestDrive(1f);
+                    for (int i = 0; i < 50 * 2; i++) yield return new WaitForFixedUpdate();
+                    float worst = 0f; int driven = 0;
+                    for (int i = 0; i < ht.wheels.Length; i++)
+                    {
+                        ht.wheels[i].GetWorldPose(out Vector3 wp, out _);
+                        worst = Mathf.Max(worst, Vector3.Distance(wp, ht.wheelVisuals[i].position));
+                        if (i >= 2 && ht.wheels[i].motorTorque > 1f) driven++;
+                    }
+                    ht.TestDrive(0f);
+                    Check(ht.wheels.Length == 6 && worst < 0.05f, $"haul truck: all {ht.wheels.Length} wheels show on their axles (worst {worst:0.00} m off)");
+                    Check(driven == 4, $"haul truck: both rear axles drive ({driven} of 4 rear wheels pulling)");
+                    Destroy(ht.gameObject);
+                }
+            }
             yield return ShotAt(pk.transform.position + pk.transform.right * 7f + Vector3.up * 3f - pk.transform.forward * 2f, pk.transform.position - pk.transform.forward * 3f + Vector3.up * 1f, "Screenshots/transport_bowser.png");
 
             // tow the rig to the fuel pump: the bowser comes along; fill it from its menu

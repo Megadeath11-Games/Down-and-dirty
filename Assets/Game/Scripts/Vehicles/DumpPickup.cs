@@ -81,11 +81,13 @@ namespace FPSBase.Vehicles
         }
 
         float netTilt = float.NaN, netGate;
-        public override void NetWrite(System.IO.BinaryWriter w) { base.NetWrite(w); w.Write(tilt); w.Write(gateSwing); w.Write(gateSetting); NetIO.Write(w, load); }
+        public override void NetWrite(System.IO.BinaryWriter w) { base.NetWrite(w); w.Write(tilt); w.Write(gateSwing); w.Write(gateSetting); NetIO.Write(w, load); w.Write(GooseneckFitted); }
         public override void NetRead(System.IO.BinaryReader r)
         {
             base.NetRead(r);
             netTilt = r.ReadSingle(); netGate = r.ReadSingle(); gateSetting = r.ReadInt32(); load = NetIO.ReadLoad(r);
+            bool goose = r.ReadBoolean();
+            if (gooseneckBall != null && goose != gooseneckFitted) { gooseneckFitted = goose; gooseneckBall.SetActive(goose); }
         }
         protected override void NetShow(float dt)
         {
@@ -94,7 +96,30 @@ namespace FPSBase.Vehicles
             gateSwing = NetIO.Ease(gateSwing, netGate, dt);
             if (tailgate != null) tailgate.localRotation = Quaternion.Euler(gateSwing, 0f, 0f); // swings out the back
             UpdateContents();
+            NetWheels();
         }
+
+        // another player drives it: its wheel physics is off here, so roll the wheels by how far it moves on screen
+        float[] netSpin; Vector3 netLastPos; bool netHasPos;
+        void NetWheels()
+        {
+            if (wheels == null || wheelVisuals == null || RidingTrailer) { netHasPos = false; return; }
+            if (netSpin == null || netSpin.Length != wheels.Length) netSpin = new float[wheels.Length];
+            Vector3 pos = transform.position;
+            float moved = netHasPos ? Vector3.Dot(pos - netLastPos, transform.forward) : 0f;
+            if (Mathf.Abs(moved) > Mathf.Max(3f, Time.deltaTime * 40f)) moved = 0f; // a teleport (tow / reposition), not driving
+            netLastPos = pos; netHasPos = true;
+            for (int i = 0; i < wheels.Length && i < wheelVisuals.Length; i++)
+            {
+                var w = wheels[i];
+                if (w == null || wheelVisuals[i] == null) continue;
+                netSpin[i] = Mathf.Repeat(netSpin[i] + moved / Mathf.Max(0.1f, w.radius) * Mathf.Rad2Deg, 360f);
+                w.GetWorldPose(out Vector3 p, out _);
+                wheelVisuals[i].SetPositionAndRotation(p, transform.rotation * Quaternion.Euler(netSpin[i], 0f, 0f) * Quaternion.Euler(0f, 0f, 90f));
+            }
+        }
+        /// <summary>Tests: how far wheel `i` has rolled on screen while another player drives (deg).</summary>
+        public float NetWheelSpin(int i) => netSpin != null && i < netSpin.Length ? netSpin[i] : 0f;
 
         void Awake()
         {
@@ -300,7 +325,10 @@ namespace FPSBase.Vehicles
             float total = (!braking && kmh < top) ? throttle * motorTorque * 4f * (low ? lowRange : 1f) : 0f;
             float front = mode == DriveMode.TwoHigh ? 0f : total * 0.5f, rear = total - front;
             AxleTorque(0, 1, front, false);      // the front diff is always open
-            AxleTorque(2, 3, rear, rearLocked);
+            // the rear drive is shared over every rear axle (the 25 t hauler's tandem gets half each)
+            if (axleOut.Length != wheels.Length) axleOut = new float[wheels.Length];
+            int rearAxles = Mathf.Max(1, wheels.Length / 2 - 1);
+            for (int a = 1; a <= rearAxles; a++) AxleTorque(a * 2, a * 2 + 1, rear / rearAxles, rearLocked);
 
             for (int i = 0; i < wheels.Length; i++)
             {
@@ -325,7 +353,7 @@ namespace FPSBase.Vehicles
             }
         }
 
-        readonly float[] axleOut = new float[4];
+        float[] axleOut = new float[4];
 
         /// <summary>
         /// Split an axle's torque between its two wheels. Open diff: equal torque, but no more than the wheel with

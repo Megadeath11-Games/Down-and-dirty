@@ -20,7 +20,7 @@ namespace FPSBase.City
         MaterialLoad pouring;
         public bool Pouring => !pouring.IsEmpty;
 
-        public override string Prompt => $"Landscape supply  —  back a truck under the chute  (gravel ${gravelPrice:0}, sand ${sandPrice:0}, topsoil ${topsoilPrice:0} per m³)";
+        public override string Prompt => $"Landscape supply: back a truck under the chute   (gravel ${gravelPrice:0}, sand ${sandPrice:0}, topsoil ${topsoilPrice:0} a m³)";
 
         public override void Interact(PlayerInteractor player) => GameUI.Instance.OpenPanel("Landscape Supply", Draw);
 

@@ -51,6 +51,7 @@ namespace FPSBase.DebugTools
                         case "update8": yield return Update8Tests(); break;
                         case "update9": yield return Update9Tests(); break;
                         case "town": yield return TownTests(); break;
+                        case "hitch": yield return DumpHitchTests(); break;
                         case "slosh": yield return SloshTests(DigSite.Instance, FindFirstObjectByType<DumpPickup>()); break;
                         case "materials": yield return MaterialsTests(DigSite.Instance, Economy.Instance, FindFirstObjectByType<WashPlant>(), FindFirstObjectByType<DumpPickup>()); break;
                         default: log.AppendLine($"INFO  unknown quick test '{part}'"); break;
@@ -987,6 +988,54 @@ namespace FPSBase.DebugTools
             Check(Mathf.Abs(town.CutDepth(dp) - cut) < 0.05f, $"the town's dug ground comes back ({town.CutDepth(dp):0.00} m deep, saved {cut:0.00})");
             Check(GameObject.Find($"Job stakes: {h2.Address}") != null, "the accepted job's stakes come back");
             File.Delete(listed.path);
+        }
+
+        /// <summary>Update 11: both dump trucks tow the equipment trailers (gravel in the box, a skid steer behind).</summary>
+        IEnumerator DumpHitchTests()
+        {
+            var dealer = FindFirstObjectByType<VehicleDealer>();
+            GameObject Prefab(string nm) { foreach (var l in dealer.listings) if (l.name.Contains(nm)) return l.prefab; return null; }
+            var tiltPrefab = Prefab("Tilt-Deck Equipment Trailer");
+            foreach (var truckName in new[] { "Single-Axle Dump Truck", "Haul Truck 25t" })
+            {
+                var tp = Prefab(truckName);
+                if (tp == null || tiltPrefab == null) { Check(false, $"{truckName} and the tilt trailer are on sale"); continue; }
+                Vector3 padAt = new Vector3(150f, 400f, truckName.StartsWith("Haul") ? 250f : -250f);
+                var pad = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                pad.name = "Test pad"; pad.transform.position = padAt + Vector3.down * 0.5f; pad.transform.localScale = new Vector3(40f, 1f, 260f);
+                Physics.SyncTransforms();
+                var tk = Instantiate(tp, padAt + new Vector3(0f, 1.5f, -60f), Quaternion.identity).GetComponent<DumpPickup>();
+                yield return null;
+                for (int i = 0; i < 60; i++) yield return new WaitForFixedUpdate();
+                Hitch hitch = null;
+                foreach (var h in tk.GetComponentsInChildren<Hitch>()) if (h.type == HitchType.Pintle) hitch = h;
+                Check(hitch != null, $"the {truckName} has a pintle hook");
+                if (hitch == null) { Destroy(tk.gameObject); Destroy(pad); continue; }
+                var trl = Instantiate(tiltPrefab, tk.transform.position - Vector3.forward * 9f, Quaternion.identity).GetComponent<Trailer>();
+                yield return null;
+                trl.transform.position += hitch.transform.position - trl.couplerPoint.position;
+                trl.Body.position = trl.transform.position;
+                Physics.SyncTransforms();
+                trl.Couple(hitch, true);
+                for (int i = 0; i < 100; i++) yield return new WaitForFixedUpdate();
+                float pitch = Mathf.Abs(Mathf.DeltaAngle(0f, trl.transform.eulerAngles.x));
+                Check(trl.Hitched == hitch && pitch < 4f, $"the tilt trailer hitches to the {truckName} and sits level ({pitch:0.0} deg)");
+                // a load of gravel in the box, then drive off with the trailer behind
+                tk.Receive(FPSBase.City.GravelBin.Make(0, tk.capacity * 0.8f));
+                Vector3 t0 = trl.transform.position;
+                tk.TestDrive(1f);
+                for (int i = 0; i < 50 * 8; i++) yield return new WaitForFixedUpdate();
+                tk.TestDrive(0f);
+                for (int i = 0; i < 50 * 3; i++) yield return new WaitForFixedUpdate();
+                float moved = Vector3.Distance(trl.transform.position, t0);
+                float gap = Vector3.Distance(trl.couplerPoint.position, hitch.transform.position);
+                log.AppendLine($"INFO  {truckName} towing: trailer moved {moved:0.0} m, coupler gap {gap:0.00} m, trailer up {trl.transform.up.y:0.00}");
+                Check(trl.Hitched == hitch && moved > 10f && gap < 0.4f && trl.transform.up.y > 0.95f, $"the {truckName} pulls the loaded trailer ({moved:0} m)");
+                trl.Uncouple();
+                Check(trl.Hitched == null && hitch.Attached == null, "and unhitches it at the customer's");
+                Destroy(trl.gameObject); Destroy(tk.gameObject); Destroy(pad);
+                for (int i = 0; i < 5; i++) yield return null;
+            }
         }
 
         IEnumerator Update9Tests()

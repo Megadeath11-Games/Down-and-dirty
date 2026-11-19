@@ -147,9 +147,12 @@ namespace FPSBase.Core
             Time.timeScale = paused && !FPSBase.Net.NetSession.InSession ? 0f : 1f;
             if ((applyTimer -= Time.unscaledDeltaTime) <= 0f) { applyTimer = 0.5f; GraphicsApply.Cameras(); }
             fpsSmooth = Mathf.Lerp(fpsSmooth, 1f / Mathf.Max(Time.unscaledDeltaTime, 1e-4f), 0.05f);
-            bool wantLocked = !BlocksGameplay && Application.isFocused;
-            Cursor.lockState = wantLocked ? CursorLockMode.Locked : CursorLockMode.None;
-            Cursor.visible = !wantLocked;
+            // playing: locked in the middle. A menu, the map or the phone open: free to move but kept inside the
+            // game's window (so it can't wander onto another monitor). Only let go when the game isn't in front.
+            var want = !Application.isFocused ? CursorLockMode.None : !BlocksGameplay ? CursorLockMode.Locked : CursorLockMode.Confined;
+            if (Cursor.lockState != want) Cursor.lockState = want;
+            bool show = want != CursorLockMode.Locked;
+            if (Cursor.visible != show) Cursor.visible = show;
         }
 
         void Styles()
@@ -207,13 +210,23 @@ namespace FPSBase.Core
             if (ActiveVehicle != null && !paused && ActiveVehicle.HudBar >= 0f)
             {
                 float f = Mathf.Clamp01(ActiveVehicle.HudBar);
-                var r = new Rect(Screen.width / 2f - 230, Screen.height - 74, 460, 30);
+                // as wide as the words need (between the machine panel on the left and the minimap), wrapping
+                // onto more lines above if they still don't fit
+                var label = new GUIContent(ActiveVehicle.HudBarLabel);
+                barLabel ??= new GUIStyle(prompt) { fontSize = 16, wordWrap = true, alignment = TextAnchor.MiddleCenter, padding = new RectOffset(10, 10, 4, 4) };
+                float cx = Screen.width / 2f;
+                float room = 2f * Mathf.Max(230f, Mathf.Min(cx - 495f, Screen.width - 286f - cx));
+                float bw = Mathf.Clamp(barLabel.CalcSize(label).x + 8f, 460f, room);
+                float bh = Mathf.Max(30f, barLabel.CalcHeight(label, bw));
+                var r = new Rect(cx - bw / 2f, Screen.height - 44 - bh, bw, bh);
                 GUI.Box(r, GUIContent.none, box);
                 var fill = new Rect(r.x + 3, r.y + 3, (r.width - 6) * f, r.height - 6);
-                GUI.color = f >= 0.98f ? new Color(1f, 0.55f, 0.1f) : new Color(0.35f, 0.8f, 0.3f);
+                GUI.color = f >= 0.98f ? new Color(1f, 0.55f, 0.1f, 0.85f) : new Color(0.35f, 0.8f, 0.3f, 0.85f);
                 GUI.DrawTexture(fill, Texture2D.whiteTexture);
+                GUI.color = new Color(0f, 0f, 0f, 0.8f);
+                GUI.Label(new Rect(r.x + 1, r.y + 1, r.width, r.height), label, barLabel);
                 GUI.color = Color.white;
-                GUI.Label(r, ActiveVehicle.HudBarLabel, prompt);
+                GUI.Label(r, label, barLabel);
             }
 
             // Safe zone banner
@@ -348,7 +361,22 @@ namespace FPSBase.Core
 
         // ------------------------------------------------------------------ look-at prompt / menu
 
-        GUIStyle optStyle, optSelStyle;
+        GUIStyle optStyle, optSelStyle, promptWrap, barLabel;
+
+        /// <summary>The look-at prompt: on a dark backing, as wide as it needs, wrapping onto more lines if it's long. Returns its height.</summary>
+        float PromptLine(float cx, float y, string text)
+        {
+            promptWrap ??= new GUIStyle(prompt) { wordWrap = true, padding = new RectOffset(12, 12, 4, 4) };
+            var c = new GUIContent(text);
+            float w = Mathf.Min(promptWrap.CalcSize(c).x + 4f, Mathf.Min(900f, Screen.width - 40f));
+            float h = Mathf.Max(30f, promptWrap.CalcHeight(c, w));
+            var r = new Rect(cx - w / 2f, y, w, h);
+            GUI.color = new Color(0f, 0f, 0f, 0.5f);
+            GUI.DrawTexture(r, Texture2D.whiteTexture);
+            GUI.color = Color.white;
+            GUI.Label(r, c, promptWrap);
+            return h;
+        }
 
         void DrawLookPrompt()
         {
@@ -357,11 +385,10 @@ namespace FPSBase.Core
             float cx = Screen.width / 2f, y = Screen.height / 2f + 30;
             if (opts.Count == 0)
             {
-                GUI.Label(new Rect(cx - 300, y, 600, 30), $"[{key}] " + player.Current.Prompt, prompt);
+                PromptLine(cx, y, $"[{key}] " + player.Current.Prompt);
                 return;
             }
-            GUI.Label(new Rect(cx - 300, y, 600, 26), player.Current.Prompt, prompt);
-            y += 28;
+            y += PromptLine(cx, y, player.Current.Prompt) + 4f;
             optStyle ??= new GUIStyle(hudSmall) { wordWrap = false, clipping = TextClipping.Clip, alignment = TextAnchor.MiddleLeft };
             optSelStyle ??= new GUIStyle(optStyle) { fontStyle = FontStyle.Bold };
             const float h = 24f;

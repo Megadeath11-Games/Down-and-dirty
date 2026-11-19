@@ -13,6 +13,14 @@ namespace FPSBase.Core
         /// <summary>Newest first.</summary>
         public static readonly Post[] Blog =
         {
+            new Post { date = "Update 12  ·  Nov 19, 2026", title = "Dump truck hitches, readable prompts",
+                body =
+                "<b>New</b>\n" +
+                "• Both dump trucks (the single-axle and the 25 t haul truck) have a pintle hook under the back bumper. Tow the tilt-deck or gooseneck trailer with a skid steer on it behind a load of gravel, unhitch at the customer's, dump the gravel on the drive and spread it.\n" +
+                "<b>Fixed</b>\n" +
+                "• The text you get when you look at something (like the landscape supply bin) no longer spills out of its box: it sits on a dark backing and wraps neatly when it's long.\n" +
+                "• The bucket / dump box bar at the bottom grows to fit its message, so BUCKET FULL and its tips aren't cut off.\n" +
+                "• The mouse stays inside the game window while a menu, the map or the phone is open, so it can't wander onto another monitor.\n" },
             new Post { date = "Update 11  ·  Nov 19, 2026", title = "Crew jobs, a real map and a minimap",
                 body =
                 "<b>New</b>\n" +
@@ -145,11 +153,15 @@ namespace FPSBase.Core
                 "• Dozer berms build up properly in front of the blade." },
         };
 
-        public const string TestListVersion = "2026-11-19f";
+        public const string TestListVersion = "2026-11-19g";
 
         /// <summary>What's new in this build to try out.</summary>
         public static readonly string[] TestList =
         {
+            "Hitch a trailer with a skid steer to a dump truck, tow it to a job with gravel in the box, unhitch, dump and spread",
+            "Look at the landscape supply bin: the text sits in its box",
+            "Fill a loader bucket: the BUCKET FULL bar shows the whole message",
+            "Two monitors: open the map / phone / menu, the mouse stays on the game's screen",
             "Multiplayer: accept a job with Share with crew, have your friend finish it, you both get half",
             "Multiplayer: take a job Just me, your friend's phone shows it's yours",
             "Open the map (M): scroll to zoom, drag it around, find your machines by their icons",

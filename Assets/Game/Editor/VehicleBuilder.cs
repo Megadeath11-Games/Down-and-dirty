@@ -431,6 +431,12 @@ namespace FPSBase.EditorTools
                 Part(root.transform, "Passenger Seat Back", new Vector3(W * 0.22f, y0 + 0.45f, cabBack + 0.12f), new Vector3(W * 0.42f, 0.6f, 0.09f), vm.rubber);
             }
             Part(root.transform, "Bumper R", new Vector3(0f, chassisY, -front + 0.05f), new Vector3(W + 0.1f, 0.15f, 0.12f), vm.steel);
+            // a pintle hook on a drop plate under the rear bumper: tows the equipment trailers (a skid steer behind a load of gravel)
+            const float hookY = 0.56f;
+            Part(root.transform, "Hitch Drop Plate", new Vector3(0f, (chassisY + hookY) / 2f, -front - 0.02f), new Vector3(0.16f, chassisY - hookY + 0.16f, 0.1f), vm.steel);
+            Part(root.transform, "Hitch Hook", new Vector3(0f, hookY, -front - 0.13f), new Vector3(0.14f, 0.1f, 0.22f), vm.steel);
+            var hook = Marker(root.transform, "Pintle Hook", new Vector3(0f, hookY, -front - 0.22f));
+            hook.gameObject.AddComponent<Hitch>().type = HitchType.Pintle;
 
             // dump box hinged at the back
             var bedPivot = Marker(root.transform, "BedPivot (hinge)", new Vector3(0f, bedFloor, -front + 0.15f));

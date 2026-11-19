@@ -104,6 +104,10 @@ namespace FPSBase.Core
                     player.PlaceAt(bin.transform.position + new Vector3(-14f, 0.3f, -10f), 50f);
                     for (int i = 0; i < 60; i++) yield return null;
                     yield return Shot("town_supply.png");
+                    Vector3 bp = bin.transform.position, at = bp + new Vector3(-3.5f, 0f, -3.5f);
+                    player.PlaceAt(at + Vector3.up * 0.3f, Quaternion.LookRotation(new Vector3(bp.x - at.x, 0f, bp.z - at.z)).eulerAngles.y);
+                    for (int i = 0; i < 30; i++) yield return null;
+                    yield return Shot("town_bin_prompt.png");
                 }
             }
             Application.Quit();

@@ -209,7 +209,7 @@ namespace FPSBase.Mining
         /// <summary>Ground height under a lot spot (the dirt field may have been dug or piled up since).</summary>
         public static Vector3 GroundAt(Vector3 p)
         {
-            var site = DigSite.Instance;
+            var site = DigSite.At(p);
             if (site != null && site.Contains(p)) { p.y = site.SurfaceY(p); return p; }
             // highest static surface (skip parked machines and anything else with a rigidbody)
             float best = float.NegativeInfinity;

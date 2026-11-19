@@ -140,7 +140,7 @@ namespace FPSBase.Mining
         {
             if (!embedded) return;
             embedded = false;
-            var site = DigSite.Instance;
+            var site = DigSite.At(transform.position);
             if (site != null && site.Contains(transform.position))
             {
                 site.Flush(0); // the physics ground must already have the dug-out hole in it
@@ -158,7 +158,7 @@ namespace FPSBase.Mining
         void FixedUpdate()
         {
             if (Held) return;
-            var site = DigSite.Instance;
+            var site = DigSite.At(transform.position);
             // a rock tipped into the sand & gravel yard's bay is sold there
             if (!embedded && (sellCheck -= Time.fixedDeltaTime) <= 0f)
             {

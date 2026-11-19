@@ -73,6 +73,32 @@ namespace FPSBase.Core
             }
             var plant = FindFirstObjectByType<FPSBase.Mining.WashPlant>();
             if (plant != null) { plant.Interact(null); yield return Shot("panel_plant.png"); ClosePanel(); }
+            // the town: a street, the phone, the map
+            var jobsC = FPSBase.City.Jobs.Instance;
+            if (jobsC != null && FPSBase.City.House.All.Count > 12 && player != null)
+            {
+                var h = FPSBase.City.House.All[3];
+                var hj = jobsC.NewRequest(h, FPSBase.City.JobKind.Driveway);
+                jobsC.Accept(hj);
+                jobsC.NewRequest(FPSBase.City.House.All[12], FPSBase.City.JobKind.Ditch);
+                player.PlaceAt(h.transform.position - h.transform.forward * 9f + h.transform.right * 3f + Vector3.up * 0.3f, h.transform.eulerAngles.y - 12f);
+                for (int i = 0; i < 120; i++) yield return null;
+                yield return Shot("town_street.png");
+                jobsC.OpenPhone(h);
+                for (int i = 0; i < 5; i++) yield return null;
+                yield return Shot("phone.png");
+                ClosePanel();
+                OpenMap();
+                yield return Shot("map.png");
+                ClosePanel();
+                var bin = FindFirstObjectByType<FPSBase.City.GravelBin>();
+                if (bin != null)
+                {
+                    player.PlaceAt(bin.transform.position + new Vector3(-14f, 0.3f, -10f), 50f);
+                    for (int i = 0; i < 60; i++) yield return null;
+                    yield return Shot("town_supply.png");
+                }
+            }
             Application.Quit();
         }
 

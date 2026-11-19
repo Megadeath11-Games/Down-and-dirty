@@ -174,7 +174,7 @@ namespace FPSBase.Vehicles
 
         void BuryCheck()
         {
-            var site = DigSite.Instance;
+            var site = DigSite.At(transform.position);
             if (site == null || !site.Contains(transform.position)) { if (Buried) Unbury(); return; }
             if (!hullKnown) FindHull();
             // sample the ground just outside the machine's footprint, all the way round
@@ -494,7 +494,7 @@ namespace FPSBase.Vehicles
         /// </summary>
         void TrampleGround()
         {
-            var site = DigSite.Instance;
+            var site = DigSite.At(transform.position);
             if (site == null) return;
             if (body == null) body = GetComponent<Rigidbody>();
             if (body == null || body.isKinematic) { hasPose = false; return; }

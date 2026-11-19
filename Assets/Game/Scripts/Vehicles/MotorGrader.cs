@@ -181,7 +181,7 @@ namespace FPSBase.Vehicles
         /// <summary>Blade + ripper work at forward speed `v`. Public for the automated test.</summary>
         public void Work(float v, float dt)
         {
-            var site = DigSite.Instance;
+            var site = DigSite.At(transform.position);
             if (site == null || bladeEndL == null || bladeEndR == null) return;
             Vector3 a = bladeEndL.position, b = bladeEndR.position;
             float moved = 0f;
@@ -218,7 +218,7 @@ namespace FPSBase.Vehicles
         {
             get
             {
-                var site = DigSite.Instance;
+                var site = DigSite.At(transform.position);
                 if (site == null || bladeEndL == null || bladeEndR == null) return 0f;
                 float h = float.MaxValue;
                 foreach (var e in new[] { bladeEndL.position, bladeEndR.position, Vector3.Lerp(bladeEndL.position, bladeEndR.position, 0.5f) })

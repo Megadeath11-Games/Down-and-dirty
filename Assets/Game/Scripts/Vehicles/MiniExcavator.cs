@@ -98,7 +98,7 @@ namespace FPSBase.Vehicles
                 // while the bucket is cutting into the ground the load is packed in: nothing falls out
                 cc.packed = () =>
                 {
-                    var s = DigSite.Instance;
+                    var s = DigSite.At(transform.position);
                     if (bucketTip == null) return false;
                     Vector3 t = bucketTip.position;
                     return s != null && s.Contains(t) && s.SurfaceY(t) > t.y - 0.08f;
@@ -167,7 +167,7 @@ namespace FPSBase.Vehicles
         void Spread(bool digging, float dt)
         {
             LastSpread = 0f;
-            var site = DigSite.Instance;
+            var site = DigSite.At(transform.position);
             if (site == null || bucketTip == null) return;
             Vector3 tip = bucketTip.position;
             Vector3 v = hasLastTip && dt > 1e-4f ? (tip - lastTip) / dt : Vector3.zero;
@@ -219,7 +219,7 @@ namespace FPSBase.Vehicles
             bool digging = digInput > 0f && bucketLoad.volume + rockRoom < bucketCapacity && bucket < dumpAngle;
             if (digging)
             {
-                var site = DigSite.Instance;
+                var site = DigSite.At(transform.position);
                 if (site != null && site.IsUnderground(bucketTip.position))
                 {
                     float rate = digRate;
@@ -333,7 +333,7 @@ namespace FPSBase.Vehicles
         void DigResistance()
         {
             Overload = 0f;
-            var site = DigSite.Instance;
+            var site = DigSite.At(transform.position);
             if (site == null || bucketTip == null) return;
             Vector3 tip = bucketTip.position;
             if (!site.Contains(tip)) return;
@@ -405,7 +405,7 @@ namespace FPSBase.Vehicles
         /// </summary>
         public float BladeWork()
         {
-            var site = DigSite.Instance;
+            var site = DigSite.At(transform.position);
             if (blade == null || bladeEdge == null || site == null || rb == null) return 0f;
             float v = Vector3.Dot(rb.linearVelocity, transform.forward);
             Vector3 e = bladeEdge.position;
@@ -422,7 +422,7 @@ namespace FPSBase.Vehicles
         {
             get
             {
-                var site = DigSite.Instance;
+                var site = DigSite.At(transform.position);
                 if (site == null || bucketTip == null) return "—";
                 string g = site.GroundNameAt(bucketTip.position, out float ease);
                 return ease > 0f && ease < 0.8f ? g + " (sticky, slow)" : ease > 1.1f ? g + " (digs fast)" : g;

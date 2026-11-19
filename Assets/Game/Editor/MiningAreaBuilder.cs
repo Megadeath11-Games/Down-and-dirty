@@ -45,6 +45,7 @@ namespace FPSBase.EditorTools
             claimMark.position = new Vector3(ClaimOrigin.x + ClaimSize.x * 0.5f, 0f, ClaimOrigin.z + ClaimSize.z * 0.5f);
             MapMark(claimMark, "Gold claim", new Color(1f, 0.82f, 0.3f), Vector3.zero);
             BuildAggregateYard(m, new Vector3(168f, 0f, 30f));
+            BuildCity(m, mainTerrain);
         }
 
         static void MapMark(Transform t, string label, Color c, Vector3 arrive)
@@ -55,7 +56,8 @@ namespace FPSBase.EditorTools
 
         static float FieldGroundY(Vector3 p)
         {
-            var site = Object.FindFirstObjectByType<DigSite>();
+            DigSite site = null;
+            foreach (var s in Object.FindObjectsByType<DigSite>(FindObjectsSortMode.None)) if (s.primary) site = s;
             if (site == null) return p.y;
             var t = site.GetComponent<Terrain>();
             return t.SampleHeight(p) + t.transform.position.y;

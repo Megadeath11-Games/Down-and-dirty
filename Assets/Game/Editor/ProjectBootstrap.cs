@@ -96,6 +96,7 @@ namespace FPSBase.EditorTools
             tuftMesh = GrassTuftMesh();
             tuftMat = GrassTuftMaterial();
             SetupLowPolyTerrain(terrain, tuftMesh, tuftMat);
+            BuildEastTerrain();
 
             var course = new GameObject("MovementCourse").transform;
             course.position = new Vector3(0f, 0f, 0f);
@@ -154,10 +155,7 @@ namespace FPSBase.EditorTools
                 for (int x = 0; x < res; x++)
                 {
                     float wx = x / (float)(res - 1) * 600f - 300f, wz = y / (float)(res - 1) * 600f - 300f;
-                    float n = Mathf.PerlinNoise(x * 0.008f + 11f, y * 0.008f + 7f) * 0.6f + Mathf.PerlinNoise(x * 0.03f, y * 0.03f) * 0.15f;
-                    float dist = Mathf.Sqrt(wx * wx + wz * wz);
-                    float flat = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(150f, 240f, dist)); // flat play area in the middle (claim, outpost)
-                    hs[y, x] = (2f / 60f) + n * flat * 0.9f;
+                    hs[y, x] = WorldHeight01(wx, wz); // flat play area in the middle (claim, outpost), hills, the pass to town
                 }
             data.SetHeights(0, 0, hs);
 

@@ -830,15 +830,18 @@ namespace FPSBase.Net
 
         void SendTerrain()
         {
-            var site = DigSite.Instance;
-            if (site == null) return;
-            var cells = site.TakeChangedCells(false);
-            if (cells.Count > 0) SendCells(cells, null);
+            var sites = DigSite.Ordered();
+            for (int k = 0; k < sites.Count; k++)
+            {
+                var cells = sites[k].TakeChangedCells(false);
+                if (cells.Count > 0) SendCells(k, cells, null);
+            }
         }
 
-        void SendCells(List<int> cells, CSteamID? to)
+        /// <summary>Changed ground cells of ground number `k` (<see cref="DigSite.Ordered"/>).</summary>
+        void SendCells(int k, List<int> cells, CSteamID? to)
         {
-            var site = DigSite.Instance;
+            var site = DigSite.Ordered()[k];
             const int per = 6000;
             for (int s = 0; s < cells.Count; s += per)
             {
@@ -849,19 +852,21 @@ namespace FPSBase.Net
                 var packed = new MemoryStream();
                 using (var z = new DeflateStream(packed, System.IO.Compression.CompressionLevel.Fastest, true)) z.Write(raw.GetBuffer(), 0, (int)raw.Length);
                 var w = Begin(MsgTerrain);
-                w.Write(n); w.Write((int)packed.Length); w.Write(packed.GetBuffer(), 0, (int)packed.Length);
+                w.Write(k); w.Write(n); w.Write((int)packed.Length); w.Write(packed.GetBuffer(), 0, (int)packed.Length);
                 if (to.HasValue) Send(to.Value, w, true); else Send(w, true, null);
             }
         }
 
         void ReadTerrain(BinaryReader r)
         {
+            int k = r.ReadInt32();
             int n = r.ReadInt32(), len = r.ReadInt32();
             var packed = new MemoryStream(r.ReadBytes(len));
             var raw = new MemoryStream();
             using (var z = new DeflateStream(packed, CompressionMode.Decompress)) z.CopyTo(raw);
             raw.Position = 0;
-            DigSite.Instance?.ReadCells(new BinaryReader(raw), n);
+            var sites = DigSite.Ordered();
+            if (k >= 0 && k < sites.Count) sites[k].ReadCells(new BinaryReader(raw), n);
         }
 
         // ------------------------------------------------------------------ wash plant (the host's is the real one)
@@ -890,8 +895,8 @@ namespace FPSBase.Net
         /// <summary>A player joined: send them the worked ground, the machines bought so far and where everything is.</summary>
         void SendWorldTo(CSteamID to)
         {
-            var site = DigSite.Instance;
-            if (site != null) SendCells(site.TakeChangedCells(true), to);
+            var sites = DigSite.Ordered();
+            for (int k = 0; k < sites.Count; k++) SendCells(k, sites[k].TakeChangedCells(true), to);
             if (IsHost) SendPlants(to);
             foreach (var kv in spawnedListing) if (kv.Key != null) SendSpawn(kv.Key, kv.Value, to);
             foreach (var kv in spawnedTrailers) if (kv.Key != null) SendSpawnTrailer(kv.Key, kv.Value, to);

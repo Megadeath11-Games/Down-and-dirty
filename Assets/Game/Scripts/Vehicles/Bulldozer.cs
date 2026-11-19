@@ -148,7 +148,7 @@ namespace FPSBase.Vehicles
         /// <summary>One step of blade (and ripper) work at forward speed `v` (m/s). Public so the automated test can drive it.</summary>
         public void Work(float v, float dt)
         {
-            var site = DigSite.Instance;
+            var site = DigSite.At(transform.position);
             if (site == null || bladeEdge == null) return;
             Vector3 edge = bladeEdge.position;
             float moved = 0f, hard = 0f;
@@ -218,7 +218,7 @@ namespace FPSBase.Vehicles
         {
             get
             {
-                var site = DigSite.Instance;
+                var site = DigSite.At(transform.position);
                 float d = 0f;
                 if (site != null && ripperTips != null)
                     foreach (var t in ripperTips)

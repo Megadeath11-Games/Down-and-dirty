@@ -85,7 +85,7 @@ namespace FPSBase.Player
         {
             Vector3 o = transform.position + Vector3.up * 0.3f;
             if (!Physics.Raycast(o, Vector3.down, out RaycastHit h, 1.2f, ~0, QueryTriggerInteraction.Ignore)) return StepSurface.Grass;
-            var site = DigSite.Instance;
+            var site = DigSite.At(h.point);
             if (site != null && h.collider.gameObject == site.gameObject) return site.StepSurfaceAt(h.point);
             if (h.collider is TerrainCollider) return StepSurface.Grass;
             return StepSurface.Hard;

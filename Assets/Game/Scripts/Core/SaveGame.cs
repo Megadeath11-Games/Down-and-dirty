@@ -91,6 +91,7 @@ namespace FPSBase.Core
                     WriteMachines(w);
                     WritePiles(w);
                     WritePlants(w);
+                    WriteTown(w);
                 }
                 if (File.Exists(path)) File.Delete(path);
                 File.Move(tmp, path);
@@ -114,9 +115,10 @@ namespace FPSBase.Core
             w.Write(have); V3(w, p); w.Write(yaw);
         }
 
-        static void WriteGround(BinaryWriter w)
+        static void WriteGround(BinaryWriter w) => WriteGround(w, DigSite.Instance);
+
+        static void WriteGround(BinaryWriter w, DigSite site)
         {
-            var site = DigSite.Instance;
             var cells = site != null ? site.TakeChangedCells(true) : new List<int>();
             var raw = new MemoryStream(cells.Count * DigSite.NetCellBytes + 16);
             var rw = new BinaryWriter(raw);
@@ -192,6 +194,30 @@ namespace FPSBase.Core
                 var ms = new MemoryStream(); p.NetWrite(new BinaryWriter(ms));
                 w.Write((int)ms.Length); w.Write(ms.GetBuffer(), 0, (int)ms.Length);
             }
+        }
+
+        const int TownTag = 0x544F574E; // "TOWN": the other grounds (the city's yards) and the customer jobs. Older saves end before it.
+
+        static void WriteTown(BinaryWriter w)
+        {
+            var sites = DigSite.Ordered();
+            w.Write(TownTag); w.Write(sites.Count - 1);
+            for (int i = 1; i < sites.Count; i++) WriteGround(w, sites[i]);
+            var ms = new MemoryStream();
+            FPSBase.City.Jobs.Instance?.Write(new BinaryWriter(ms));
+            w.Write((int)ms.Length); w.Write(ms.GetBuffer(), 0, (int)ms.Length);
+        }
+
+        static void ReadTown(BinaryReader r)
+        {
+            if (r.BaseStream.Length - r.BaseStream.Position < 8) return;
+            long at = r.BaseStream.Position;
+            if (r.ReadInt32() != TownTag) { r.BaseStream.Position = at; return; }
+            var sites = DigSite.Ordered();
+            int n = r.ReadInt32();
+            for (int i = 1; i <= n; i++) ReadGround(r, i < sites.Count ? sites[i] : null);
+            var bytes = r.ReadBytes(r.ReadInt32());
+            if (bytes.Length > 0) FPSBase.City.Jobs.Instance?.Read(new BinaryReader(new MemoryStream(bytes)));
         }
 
         static void ReadPlants(BinaryReader r)
@@ -324,6 +350,7 @@ namespace FPSBase.Core
                 int np = r.ReadInt32();
                 for (int k = 0; k < np; k++) { Vector3 p = RV3(r); var l = NetIO.ReadLoad(r); DirtPile.DropAt(p, l); }
                 ReadPlants(r);
+                ReadTown(r);
             }
             catch (Exception e) { error = "The save is damaged: " + e.Message; }
 
@@ -336,14 +363,16 @@ namespace FPSBase.Core
             done?.Invoke(error);
         }
 
-        static void ReadGround(BinaryReader r)
+        static void ReadGround(BinaryReader r) => ReadGround(r, DigSite.Instance);
+
+        static void ReadGround(BinaryReader r, DigSite site)
         {
             int n = r.ReadInt32(), len = r.ReadInt32();
             var packed = new MemoryStream(r.ReadBytes(len));
             var raw = new MemoryStream();
             using (var z = new DeflateStream(packed, CompressionMode.Decompress)) z.CopyTo(raw);
             raw.Position = 0;
-            DigSite.Instance?.ReadCells(new BinaryReader(raw), n);
+            site?.ReadCells(new BinaryReader(raw), n);
         }
 
         static void Pose(Transform t, Vector3 p, Quaternion q)

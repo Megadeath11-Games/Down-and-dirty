@@ -24,7 +24,7 @@ namespace FPSBase.Mining
         void Start()
         {
             // the bay sits on the dirt field: scuff the grass off under it so no tufts poke through the pad
-            var site = DigSite.Instance;
+            var site = DigSite.At(transform.position);
             if (site == null || bayVolume == null) return;
             Vector3 c = bayVolume.transform.TransformPoint(bayVolume.center);
             Vector3 h = bayVolume.size * 0.5f + new Vector3(1f, 0f, 1f);

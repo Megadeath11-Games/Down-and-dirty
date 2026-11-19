@@ -14,7 +14,39 @@ namespace FPSBase.Mining
     [RequireComponent(typeof(Terrain))]
     public partial class DigSite : MonoBehaviour
     {
+        /// <summary>The main ground: the dirt field with the gold claim, wash plant and yards.</summary>
         public static DigSite Instance { get; private set; }
+        /// <summary>Every diggable ground in the world (the main dirt field, the city's yards...).</summary>
+        public static readonly List<DigSite> All = new();
+        static readonly HashSet<Collider> siteColliders = new();
+
+        /// <summary>The ground that covers this point (falls back to the main one, so callers can still check Contains).</summary>
+        public static DigSite At(Vector3 world)
+        {
+            for (int i = 0; i < All.Count; i++) { var s = All[i]; if (s != null && s.data != null && s.Contains(world)) return s; }
+            return Instance;
+        }
+
+        /// <summary>The grounds in the same order on every game (by where they lie): 0 is the main one.</summary>
+        public static List<DigSite> Ordered()
+        {
+            var l = new List<DigSite>();
+            foreach (var s in All) if (s != null && s != Instance) l.Add(s);
+            l.Sort((a, b) => { int c = a.transform.position.x.CompareTo(b.transform.position.x); return c != 0 ? c : a.transform.position.z.CompareTo(b.transform.position.z); });
+            if (Instance != null) l.Insert(0, Instance);
+            return l;
+        }
+
+        /// <summary>Is this the physics collider of one of the grounds?</summary>
+        public static bool IsSiteCollider(Collider c) => c != null && siteColliders.Contains(c);
+
+        [Tooltip("The main ground (the one with the gold claim). A second ground (the city) leaves this off.")]
+        public bool primary = true;
+        [Tooltip("Areas that can't be dug (under houses and streets).")]
+        public List<Rect> hardRects = new();
+        [Tooltip("Gold nuggets buried for the metal detector (none in town).")]
+        public int nuggetCount = -1;
+        bool[,] hard;
 
         [Header("Geology (depths below original surface, m)")]
         public float overburdenDepth = 1.2f;
@@ -74,12 +106,13 @@ namespace FPSBase.Mining
 
         void Awake()
         {
-            Instance = this;
+            All.Add(this);
+            if (primary || Instance == null) Instance = this;
             terrain = GetComponent<Terrain>();
             data = Instantiate(terrain.terrainData); // never modify the saved asset
             terrain.terrainData = data;
             var col = GetComponent<TerrainCollider>();
-            if (col != null) col.terrainData = data;
+            if (col != null) { col.terrainData = data; siteColliders.Add(col); }
             terrain.drawHeightmap = false;            // we draw the faceted mesh ourselves
             terrain.drawTreesAndFoliage = false;
 
@@ -100,6 +133,13 @@ namespace FPSBase.Mining
             for (int z = 0; z < res; z++)
                 for (int x = 0; x < res; x++)
                     orig[z, x] = native[z, x] = h[z, x] * sizeY + baseY;
+            hard = new bool[res, res];
+            foreach (var hr in hardRects)
+            {
+                int ax = Mathf.Clamp(Mathf.FloorToInt((hr.xMin - origin.x) / cell), 0, res - 1), bx = Mathf.Clamp(Mathf.CeilToInt((hr.xMax - origin.x) / cell), 0, res - 1);
+                int az = Mathf.Clamp(Mathf.FloorToInt((hr.yMin - origin.z) / cell), 0, res - 1), bz = Mathf.Clamp(Mathf.CeilToInt((hr.yMax - origin.z) / cell), 0, res - 1);
+                for (int z = az; z <= bz; z++) for (int x = ax; x <= bx; x++) hard[z, x] = true;
+            }
 
             GenerateGeology();
             BuildChunks();
@@ -158,7 +198,15 @@ namespace FPSBase.Mining
 
         bool InClaim(float wx, float wz) => claimRect.Contains(new Vector2(wx, wz));
 
-        float Floor(int x, int z) => orig[z, x] - (InClaim(origin.x + x * cell, origin.z + z * cell) ? bedrockDepth : offClaimDigDepth);
+        float Floor(int x, int z) => hard[z, x] ? orig[z, x] : orig[z, x] - (InClaim(origin.x + x * cell, origin.z + z * cell) ? bedrockDepth : offClaimDigDepth);
+
+        void OnDestroy()
+        {
+            All.Remove(this);
+            var col = GetComponent<TerrainCollider>();
+            if (col != null) siteColliders.Remove(col);
+            if (Instance == this) Instance = All.Count > 0 ? All[0] : null;
+        }
 
         /// <summary>Gold grade (g/m^3) of the native ground at a world x/z and depth below the original surface.</summary>
         public float GradeAt(float worldX, float worldZ, float depth)
@@ -212,7 +260,8 @@ namespace FPSBase.Mining
         /// <summary>Dig with a bucket tip anywhere: inside the dirt field, otherwise from a loose pile.</summary>
         public static MaterialLoad DigAnywhere(Vector3 tip, float radius, float maxVolume)
         {
-            if (Instance != null && Instance.Contains(tip)) return Instance.Dig(tip, radius, maxVolume);
+            var site = At(tip);
+            if (site != null && site.Contains(tip)) return site.Dig(tip, radius, maxVolume);
             var pile = DirtPile.FindContaining(tip);
             if (pile != null) return pile.Dig(maxVolume);
             return default;
@@ -225,7 +274,8 @@ namespace FPSBase.Mining
             var rocks = load.TakeRocks();
             if (!rocks.IsEmpty) Boulder.SpawnFromLoad(ground, rocks);
             if (load.IsEmpty) return;
-            if (Instance != null && Instance.Contains(ground)) Instance.Deposit(ground, load);
+            var site = At(ground);
+            if (site != null && site.Contains(ground)) site.Deposit(ground, load);
             else DirtPile.DropAt(ground, load);
         }
 
@@ -706,7 +756,7 @@ namespace FPSBase.Mining
                 }
         }
 
-        bool IsGrass(int x, int z) => !trampled[z, x] && loose[z, x] <= 0.005f && orig[z, x] - native[z, x] <= 0.08f;
+        bool IsGrass(int x, int z) => !trampled[z, x] && !hard[z, x] && loose[z, x] <= 0.005f && orig[z, x] - native[z, x] <= 0.08f;
 
         void DrawGrass()
         {

@@ -23,8 +23,7 @@ namespace FPSBase.Core
             AudioListener.volume = GameSettings.MasterVolume;
             PostFx();
             Cameras();
-            var site = FPSBase.Mining.DigSite.Instance;
-            if (site != null) site.grassDrawDistance = GameSettings.GrassDistance;
+            foreach (var site in FPSBase.Mining.DigSite.All) if (site != null) site.grassDrawDistance = GameSettings.GrassDistance;
             foreach (var t in Object.FindObjectsByType<FPSBase.World.LowPolyTerrain>(FindObjectsSortMode.None)) t.grassDrawDistance = GameSettings.GrassDistance * 0.92f;
         }
 

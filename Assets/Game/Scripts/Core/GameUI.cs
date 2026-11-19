@@ -38,6 +38,10 @@ namespace FPSBase.Core
         GUIStyle hudBig, hudSmall, prompt, header, toastStyle, box;
 
         public bool BlocksGameplay => paused || panelDraw != null || menuOpen;
+        /// <summary>The open panel's title (null when none is open).</summary>
+        public string PanelTitle => panelDraw != null ? panelTitle : null;
+        public bool Paused => paused || menuOpen;
+        public void OpenMap() => OpenPanel("Map", DrawMap, 920f);
 
         void Awake() { Instance = this; MenuAwake(); }
 
@@ -52,8 +56,9 @@ namespace FPSBase.Core
             if (t.Count > 4) t.RemoveAt(0);
         }
 
-        public void OpenPanel(string title, Action draw)
+        public void OpenPanel(string title, Action draw, float width = 600f)
         {
+            panelWidth = width;
             panelTitle = title;
             panelDraw = draw;
             panelDrawRect = null;
@@ -61,8 +66,9 @@ namespace FPSBase.Core
         }
 
         /// <summary>A big shop window that lays itself out in the rect it's given (no outer scroll).</summary>
-        public void OpenShop(string title, Action<Rect> draw)
+        public void OpenShop(string title, Action<Rect> draw, Vector2? size = null)
         {
+            shopSize = size ?? new Vector2(1280f, 800f);
             panelTitle = title;
             panelDraw = () => { };
             panelDrawRect = draw;
@@ -70,6 +76,8 @@ namespace FPSBase.Core
         }
 
         Action<Rect> panelDrawRect;
+        Vector2 shopSize = new Vector2(1280f, 800f);
+        float panelWidth = 600f;
         GUIStyle panelStyle;
         /// <summary>Set by a shop: shown at the top right of its window (your money).</summary>
         public string PanelCorner { get; set; }
@@ -116,7 +124,7 @@ namespace FPSBase.Core
             }
             else if (!paused && Controls.Pressed(GameAction.Map))
             {
-                if (panelTitle == "Map" && panelDraw != null) ClosePanel(); else OpenPanel("Map", DrawMap);
+                if (panelTitle == "Map" && panelDraw != null) ClosePanel(); else OpenPanel("Map", DrawMap, 920f);
             }
             else if (!paused && Controls.Pressed(GameAction.Help))
             {
@@ -324,7 +332,7 @@ namespace FPSBase.Core
         public void OpenTow(FPSBase.Vehicles.VehicleBase v)
         {
             towing = v; towDest = null;
-            OpenPanel("Map", DrawMap);
+            OpenPanel("Map", DrawMap, 920f);
         }
 
         // ------------------------------------------------------------------ map
@@ -337,6 +345,8 @@ namespace FPSBase.Core
             var who = ActiveVehicle as Component;
             Vector3 me = who != null ? who.transform.position : (player != null ? player.transform.position : Vector3.zero);
             Rect world = site != null ? site.FieldRect : new Rect(-50, -200, 300, 320);
+            foreach (var g in FPSBase.Mining.DigSite.All)
+                if (g != null && g != site) { var f = g.FieldRect; world = Rect.MinMaxRect(Mathf.Min(world.xMin, f.xMin), Mathf.Min(world.yMin, f.yMin), Mathf.Max(world.xMax, f.xMax), Mathf.Max(world.yMax, f.yMax)); }
             foreach (var m in MapMarker.All)
             {
                 Vector3 q = m.transform.position;
@@ -365,6 +375,15 @@ namespace FPSBase.Core
                 var gold = new Color(1f, 0.8f, 0.3f);
                 Fill(new Rect(c.xMin, c.yMin, c.width, e * 2), gold); Fill(new Rect(c.xMin, c.yMax - e * 2, c.width, e * 2), gold);
                 Fill(new Rect(c.xMin, c.yMin, e * 2, c.height), gold); Fill(new Rect(c.xMax - e * 2, c.yMin, e * 2, c.height), gold);
+            }
+            foreach (var other in FPSBase.Mining.DigSite.All)
+                if (other != null && other != site) Fill(other.FieldRect, new Color(0.30f, 0.45f, 0.20f));
+            foreach (var st in FPSBase.City.Street.All) Fill(st.Rect, new Color(0.25f, 0.25f, 0.27f));
+            foreach (var hs in FPSBase.City.House.All)
+            {
+                var hj = FPSBase.City.Jobs.Instance != null ? FPSBase.City.Jobs.Instance.OpenJobAt(hs) : null;
+                var hp = hs.transform.position;
+                Fill(new Rect(hp.x - 4f, hp.z - 4f, 8f, 8f), hj == null ? new Color(0.75f, 0.68f, 0.55f) : hj.state == FPSBase.City.JobState.Accepted ? new Color(1f, 0.5f, 0.1f) : new Color(1f, 0.85f, 0.3f));
             }
             void Dot(Vector3 p, float s, Color c, string label)
             {
@@ -490,6 +509,7 @@ namespace FPSBase.Core
             P($"{K(GameAction.DetectorToggle)} takes it out. Walk slowly over the dirt field: HIGH tone = gold, middle = coins/relics, low grunt = junk iron. {K(GameAction.DetectorDiscriminate)} ignores iron.");
             P($"Stand where it's loudest and press {K(GameAction.HandDig)} to dig with the shovel until the find pops out. Nuggets go to your gold, coins and relics pay cash. Bigger finds ring deeper.");
             H("Machines");
+            P($"{K(GameAction.Phone)} opens your phone: people in the town over the hill (east, follow the road from the heavy yard) text you jobs, a gravel driveway or a drainage ditch, with what they'll pay. Accept one and it's staked out and pinned on the map. Buy gravel at the landscape supply on the south side of town (back a truck under the bin), dump it on the drive, spread it with a skid steer, then Finish on the phone to get paid.");
             P($"{K(GameAction.Map)} opens the map: fast travel, see all your machines, have one towed (to you, or anywhere: you ride along) or flip it upright. Look at a machine on foot and scroll to refuel it from a tidy tank, reposition it or call a tow. In a machine, {K(GameAction.Recover)} flips it upright / unsticks it.");
             P("Machines burn diesel — refuel at the Outpost pumps. Buy bigger machines from the dealer (heavy ones are delivered to the heavy-equipment yard).");
             P("Excavator: push the bucket in too hard and the ground lifts the machine — the HUD warns you. Big dozers have rippers for hard ground and boulders.");
@@ -502,7 +522,7 @@ namespace FPSBase.Core
             GUI.skin = FPSBase.UI.ShopTheme.Skin;
             panelStyle ??= new GUIStyle { normal = { background = FPSBase.UI.ShopTheme.TexDeep }, border = new RectOffset(7, 7, 7, 7) };
             bool shop = panelDrawRect != null;
-            float w = shop ? Mathf.Min(1280f, Screen.width - 40f) : 600f, h = shop ? Mathf.Min(800f, Screen.height - 40f) : Mathf.Min(660f, Screen.height - 80f);
+            float w = shop ? Mathf.Min(shopSize.x, Screen.width - 40f) : Mathf.Min(panelWidth, Screen.width - 40f), h = shop ? Mathf.Min(shopSize.y, Screen.height - 40f) : Mathf.Min(660f, Screen.height - 80f);
             var r = new Rect(Mathf.Round((Screen.width - w) / 2f), Mathf.Round((Screen.height - h) / 2f), w, h);
             FPSBase.UI.ShopTheme.Fill(new Rect(0, 0, Screen.width, Screen.height), new Color(0f, 0f, 0f, 0.35f));
             GUI.Box(r, GUIContent.none, panelStyle);
@@ -516,7 +536,10 @@ namespace FPSBase.Core
             {
                 GUILayout.BeginArea(body);
                 panelScroll = GUILayout.BeginScrollView(panelScroll);
+                // as wide as the window (a long row mustn't widen everything and push it off the side)
+                GUILayout.BeginVertical(GUILayout.Width(body.width - 22f));
                 panelDraw?.Invoke();
+                GUILayout.EndVertical();
                 GUILayout.EndScrollView();
                 GUILayout.EndArea();
             }

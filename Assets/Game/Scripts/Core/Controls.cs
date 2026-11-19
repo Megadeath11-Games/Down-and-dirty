@@ -36,6 +36,8 @@ namespace FPSBase.Core
         BladeTiltLeft, BladeTiltRight, BladeAngleLeft, BladeAngleRight,
         // pickup transfer case (2WD / 4-high / 4-low) and rear diff lock
         TransferCase, DiffLock,
+        // your phone: customers in town
+        Phone,
     }
 
     /// <summary>Controller inputs (Xbox names; a PlayStation pad is the same places: A = Cross, B = Circle, X = Square, Y = Triangle).</summary>
@@ -57,6 +59,7 @@ namespace FPSBase.Core
             new(GameAction.Interact, General, "Use / shops / get in & out of vehicles", Key.F),
             new(GameAction.CabView, General, "Camera: 1st / 3rd person (vehicles: cab view)", Key.V),
             new(GameAction.Map, General, "Map, fast travel & your machines", Key.M),
+            new(GameAction.Phone, General, "Phone: customers' texts and your jobs", Key.P),
             new(GameAction.Help, General, "Help & tips", Key.F1),
             new(GameAction.Recover, General, "Vehicle: flip upright / get unstuck", Key.B),
 
@@ -140,7 +143,7 @@ namespace FPSBase.Core
         /// </summary>
         public static readonly Dictionary<GameAction, Pad> PadMap = new()
         {
-            [GameAction.Interact] = Pad.X, [GameAction.CabView] = Pad.R3, [GameAction.Map] = Pad.Select, [GameAction.Recover] = Pad.DDown,
+            [GameAction.Interact] = Pad.X, [GameAction.CabView] = Pad.R3, [GameAction.Map] = Pad.Select, [GameAction.Recover] = Pad.DDown, [GameAction.Phone] = Pad.DLeft,
             // on foot (right stick looks)
             [GameAction.MoveForward] = Pad.LUp, [GameAction.MoveBack] = Pad.LDown, [GameAction.MoveLeft] = Pad.LLeft, [GameAction.MoveRight] = Pad.LRight,
             [GameAction.Jump] = Pad.A, [GameAction.Crouch] = Pad.B, [GameAction.Sprint] = Pad.L3,
@@ -189,7 +192,10 @@ namespace FPSBase.Core
         static bool RightStickTaken(Pad p) => p >= Pad.RUp && Time.frameCount - padLookFrame <= 1;
 
         /// <summary>A menu or panel is up: the controller is driving the pointer, not the player (the View button still closes the map).</summary>
-        static bool PadOnMenu(GameAction a) => a != GameAction.Map && GameUI.Instance != null && GameUI.Instance.BlocksGameplay;
+        static bool PadOnMenu(GameAction a) => a != GameAction.Map && a != GameAction.Phone && GameUI.Instance != null && GameUI.Instance.BlocksGameplay;
+
+        /// <summary>The key for this action was pressed this frame (keyboard only, not the controller).</summary>
+        public static bool KeyPressed(GameAction a) => Ctl(a)?.wasPressedThisFrame ?? false;
 
         static float PadValue(GameAction a)
         {

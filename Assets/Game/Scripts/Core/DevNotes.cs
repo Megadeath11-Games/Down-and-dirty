@@ -13,6 +13,15 @@ namespace FPSBase.Core
         /// <summary>Newest first.</summary>
         public static readonly Post[] Blog =
         {
+            new Post { date = "Update 10  ·  Nov 19, 2026", title = "The town: customers, your phone, gravel jobs",
+                body =
+                "<b>New</b>\n" +
+                "• A town over the hill east of the mine: follow the new road from the heavy-equipment yard through the pass. Three streets (Birch Ln, Maple St, Cedar Ave) with 48 houses, each with a driveway, a yard and a mailbox.\n" +
+                "• Your phone (P, or D-pad left on a controller). People in town text you when they need work done: a gravel driveway or a drainage ditch down the side of their lot, and what they'll pay. Accept or decline right in the conversation.\n" +
+                "• Accepted jobs are staked out with orange flags and pinned on the map (M). The phone shows how far along each job is, and once it passes you tap Finish & get paid. Neat work gets a tip.\n" +
+                "• Gravel driveway: dump gravel on the drive and spread it out with a skid steer or loader, at least 6 cm over 90% of it, with no pile over 30 cm left. Drainage ditch: dig it 0.6 m deep along the stakes.\n" +
+                "• Landscape supply on the south side of town: back a truck under the bin and buy gravel, sand or topsoil by the cubic metre. It pours into the bed.\n" +
+                "• The yards in town are diggable ground like the mine (you can't dig under the houses or the streets). Machines, dumping, the metal detector and multiplayer all work there, and the town is saved with your game.\n" },
             new Post { date = "Update 9  ·  Nov 19, 2026", title = "New shop, deep digging, fast dumps",
                 body =
                 "<b>New</b>\n" +
@@ -123,16 +132,21 @@ namespace FPSBase.Core
                 "• Dozer berms build up properly in front of the blade." },
         };
 
-        public const string TestListVersion = "2026-11-19d";
+        public const string TestListVersion = "2026-11-19e";
 
         /// <summary>What's new in this build to try out.</summary>
         public static readonly string[] TestList =
         {
-            "Controller: open the pause menu (Menu) and a shop: the left stick moves the pointer (not you), A clicks, B backs out",
+            "Drive the new road from the heavy yard over the hill to the town",
+            "Wait for a text, open your phone (P), accept a job",
+            "Buy gravel at the landscape supply: back the truck under the bin",
+            "Dump the gravel on the driveway, unload a skid steer at the curb and spread it, then Finish on the phone",
+            "Dig a drainage ditch along the stakes with an excavator and get paid",
+            "Save in town, load: your jobs, texts and the dug yards come back",
+            "Multiplayer: a friend sees the gravel and ditches you make in town",
             "Equipment dealer: click the categories, hover over the machines for their pictures and specs, buy one",
             "Upgrade the wash plant, save, load: the upgrades are still there",
             "Dig a deep hole with the 90 t, as deep as the arm reaches",
-            "Open the excavator bucket and drag it across undug grass: it shaves the ground",
             "Controller: excavator, hold RT and steer the tracks with the left stick",
             "Dump truck: tailgate FULL OPEN, raise the box: the load rushes out in a few seconds",
             "Read the Dev Blog on the main menu",

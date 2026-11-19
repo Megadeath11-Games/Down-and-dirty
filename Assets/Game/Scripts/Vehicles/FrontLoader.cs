@@ -56,7 +56,7 @@ namespace FPSBase.Vehicles
                 // while the bucket is cutting into the ground the load is packed in: nothing falls out
                 cc.packed = () =>
                 {
-                    var s = DigSite.Instance;
+                    var s = DigSite.At(transform.position);
                     if (bucketTip == null) return false;
                     Vector3 t = bucketTip.position;
                     return s != null && s.Contains(t) && s.SurfaceY(t) > t.y - 0.08f;
@@ -166,7 +166,7 @@ namespace FPSBase.Vehicles
         public void Work(float v, float tiltIn, float dt)
         {
             Vector3 tip = bucketTip.position;
-            var site = DigSite.Instance;
+            var site = DigSite.At(transform.position);
             // the cutting edge, or just above it (a flat or tipped-forward bucket's lip can ride on the pile's skin)
             Vector3 lip = tip + Vector3.up * 0.12f + transform.forward * 0.08f;
             bool inDirt = DirtPile.FindContaining(tip) != null || (site != null && (site.IsUnderground(tip) || site.IsUnderground(lip)));

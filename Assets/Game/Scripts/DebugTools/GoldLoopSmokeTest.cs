@@ -50,6 +50,7 @@ namespace FPSBase.DebugTools
                         case "equip": yield return EquipTrailerTests(); break;
                         case "update8": yield return Update8Tests(); break;
                         case "update9": yield return Update9Tests(); break;
+                        case "town": yield return TownTests(); break;
                         case "slosh": yield return SloshTests(DigSite.Instance, FindFirstObjectByType<DumpPickup>()); break;
                         case "materials": yield return MaterialsTests(DigSite.Instance, Economy.Instance, FindFirstObjectByType<WashPlant>(), FindFirstObjectByType<DumpPickup>()); break;
                         default: log.AppendLine($"INFO  unknown quick test '{part}'"); break;
@@ -792,6 +793,154 @@ namespace FPSBase.DebugTools
         /// forwards and backing up; the excavator's load lands where the dump marker shows (not under the teeth);
         /// a friend's dump shows dirt falling on your screen; a machine gets chained on a trailer a friend runs.
         /// </summary>
+        /// <summary>Update 10: the town over the hill, its customers, the phone and the landscape supply.</summary>
+        IEnumerator TownTests()
+        {
+            var main = DigSite.Instance;
+            var jobs = FPSBase.City.Jobs.Instance;
+            var eco = Economy.Instance;
+            var houses = FPSBase.City.House.All;
+            DigSite town = null;
+            foreach (var g in DigSite.All) if (g != main) town = g;
+            Check(town != null && jobs != null && houses.Count >= 40 && FPSBase.City.Street.All.Count >= 5,
+                $"the town is there: its own ground, {houses.Count} houses, {FPSBase.City.Street.All.Count} streets, the customer jobs");
+            if (town == null || jobs == null || houses.Count == 0) yield break;
+            var h0 = houses[0];
+            Check(DigSite.At(new Vector3(h0.driveway.center.x, 0f, h0.driveway.center.y)) == town && DigSite.At(new Vector3(70f, 0f, -12f)) == main, "each place uses the ground it's on (town yards / the mine)");
+            Check(DigSite.Ordered()[0] == main && DigSite.Ordered().Count == 2, "the grounds are numbered the same on every game");
+
+            // a driveway job
+            int texts0 = jobs.texts.Count;
+            var j = jobs.NewRequest(h0, FPSBase.City.JobKind.Driveway);
+            Check(j != null && j.pay > 1000f && jobs.texts.Count > texts0 && jobs.Unread > 0, $"{h0.first} at {h0.Address} texts about a gravel driveway for ${j?.pay:N0}");
+            GameUI.Instance.ClosePanel();
+            jobs.OpenPhone(h0);
+            Check(GameUI.Instance.PanelTitle == FPSBase.City.Jobs.PhoneTitle && GameUI.Instance.BlocksGameplay, "the phone opens on their messages");
+            yield return null;
+            GameUI.Instance.ClosePanel();
+            jobs.Accept(j);
+            Check(j.state == FPSBase.City.JobState.Accepted && !j.ready && GameObject.Find($"Job stakes: {h0.Address}") != null, "accepting stakes it out, and it isn't done yet");
+            var r = h0.driveway;
+            // one big pile in the middle: not good enough (it has to be spread)
+            DigSite.DropAt(new Vector3(r.center.x, 0f, r.center.y), FPSBase.City.GravelBin.Make(0, r.width * r.height * 0.11f));
+            town.Flush(9999);
+            jobs.Check(j);
+            log.AppendLine($"INFO  driveway with one dumped pile: {j.status}");
+            Check(!j.ready, "a dumped pile of gravel on the drive doesn't pass");
+            // spread it out evenly (as a skid steer would): take the drive's loose dirt back up and lay it flat
+            for (float x = r.xMin + 0.25f; x < r.xMax; x += 0.5f)
+                for (float z = r.yMin + 0.25f; z < r.yMax; z += 0.5f)
+                    for (int k = 0; k < 4; k++) town.Dig(new Vector3(x, town.OriginalY(new Vector3(x, 0f, z)) + 0.01f, z), 0.4f, 5f);
+            for (float x = r.xMin + 0.25f; x < r.xMax; x += 0.5f)
+                for (float z = r.yMin + 0.25f; z < r.yMax; z += 0.5f)
+                    DigSite.DropAt(new Vector3(x, 0f, z), FPSBase.City.GravelBin.Make(0, 0.25f * 0.11f));
+            town.Flush(9999);
+            jobs.Check(j);
+            log.AppendLine($"INFO  driveway spread out: {j.status}");
+            float m0 = eco.Money;
+            bool paid = jobs.Finish(j);
+            Check(paid && j.state == FPSBase.City.JobState.Paid && eco.Money >= m0 + j.pay - 1f, $"spread evenly it passes and pays (${eco.Money - m0:N0})");
+
+            // a ditch job
+            var h1 = houses[5];
+            var dj = jobs.NewRequest(h1, FPSBase.City.JobKind.Ditch);
+            jobs.Accept(dj);
+            Check(!dj.ready, "the ditch isn't dug yet");
+            Vector3 A = h1.ditchA, B = h1.ditchB;
+            for (int pass = 0; pass < 3; pass++)
+                for (float t = 0f; t <= 1f; t += 0.02f)
+                {
+                    Vector3 q = Vector3.Lerp(A, B, t);
+                    town.Dig(new Vector3(q.x, town.OriginalY(q) - 0.75f, q.z), 0.45f, 2f);
+                }
+            town.Flush(9999);
+            jobs.Check(dj);
+            log.AppendLine($"INFO  ditch dug: {dj.status}");
+            Check(dj.ready && jobs.Finish(dj), "dug down the side of the lot, the ditch passes and pays");
+            Check(town.CutDepth(Vector3.Lerp(A, B, 0.5f)) > 0.5f && main.SurfaceY(new Vector3(70f, 0f, -12f)) > -1f, "the ditch is in the town's ground (the mine's isn't touched)");
+
+            // the house's lot is hard under the house
+            Vector3 under = h1.transform.TransformPoint(new Vector3(h1.driveway.width > 0 ? 0f : 0f, 0f, 13f));
+            float before = town.SurfaceY(under);
+            town.Dig(under + Vector3.down * 0.8f, 0.5f, 2f);
+            Check(Mathf.Abs(town.SurfaceY(under) - before) < 0.02f, "you can't dig under a house");
+
+            // the landscape supply loads a truck
+            var bin = FindFirstObjectByType<FPSBase.City.GravelBin>();
+            var dealer = FindFirstObjectByType<VehicleDealer>();
+            var pf = Prefab0(dealer, "Single-Axle Dump");
+            if (bin != null && pf != null)
+            {
+                Vector3 at = bin.chute.position; at.y = 0.3f;
+                var tk = Instantiate(pf, at + Vector3.up * 0.4f, Quaternion.Euler(0f, 90f, 0f)).GetComponent<DumpPickup>();
+                // the bed under the chute
+                Vector3 bed = tk.transform.InverseTransformPoint(tk.tailgatePour != null ? tk.tailgatePour.position : tk.transform.position);
+                tk.transform.position -= tk.transform.TransformVector(new Vector3(0f, 0f, bed.z * 0.5f));
+                var trb = tk.GetComponent<Rigidbody>(); if (trb != null) trb.position = tk.transform.position;
+                for (int i = 0; i < 60; i++) yield return new WaitForFixedUpdate();
+                eco.Earn(5000f);
+                float before2 = eco.Money;
+                Check(bin.Buy(0, 3f), "bought 3 m³ of gravel at the landscape supply");
+                for (int i = 0; i < 50 * 6; i++) yield return new WaitForFixedUpdate();
+                log.AppendLine($"INFO  truck under the bin: {tk.load.volume:0.00} m³ in the bed ({tk.load.gravel:0.00} gravel), paid ${before2 - eco.Money:N0}");
+                Check(tk.load.gravel > 2.4f && (eco.Unlimited || Mathf.Abs(before2 - eco.Money - 3f * bin.gravelPrice) < 1f), $"the gravel pours into the truck's bed ({tk.load.gravel:0.0} m³) and costs ${3f * bin.gravelPrice:N0}");
+                Destroy(tk.gameObject);
+                for (int i = 0; i < 5; i++) yield return null;
+            }
+            else Check(false, "found the landscape supply and the dump truck");
+
+            // drive the road over the hill to town
+            {
+                var hp = Prefab0(dealer, "GMT400");
+                Vector3 a = new Vector3(222f, 0f, 21.6f);
+                Vector3 b = new Vector3(366f, 0f, 10f);
+                Vector3 dir = (b - a).normalized;
+                var pk = Instantiate(hp, VehicleDealer.GroundAt(a) + Vector3.up * 0.8f, Quaternion.LookRotation(dir)).GetComponent<DumpPickup>();
+                for (int i = 0; i < 50; i++) yield return new WaitForFixedUpdate();
+                pk.TestDrive(0.7f);
+                float lowest = float.MaxValue, highest = float.MinValue;
+                for (int i = 0; i < 50 * 18; i++)
+                {
+                    yield return new WaitForFixedUpdate();
+                    lowest = Mathf.Min(lowest, pk.transform.position.y); highest = Mathf.Max(highest, pk.transform.position.y);
+                    if (Vector3.Dot(pk.transform.position - a, dir) > 140f) break;
+                }
+                pk.TestDrive(0f);
+                float went = Vector3.Dot(pk.transform.position - a, dir);
+                log.AppendLine($"INFO  pickup on the road to town: {went:0} m along, {pk.transform.position}, height {lowest:0.0}..{highest:0.0}, up {pk.transform.up.y:0.00}");
+                Check(went > 100f && pk.transform.up.y > 0.9f, $"the road through the pass drives to town ({went:0} m)");
+                Destroy(pk.gameObject);
+                for (int i = 0; i < 5; i++) yield return null;
+            }
+
+            // saved and loaded: the jobs and the town's ground
+            var h2 = houses[9];
+            var sj = jobs.NewRequest(h2, FPSBase.City.JobKind.Ditch);
+            jobs.Accept(sj);
+            Vector3 dp = Vector3.Lerp(h2.ditchA, h2.ditchB, 0.5f);
+            town.Dig(new Vector3(dp.x, town.OriginalY(dp) - 0.7f, dp.z), 0.6f, 3f);
+            town.Flush(9999);
+            float cut = town.CutDepth(dp);
+            int nJobs = jobs.jobs.Count, nTexts = jobs.texts.Count;
+            string err = SaveGame.Save("smoke test town", SaveGame.Mode.SinglePlayer);
+            var listed = SaveGame.List(SaveGame.Mode.SinglePlayer).Find(x => x.name == "smoke test town");
+            Check(err == null && listed != null, $"saved with the town ({err ?? "ok"})");
+            if (listed == null) yield break;
+            jobs.Cancel(sj);
+            town.Dig(new Vector3(dp.x, town.OriginalY(dp) - 1.5f, dp.z), 0.6f, 3f);
+            town.Flush(9999);
+            string loadErr = "never finished";
+            yield return SaveGame.Load(listed.path, e => loadErr = e);
+            for (int i = 0; i < 10; i++) yield return new WaitForFixedUpdate();
+            town.Flush(9999);
+            var back = jobs.OpenJobAt(h2);
+            Check(loadErr == null && back != null && back.state == FPSBase.City.JobState.Accepted && jobs.jobs.Count == nJobs && jobs.texts.Count == nTexts,
+                $"jobs and texts come back from the save ({jobs.jobs.Count} jobs, {jobs.texts.Count} texts; saved {nJobs} / {nTexts})");
+            Check(Mathf.Abs(town.CutDepth(dp) - cut) < 0.05f, $"the town's dug ground comes back ({town.CutDepth(dp):0.00} m deep, saved {cut:0.00})");
+            Check(GameObject.Find($"Job stakes: {h2.Address}") != null, "the accepted job's stakes come back");
+            File.Delete(listed.path);
+        }
+
         IEnumerator Update9Tests()
         {
             var dealer = FindFirstObjectByType<VehicleDealer>();

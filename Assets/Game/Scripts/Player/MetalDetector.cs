@@ -84,7 +84,7 @@ namespace FPSBase.Player
 
         float GroundY(Vector3 p)
         {
-            var site = DigSite.Instance;
+            var site = DigSite.At(p);
             if (site != null && site.Contains(p)) return site.SurfaceY(p);
             return Physics.Raycast(p + Vector3.up * 2f, Vector3.down, out var h, 6f, ~0, QueryTriggerInteraction.Ignore) ? h.point.y : transform.position.y;
         }
@@ -92,7 +92,7 @@ namespace FPSBase.Player
         /// <summary>Signal 0..1 a target gives at a coil position.</summary>
         public static float SignalOf(BuriedFind f, Vector3 coilPoint, out float depth)
         {
-            var site = DigSite.Instance;
+            var site = DigSite.At(f.pos);
             depth = site != null ? Mathf.Max(0f, site.SurfaceY(f.pos) - f.pos.y) : 0f;
             float dx = f.pos.x - coilPoint.x, dz = f.pos.z - coilPoint.z;
             float d = Mathf.Sqrt(dx * dx + dz * dz + depth * depth);
@@ -103,7 +103,7 @@ namespace FPSBase.Player
 
         void Sense()
         {
-            var site = DigSite.Instance;
+            var site = DigSite.At(CoilPoint);
             Signal = 0f; Target = null;
             if (site == null || !site.Contains(CoilPoint)) { UpdateTone(); return; }
             site.FindsNear(CoilPoint, searchRadius, near);
@@ -152,7 +152,7 @@ namespace FPSBase.Player
         /// <summary>One shovelful at a spot (spoil thrown by `spoilOffset`). Returns how many things turned up.</summary>
         public int DigAt(Vector3 at, Vector3 spoilOffset)
         {
-            var site = DigSite.Instance;
+            var site = DigSite.At(at);
             if (site == null || !site.Contains(at)) { GameUI.Toast("Too hard to dig here — use the shovel on the dirt field"); return 0; }
             site.HandDig(at, at + spoilOffset, dug);
             PourFx.Dig(at);

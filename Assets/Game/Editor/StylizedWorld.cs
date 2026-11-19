@@ -258,6 +258,7 @@ namespace FPSBase.EditorTools
                 if (Vector3.Distance(p, new Vector3(60f, 0f, 88f)) < 32f + pad) return true;       // outpost
                 if (p.x > -62f && p.x < 34f && p.z > -14f && p.z < 74f) return true;                // movement course
                 if (Mathf.Abs(p.x) > 292f || Mathf.Abs(p.z) > 292f) return true;
+                if (RoadDist(p.x, p.z) < 9f + pad) return true;                                     // the road to town
                 return false;
             }
 
@@ -305,6 +306,13 @@ namespace FPSBase.EditorTools
                 if (Blocked(p, 2f)) continue;
                 Spawn("Bush", bushes[rng.Next(bushes.Length)], new[] { bushMat }, p, R(0.7f, 1.5f));
             }
+            // the hills round the town, east of the main terrain
+            ScatterEast(root, (n, mesh, mats, p, s) =>
+            {
+                var go = Spawn(n, mesh, mats, p, s);
+                var q = go.transform.position; q.y = LandY(terrain, p) - 0.08f * s; go.transform.position = q;
+                return go;
+            }, pines, broad, rocks, bushes, trunk, pineA, pineB, leafA, leafB, rockMat, bushMat);
         }
 
         // ------------------------------------------------------------------ dirt field (work area)

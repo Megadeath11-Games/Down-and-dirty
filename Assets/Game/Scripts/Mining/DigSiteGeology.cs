@@ -185,9 +185,10 @@ namespace FPSBase.Mining
                 Add(findGrid, Key(wx, wz), f);
             }
             Rect c = claimRect;
-            for (int i = 0; i < goldNuggets; i++)
+            int nuggets = nuggetCount >= 0 ? nuggetCount : goldNuggets;
+            for (int i = 0; i < nuggets; i++)
             {
-                bool claim = i < goldNuggets * 0.85f;
+                bool claim = i < nuggets * 0.85f && claimRect.width > 1f;
                 float wx = claim ? R(c.xMin, c.xMax) : origin.x + R(m, size - m);
                 float wz = claim ? R(c.yMin, c.yMax) : origin.z + R(m, size - m);
                 float g = 0.3f * Mathf.Exp(R(0f, 2.8f));

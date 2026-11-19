@@ -38,7 +38,6 @@ namespace FPSBase.Mining
         int spraysThisFrame;
         readonly RaycastHit[] hits = new RaycastHit[8];
         readonly Collider[] overlaps = new Collider[12];
-        TerrainCollider siteCollider;
 
         public static int Live => inst == null ? 0 : inst.count;
         /// <summary>m^3 of dirt currently in the air (not yet landed anywhere).</summary>
@@ -174,12 +173,11 @@ namespace FPSBase.Mining
 
         void Step(float dt)
         {
-            var site = DigSite.Instance;
-            if (siteCollider == null && site != null) siteCollider = site.GetComponent<TerrainCollider>();
             Vector3 grav = Physics.gravity * dt;
             for (int i = 0; i < count; i++)
             {
                 ref Grain q = ref g[i];
+                var site = DigSite.At(q.p);
                 q.age += dt;
                 q.v += grav;
                 q.v *= 1f - 0.05f * dt; // air drag
@@ -302,7 +300,7 @@ namespace FPSBase.Mining
                 var h = hits[k];
                 if (h.distance >= bd || h.distance <= 0f) continue;
                 var c = h.collider;
-                if (c == siteCollider) continue;
+                if (DigSite.IsSiteCollider(c)) continue;
                 if (q.ignore != null && q.age < 1.5f && c.transform.IsChildOf(q.ignore)) continue;
                 IMaterialReceiver rec = null;
                 if (c.isTrigger)
@@ -350,7 +348,7 @@ namespace FPSBase.Mining
         {
             if (q.load.IsEmpty) return;
             MaterialTransfer.FindReceiverBelow(p, q.ignore, out Vector3 ground);
-            var site = DigSite.Instance;
+            var site = DigSite.At(p);
             if (site != null && site.Contains(p)) ground = new Vector3(p.x, site.SurfaceY(p), p.z);
             DigSite.DropAt(ground, q.load);
         }

@@ -280,6 +280,7 @@ namespace FPSBase.Vehicles
             cab.pedalL = Mathf.Max(0f, -throttle);
             cab.right = new Vector2(0f, -tiltIn); // dump box lever
             workAmount = Mathf.Abs(throttle) + Mathf.Abs(tiltIn) * 0.5f;
+            hydraulicAmount = Mathf.Abs(tiltIn) * (tilt > 0.01f && tilt < maxTilt - 0.01f ? 1f : 0.3f);
             ApplyDrive(HasFuel ? throttle : 0f, Controls.Axis(GameAction.SteerRight, GameAction.SteerLeft), Controls.Held(GameAction.Handbrake));
         }
 

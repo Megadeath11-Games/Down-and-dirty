@@ -22,8 +22,8 @@ namespace FPSBase.UI
         public static readonly Color Red = new(0.900f, 0.460f, 0.340f, 1f);
 
         static GUISkin skin;
-        public static Texture2D TexDeep, TexCard, TexCardHover, TexCardSel, TexGreen, TexGreenHover, TexGreenDown, TexGrey, TexTab, TexTabOn, TexField, TexWhite;
-        public static GUIStyle Title, Heading, Body, Small, DimStyle, Price, PriceBad, Money, CardName, Tab, TabOn, BuyButton, PlainButton, SpecLabel, SpecValue;
+        public static Texture2D TexHud, TexToast, TexDeep, TexCard, TexCardHover, TexCardSel, TexGreen, TexGreenHover, TexGreenDown, TexGrey, TexTab, TexTabOn, TexField, TexWhite;
+        public static GUIStyle Toolbar, Toast, Title, Heading, Body, Small, DimStyle, Price, PriceBad, Money, CardName, Tab, TabOn, BuyButton, PlainButton, SpecLabel, SpecValue;
 
         /// <summary>The themed skin (a copy of the default one). Call inside OnGUI.</summary>
         public static GUISkin Skin
@@ -40,6 +40,8 @@ namespace FPSBase.UI
         {
             TexWhite = Texture2D.whiteTexture;
             TexDeep = Round(Deep, GoldDim, 6, 2);
+            TexHud = Round(new Color(0.10f, 0.072f, 0.048f, 0.84f), new Color(0.55f, 0.41f, 0.14f, 0.9f), 6, 1);
+            TexToast = Round(new Color(0.13f, 0.095f, 0.06f, 0.93f), Gold, 6, 1);
             TexCard = Round(Card, new Color(0.34f, 0.26f, 0.15f, 1f), 6, 1);
             TexCardHover = Round(CardHover, GoldDim, 6, 1);
             TexCardSel = Round(CardHover, Gold, 6, 2);
@@ -71,6 +73,14 @@ namespace FPSBase.UI
             skin.verticalScrollbarThumb.normal.background = Round(GoldDim, Gold, 6, 1);
             skin.verticalScrollbarThumb.border = new RectOffset(7, 7, 7, 7);
             skin.horizontalScrollbar.normal.background = skin.verticalScrollbar.normal.background;
+            // sliders: a dark groove and a gold knob
+            skin.horizontalSlider.normal.background = Round(new Color(0.07f, 0.05f, 0.035f, 1f), GoldDim, 3, 1);
+            skin.horizontalSlider.border = new RectOffset(3, 3, 3, 3);
+            var knob = Round(Gold, new Color(1f, 0.88f, 0.5f, 1f), 4, 1);
+            var knobHot = Round(new Color(1f, 0.82f, 0.35f, 1f), Color.white, 4, 1);
+            skin.horizontalSliderThumb.normal.background = knob; skin.horizontalSliderThumb.hover.background = knobHot;
+            skin.horizontalSliderThumb.active.background = knobHot; skin.horizontalSliderThumb.focused.background = knob;
+            skin.horizontalSliderThumb.border = new RectOffset(4, 4, 4, 4);
             skin.horizontalScrollbarThumb.normal.background = skin.verticalScrollbarThumb.normal.background;
 
             Title = new GUIStyle(skin.label) { fontSize = 28, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleLeft }; Text(Title, Gold);
@@ -89,6 +99,15 @@ namespace FPSBase.UI
             TabOn.normal.background = TexTabOn; TabOn.hover.background = TexTabOn; TabOn.active.background = TexTabOn; TabOn.focused.background = TexTabOn;
             Text(TabOn, new Color(0.16f, 0.10f, 0.04f, 1f));
             BuyButton = new GUIStyle(skin.button) { fontSize = 18 };
+            // a row of choices (tabs, settings): brown, the chosen one gold
+            Toolbar = new GUIStyle(skin.button) { fontSize = 14, alignment = TextAnchor.MiddleCenter, margin = new RectOffset(2, 2, 2, 2) };
+            Toolbar.normal.background = TexTab; Toolbar.hover.background = TexCardHover; Toolbar.active.background = TexCardHover; Toolbar.focused.background = TexTab;
+            Toolbar.onNormal.background = TexTabOn; Toolbar.onHover.background = TexTabOn; Toolbar.onActive.background = TexTabOn; Toolbar.onFocused.background = TexTabOn;
+            Text(Toolbar, Cream);
+            var dark = new Color(0.16f, 0.10f, 0.04f, 1f);
+            Toolbar.onNormal.textColor = dark; Toolbar.onHover.textColor = dark; Toolbar.onActive.textColor = dark; Toolbar.onFocused.textColor = dark;
+            Toast = new GUIStyle(skin.box) { fontSize = 16, alignment = TextAnchor.MiddleCenter, wordWrap = true, padding = new RectOffset(12, 12, 6, 6) };
+            Toast.normal.background = TexToast; Text(Toast, Cream);
             PlainButton = new GUIStyle(skin.button) { fontSize = 14 };
             PlainButton.normal.background = TexTab; PlainButton.hover.background = TexCardHover; PlainButton.active.background = TexCard; PlainButton.focused.background = TexTab;
             Text(PlainButton, Cream);

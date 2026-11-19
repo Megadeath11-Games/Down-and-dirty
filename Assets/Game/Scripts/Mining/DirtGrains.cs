@@ -88,6 +88,7 @@ namespace FPSBase.Mining
         public static void Pour(Vector3 from, MaterialLoad load, Transform ignore, Vector3 velocity = default)
         {
             if (load.IsEmpty) return;
+            WorkSounds.Pour(from, load.volume);
             Instance.Spawn(from, load, ignore, velocity, Mathf.Clamp(Mathf.Pow(load.volume, 1f / 3f) * 0.35f, 0.08f, 0.6f));
         }
 
@@ -98,6 +99,7 @@ namespace FPSBase.Mining
         public static void PourVisual(Vector3 from, MaterialLoad load, Transform ignore, Vector3 velocity = default)
         {
             if (load.IsEmpty) return;
+            WorkSounds.Pour(from, load.volume);
             Instance.Spawn(from, load, ignore, velocity, Mathf.Clamp(Mathf.Pow(load.volume, 1f / 3f) * 0.35f, 0.08f, 0.6f), true);
         }
 

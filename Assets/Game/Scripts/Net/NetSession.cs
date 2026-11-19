@@ -32,13 +32,46 @@ namespace FPSBase.Net
         const int MaxPlayers = 4;
 
         public static NetSession Instance { get; private set; }
-        public static bool InSession => Instance != null && Instance.lobby.IsValid() && Instance.lobby.m_SteamID != 0;
+        public static bool InSession => Instance != null && (Instance.lan != null ? Instance.lanEntered && Instance.lan.Connected : Instance.lobby.IsValid() && Instance.lobby.m_SteamID != 0);
+
+        // the local test link ("-nettest host|join <port>"): two copies of the game on one PC, no Steam
+        LanLink lan;
+        bool lanEntered;
+        static string lanRole; static int lanPort = 27960;
+        /// <summary>Playing over the local test link instead of Steam.</summary>
+        public static bool LanMode => lanParsed ? lanRole != null : ParseLan();
+        public static string LanRole => LanMode ? lanRole : null;
+        static bool lanParsed;
+        static bool ParseLan()
+        {
+            lanParsed = true;
+            var args = Environment.GetCommandLineArgs();
+            int i = Array.IndexOf(args, "-nettest");
+            if (i < 0 || i + 1 >= args.Length) return false;
+            lanRole = args[i + 1];
+            if (i + 2 < args.Length && int.TryParse(args[i + 2], out int port)) lanPort = port;
+            return true;
+        }
+        // the host is whoever ran the game when we came in. (Steam hands the lobby to someone else if the host
+        // leaves, but their copy of the world isn't the real one: the game is over then, for everyone.)
+        CSteamID HostSteam => lan != null ? new CSteamID(LanLink.HostId) : hostAtStart.IsValid() ? hostAtStart : SteamMatchmaking.GetLobbyOwner(lobby);
+        CSteamID hostAtStart = CSteamID.Nil;
+        /// <summary>Everyone in the game, you included.</summary>
+        List<CSteamID> MemberList()
+        {
+            var l = new List<CSteamID>();
+            if (lan != null) { foreach (var id in lan.Members) l.Add(new CSteamID(id)); if (!l.Contains(me)) l.Add(me); return l; }
+            int n = SteamMatchmaking.GetNumLobbyMembers(lobby);
+            for (int i = 0; i < n; i++) l.Add(SteamMatchmaking.GetLobbyMemberByIndex(lobby, i));
+            return l;
+        }
+        string NameOf(CSteamID p) => LanMode ? $"Player {p.m_SteamID}" : SteamFriends.GetFriendPersonaName(p);
 
         public bool SteamOk { get; private set; }
         public string Status { get; private set; } = "Steam not started";
         CSteamID lobby = CSteamID.Nil;
         CSteamID me;
-        public bool IsHost => InSession && SteamMatchmaking.GetLobbyOwner(lobby) == me;
+        public bool IsHost => InSession && HostSteam == me;
         readonly List<CSteamID> peers = new();
         readonly List<CSteamID> pendingInvites = new();
         bool creating;
@@ -48,7 +81,8 @@ namespace FPSBase.Net
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         static void Boot()
         {
-            if (Instance != null || Application.isBatchMode) return; // the automated tests run without Steam
+            bool lanTest = ParseLan();
+            if (Instance != null || (Application.isBatchMode && !lanTest)) return; // the automated tests run without Steam
             if (FindFirstObjectByType<DigSite>() == null) return;
             new GameObject("Net Session").AddComponent<NetSession>();
         }
@@ -69,18 +103,25 @@ namespace FPSBase.Net
             VehicleBase.NetEntered = v => { if (InSession) SendClaim(v, true); };
             VehicleBase.NetExited = v => { if (InSession) SendClaim(v, false); };
             VehicleBase.NetForwardLoad = ForwardLoad;
+            DirtPile.NetChanged = p => { if (InSession && p != null) dirtyPiles[p.NetId] = (p.transform.position, p.load); };
             WashPlant.NetForwardLoad = (p, l) =>
             {
                 if (!InSession) return;
                 var w = Begin(MsgPlantLoad); w.Write(PlantIndex(p)); NetIO.Write(w, l);
-                Send(SteamMatchmaking.GetLobbyOwner(lobby), w, true);
+                Send(HostSteam, w, true);
             };
             WashPlant.NetAction = (p, a) =>
             {
                 if (!InSession) return;
                 var w = Begin(MsgPlantAction); w.Write(PlantIndex(p)); w.Write(a);
-                Send(SteamMatchmaking.GetLobbyOwner(lobby), w, true);
+                Send(HostSteam, w, true);
             };
+            if (LanMode)
+            {
+                SteamOk = true;
+                Status = $"Local test link ({lanRole}, port {lanPort})";
+                return;
+            }
             try
             {
                 if (!Packsize.Test()) { Status = "Steamworks.NET was built for the wrong platform"; return; }
@@ -123,28 +164,64 @@ namespace FPSBase.Net
         void OnSceneReloaded(UnityEngine.SceneManagement.Scene s, UnityEngine.SceneManagement.LoadSceneMode m)
         {
             // a fresh copy of the world: forget the old one's machines and players
-            owner.Clear(); spawnedListing.Clear(); vTarget.Clear(); vMotion.Clear();
+            owner.Clear(); spawnedListing.Clear(); vTarget.Clear(); vMotion.Clear(); snaps.Clear(); clockOffset.Clear();
             foreach (var a in avatars.Values) if (a.root != null) Destroy(a.root);
             avatars.Clear();
             localPlayer = null;
             AssignSceneIds();
+            if (pendingJoin.IsValid()) { var j = pendingJoin; pendingJoin = CSteamID.Nil; Join(j); }
+            if (lanJoinAfterReload) { lanJoinAfterReload = false; LanStart(false); }
         }
 
         void OnDestroy()
         {
             UnityEngine.SceneManagement.SceneManager.sceneLoaded -= OnSceneReloaded;
             if (Instance == this) Instance = null;
+            if (LanMode) { Leave(false); return; }
             if (!SteamOk) return;
-            Leave();
+            Leave(false);
             SteamAPI.Shutdown();
         }
 
-        void OnApplicationQuit() { if (SteamOk && InSession) Leave(); }
+        void OnApplicationQuit() { quitting = true; if (SteamOk && InSession) Leave(false); }
+        bool quitting;
+
+        /// <summary>Local test link: start hosting, or connect to the host on this PC.</summary>
+        void LanStart(bool host)
+        {
+            try
+            {
+                lan = host ? LanLink.Host(lanPort) : LanLink.Join(lanPort);
+                me = new CSteamID(lan.Me);
+                if (host) { lanEntered = true; Entered(); }
+                else Status = "Joining…"; // in when the host's player list comes
+            }
+            catch (Exception e) { lan = null; Status = "Couldn't " + (host ? "host" : "join") + ": " + e.Message; }
+        }
+
+        /// <summary>The local link's news: who's in the game.</summary>
+        void LanPump()
+        {
+            if (lan == null || !lan.TakeRoster()) return;
+            if (!lanEntered && !lan.Lost) { lanEntered = true; Entered(); return; }
+            if (lan.Lost && !lan.IsHost) { HostGone(); return; }
+            RefreshPeers(true);
+        }
+
+        /// <summary>Join the local test game (the host on this PC).</summary>
+        public void JoinLan()
+        {
+            if (!LanMode || InSession || lan != null) return;
+            if (GameUI.Instance != null && !GameUI.Instance.InMainMenu) { lanJoinAfterReload = true; GameUI.Instance.ReturnToMainMenu("Joining…"); return; }
+            LanStart(false);
+        }
+        bool lanJoinAfterReload;
 
         // ------------------------------------------------------------------ lobby
 
         public void Host()
         {
+            if (LanMode) { if (!InSession && lan == null) LanStart(true); return; }
             if (!SteamOk || InSession || creating) return;
             creating = true;
             Status = "Creating a game…";
@@ -160,10 +237,21 @@ namespace FPSBase.Net
             SteamMatchmaking.SetLobbyData(id, "host", SteamFriends.GetPersonaName());
         }
 
+        CSteamID pendingJoin = CSteamID.Nil;
+
         public void Join(CSteamID id)
         {
             if (!SteamOk || !id.IsValid()) return;
-            if (InSession) { if (id == lobby) return; Leave(); }
+            if (InSession && id == lobby) return;
+            // in a world (yours, or another friend's): close it first, so you get the host's world as it is
+            if (GameUI.Instance != null && !GameUI.Instance.InMainMenu)
+            {
+                if (InSession) Leave(false);
+                pendingJoin = id;
+                GameUI.Instance.ReturnToMainMenu("Joining your friend's game…");
+                return;
+            }
+            if (InSession) Leave(false);
             Status = "Joining…";
             SteamMatchmaking.JoinLobby(id);
         }
@@ -175,20 +263,28 @@ namespace FPSBase.Net
             lobby = new CSteamID(e.m_ulSteamIDLobby);
             SteamFriends.SetRichPresence("connect", "+connect_lobby " + lobby.m_SteamID);
             SteamFriends.SetRichPresence("status", "Mining for gold");
+            Entered();
+        }
+
+        /// <summary>In a game (hosting it, or joined a friend's).</summary>
+        void Entered()
+        {
+            hostAtStart = CSteamID.Nil;
+            hostAtStart = HostSteam;
             RefreshPeers(false);
             if (IsHost)
             {
                 Status = "Hosting. Invite friends below";
                 GameUI.Toast("Multiplayer game started. Invite a friend (F2)");
-                foreach (var f in pendingInvites) SteamMatchmaking.InviteUserToLobby(lobby, f);
+                if (lan == null) foreach (var f in pendingInvites) SteamMatchmaking.InviteUserToLobby(lobby, f);
                 pendingInvites.Clear();
             }
             else
             {
-                Status = $"Playing in {SteamFriends.GetFriendPersonaName(SteamMatchmaking.GetLobbyOwner(lobby))}'s game";
+                Status = $"Playing in {NameOf(HostSteam)}'s game";
                 GameUI.Toast(Status);
                 // the host's game runs every machine that was there at the start; ours are just copies now
-                var host = SteamMatchmaking.GetLobbyOwner(lobby);
+                var host = HostSteam;
                 foreach (var v in VehicleBase.All)
                     if (v.NetId > 0 && v.NetId < SpawnIdBase && !v.Occupied) { v.SetNetRemote(true); owner[v.NetId] = host; }
                 var w = Begin(MsgHello);
@@ -199,14 +295,26 @@ namespace FPSBase.Net
             }
         }
 
-        public void Leave()
+        /// <summary>
+        /// Leave the game (the host: close it). A friend goes back to the main menu: what they had was a copy of
+        /// the host's world, and joining again starts from a fresh one. `toMenu` false: quitting.
+        /// </summary>
+        public void Leave() => Leave(true);
+        public void Leave(bool toMenu)
         {
             if (!InSession) return;
+            bool wasClient = !IsHost;
             Send(Begin(MsgBye), true, null);
-            foreach (var p in peers) CloseSession(p);
-            SteamMatchmaking.LeaveLobby(lobby);
-            SteamFriends.ClearRichPresence();
+            if (lan != null) { lan.Dispose(); lan = null; lanEntered = false; }
+            else
+            {
+                foreach (var p in peers) CloseSession(p);
+                SteamMatchmaking.LeaveLobby(lobby);
+                SteamFriends.ClearRichPresence();
+            }
             lobby = CSteamID.Nil;
+            hostAtStart = CSteamID.Nil;
+            backlog.Clear();
             peers.Clear();
             foreach (var a in avatars.Values) if (a.root != null) Destroy(a.root);
             avatars.Clear();
@@ -214,49 +322,60 @@ namespace FPSBase.Net
             foreach (var v in VehicleBase.All) v.SetNetRemote(false);
             owner.Clear();
             Status = "Left the game";
+            if (wasClient && toMenu && GameUI.Instance != null) GameUI.Instance.ReturnToMainMenu("You left your friend's game.");
         }
 
         void RefreshPeers(bool announce)
         {
             if (!InSession) return;
             var now = new List<CSteamID>();
-            int n = SteamMatchmaking.GetNumLobbyMembers(lobby);
-            for (int i = 0; i < n; i++)
-            {
-                var m = SteamMatchmaking.GetLobbyMemberByIndex(lobby, i);
-                if (m != me) now.Add(m);
-            }
+            foreach (var m in MemberList()) if (m != me) now.Add(m);
             foreach (var p in now)
-                if (!peers.Contains(p) && announce) GameUI.Toast($"{SteamFriends.GetFriendPersonaName(p)} joined the game");
+                if (!peers.Contains(p) && announce) GameUI.Toast($"{NameOf(p)} joined the game");
             foreach (var p in peers)
                 if (!now.Contains(p)) PeerLeft(p);
             peers.Clear(); peers.AddRange(now);
             // the host left: the game is over for us
-            if (!SteamMatchmaking.GetLobbyOwner(lobby).IsValid() || (!IsHost && !peers.Contains(SteamMatchmaking.GetLobbyOwner(lobby))))
-            {
-                if (peers.Count == 0 && !IsHost) { GameUI.Toast("The host left the game"); Leave(); }
-            }
+            // (the local test link's player numbers aren't Steam ids, so only Steam's are checked for being real)
+            if (!IsHost && ((lan == null && !HostSteam.IsValid()) || !peers.Contains(HostSteam))) HostGone();
+        }
+
+        /// <summary>The host closed the game (or the connection to them broke): back to the main menu.</summary>
+        void HostGone()
+        {
+            Debug.Log($"[Net] host gone: me {me.m_SteamID}, host {HostSteam.m_SteamID}, peers [{string.Join(",", peers.ConvertAll(x => x.m_SteamID.ToString()))}], members [{string.Join(",", MemberList().ConvertAll(x => x.m_SteamID.ToString()))}], lost {lan?.Lost}");
+            Leave(false);
+            Status = "The host closed the game";
+            if (!quitting && GameUI.Instance != null) GameUI.Instance.ReturnToMainMenu("The host closed the game.");
         }
 
         void PeerLeft(CSteamID p)
         {
-            GameUI.Toast($"{SteamFriends.GetFriendPersonaName(p)} left the game");
+            GameUI.Toast($"{NameOf(p)} left the game");
             if (avatars.TryGetValue(p.m_SteamID, out var a)) { if (a.root != null) Destroy(a.root); avatars.Remove(p.m_SteamID); }
-            // their machines run here again
+            // their machines: the host's game runs them now (everyone else follows the host's)
             foreach (var v in VehicleBase.All)
-                if (owner.TryGetValue(v.NetId, out var o) && o == p) { v.SetNetRemote(false); owner.Remove(v.NetId); }
+                if (owner.TryGetValue(v.NetId, out var o) && o == p)
+                {
+                    if (IsHost) { v.SetNetRemote(false); owner.Remove(v.NetId); }
+                    else { owner[v.NetId] = HostSteam; v.NetRemoteDriven = false; }
+                }
             // and the trailers they had parked
             foreach (var t in Trailer.All)
-                if (t != null && t.NetHeldBy == p.m_SteamID) { t.NetHeldBy = 0; t.NetMine = true; }
+                if (t != null && t.NetHeldBy == p.m_SteamID)
+                {
+                    if (IsHost) { t.NetHeldBy = 0; t.NetMine = true; }
+                    else t.NetHeldBy = HostSteam.m_SteamID;
+                }
             CloseSession(p);
         }
 
         public void Invite(CSteamID friend)
         {
             if (!SteamOk) return;
-            if (!InSession) { pendingInvites.Add(friend); Host(); GameUI.Toast($"Starting a game and inviting {SteamFriends.GetFriendPersonaName(friend)}…"); return; }
+            if (!InSession) { pendingInvites.Add(friend); Host(); GameUI.Toast($"Starting a game and inviting {NameOf(friend)}…"); return; }
             SteamMatchmaking.InviteUserToLobby(lobby, friend);
-            GameUI.Toast($"Invite sent to {SteamFriends.GetFriendPersonaName(friend)}");
+            GameUI.Toast($"Invite sent to {NameOf(friend)}");
         }
 
         public void OverlayInvite()
@@ -272,15 +391,11 @@ namespace FPSBase.Net
             if (InSession && IsMember(who)) SteamNetworkingMessages.AcceptSessionWithUser(ref e.m_identityRemote);
         }
 
-        bool IsMember(CSteamID who)
-        {
-            int n = SteamMatchmaking.GetNumLobbyMembers(lobby);
-            for (int i = 0; i < n; i++) if (SteamMatchmaking.GetLobbyMemberByIndex(lobby, i) == who) return true;
-            return false;
-        }
+        bool IsMember(CSteamID who) => MemberList().Contains(who);
 
         static void CloseSession(CSteamID p)
         {
+            if (LanMode) return;
             var id = new SteamNetworkingIdentity(); id.SetSteamID(p);
             SteamNetworkingMessages.CloseSessionWithUser(ref id);
         }
@@ -289,7 +404,7 @@ namespace FPSBase.Net
 
         const byte MsgHello = 1, MsgPlayer = 2, MsgVehicles = 3, MsgClaim = 4, MsgSpawn = 5, MsgTerrain = 6, MsgLoad = 7, MsgBye = 8,
             MsgPlant = 9, MsgPlantLoad = 10, MsgPlantAction = 11, MsgPlantGold = 12, MsgTrailers = 13,
-            MsgJobs = 14, MsgJobAction = 15, MsgJobPay = 16;
+            MsgJobs = 14, MsgJobAction = 15, MsgJobPay = 16, MsgPiles = 17;
         const int ChReliable = 0, ChFast = 1;
 
         static BinaryWriter Begin(byte type)
@@ -329,8 +444,9 @@ namespace FPSBase.Net
             }
         }
 
-        static EResult RawSend(CSteamID to, byte[] data, int len, bool reliable)
+        EResult RawSend(CSteamID to, byte[] data, int len, bool reliable)
         {
+            if (lan != null) return lan.Send(to.m_SteamID, data, len, reliable) ? EResult.k_EResultOK : EResult.k_EResultFail;
             var id = new SteamNetworkingIdentity(); id.SetSteamID(to);
             var h = GCHandle.Alloc(data, GCHandleType.Pinned);
             try
@@ -361,6 +477,18 @@ namespace FPSBase.Net
 
         void Receive()
         {
+            if (lan != null)
+            {
+                int guard = 0;
+                while (guard++ < 4000 && lan != null && lan.TryReceive(out ulong fromId, out byte[] bytes))
+                {
+                    var from = new CSteamID(fromId);
+                    if (!InSession || !IsMember(from)) continue;
+                    try { Handle(from, new BinaryReader(new MemoryStream(bytes))); }
+                    catch (Exception e) { Debug.LogWarning($"Bad network message from {from}: {e}"); }
+                }
+                return;
+            }
             for (int ch = 0; ch < 2; ch++)
             {
                 int n, guard = 0;
@@ -415,7 +543,7 @@ namespace FPSBase.Net
                 {
                     int id = r.ReadInt32(), a = r.ReadInt32(); bool shared = r.ReadBoolean(); string arg = r.ReadString();
                     if (IsHost && FPSBase.City.Jobs.Instance != null)
-                        FPSBase.City.Jobs.Instance.ApplyAction(id, a, shared, from.m_SteamID, SteamFriends.GetFriendPersonaName(from), arg == "" ? null : arg);
+                        FPSBase.City.Jobs.Instance.ApplyAction(id, a, shared, from.m_SteamID, NameOf(from), arg == "" ? null : arg);
                     break;
                 }
                 case MsgJobPay:
@@ -423,6 +551,12 @@ namespace FPSBase.Net
                     float amt = r.ReadSingle(); string why = r.ReadString();
                     Economy.Instance?.Earn(amt);
                     GameUI.Toast($"You got ${amt:N0} for {why}");
+                    break;
+                }
+                case MsgPiles:
+                {
+                    int n = r.ReadInt32();
+                    for (int i = 0; i < n; i++) { int id = r.ReadInt32(); Vector3 p = ReadV3(r); var l = NetIO.ReadLoad(r); DirtPile.NetApply(id, p, l); }
                     break;
                 }
                 case MsgBye: break;
@@ -439,7 +573,7 @@ namespace FPSBase.Net
             bool mirror = InSession && !IsHost; // (back to running its own plant once you leave)
             foreach (var p in WashPlant.All) if (p != null) p.NetMirror = mirror;
             if (!InSession) foreach (var t in Trailer.All) if (t != null && t.NetRemote) { t.NetHeldBy = 0; t.NetMine = true; t.NetSetRemote(false); }
-            SteamAPI.RunCallbacks();
+            if (lan == null && !LanMode) SteamAPI.RunCallbacks(); else LanPump();
             if (!InSession) return;
             if (IsHost && (plantTimer -= Time.unscaledDeltaTime) <= 0f) { plantTimer = 0.25f; SendPlants(null); }
             Receive();
@@ -450,7 +584,7 @@ namespace FPSBase.Net
             if (slow) slowTimer = 0.5f;
             TrailerOwnership();
             if ((vehicleTimer -= dt) <= 0f) { vehicleTimer = 1f / 15f; SendVehicles(slow); SendTrailers(slow, null); }
-            if ((terrainTimer -= dt) <= 0f) { terrainTimer = 0.12f; SendTerrain(); }
+            if ((terrainTimer -= dt) <= 0f) { terrainTimer = 0.12f; SendTerrain(); SendPiles(null, false); }
             ShowRemotes(Time.deltaTime);
         }
 
@@ -463,8 +597,62 @@ namespace FPSBase.Net
         // how fast each friend's machine is going (from its last two updates), to keep it moving between updates
         readonly Dictionary<int, (float t, Vector3 vel)> vMotion = new();
 
+        // ---- friends' machines are drawn a moment behind, between the updates they sent (by the time on their
+        // game), so a late or lost update doesn't make them stop and start
+        const double InterpDelay = 0.13, MaxExtrapolate = 0.35;
+        readonly Dictionary<int, List<(double t, Vector3 p, Quaternion q)>> snaps = new();
+        // each friend's clock: our time minus theirs (the smallest seen: the quickest an update got here)
+        readonly Dictionary<ulong, double> clockOffset = new();
+
+        void TheirClock(CSteamID from, double sent)
+        {
+            double off = Time.unscaledTimeAsDouble - sent;
+            if (!clockOffset.TryGetValue(from.m_SteamID, out double o) || off < o || off > o + 2.0) o = off;
+            else o += (off - o) * 0.01; // (drifts up slowly if the connection gets slower)
+            clockOffset[from.m_SteamID] = o;
+        }
+
+        void AddSnap(int id, double sent, Vector3 p, Quaternion q)
+        {
+            if (!snaps.TryGetValue(id, out var l)) snaps[id] = l = new List<(double, Vector3, Quaternion)>();
+            if (l.Count > 0 && sent <= l[l.Count - 1].t) return; // (an older update, arrived late)
+            l.Add((sent, p, q));
+            while (l.Count > 40 || (l.Count > 2 && sent - l[0].t > 2.0)) l.RemoveAt(0);
+        }
+
+        /// <summary>Where a friend's machine is to be drawn now, from its updates. False: no updates to go by.</summary>
+        bool Sample(int id, out Vector3 p, out Quaternion q)
+        {
+            p = default; q = Quaternion.identity;
+            if (!snaps.TryGetValue(id, out var l) || l.Count == 0 || !owner.TryGetValue(id, out var o) || !clockOffset.TryGetValue(o.m_SteamID, out double off)) return false;
+            double t = Time.unscaledTimeAsDouble - off - InterpDelay;
+            if (t <= l[0].t || l.Count == 1) { p = l[0].p; q = l[0].q; return true; }
+            for (int i = l.Count - 1; i > 0; i--)
+            {
+                if (t < l[i - 1].t) continue;
+                var a = l[i - 1]; var b = l[i];
+                if (t <= b.t)
+                {
+                    float k = (float)((t - a.t) / Math.Max(1e-4, b.t - a.t));
+                    p = Vector3.Lerp(a.p, b.p, k); q = Quaternion.Slerp(a.q, b.q, k);
+                    return true;
+                }
+                // past the newest update: carry on the way it was going, for a little while
+                double dt = Math.Max(1e-3, b.t - a.t);
+                float ahead = (float)Math.Min(t - b.t, MaxExtrapolate);
+                Vector3 vel = (b.p - a.p) / (float)dt;
+                if (vel.sqrMagnitude > 60f * 60f || b.t - a.t > 1.0) vel = Vector3.zero; // a jump, or it had stopped
+                p = b.p + vel * ahead;
+                q = b.q;
+                return true;
+            }
+            p = l[0].p; q = l[0].q;
+            return true;
+        }
+
         void SetTarget(int id, Vector3 p, Quaternion q, bool track)
         {
+            if (!track) snaps.Remove(id); // (claimed or spawned: start again from here)
             float now = Time.unscaledTime;
             Vector3 vel = Vector3.zero;
             if (track && vTarget.TryGetValue(id, out var old) && vMotion.TryGetValue(id, out var m))
@@ -658,7 +846,7 @@ namespace FPSBase.Net
                 tl.NetHeldBy = own.m_SteamID; tl.NetMine = false;
                 tl.NetSetRemote(true);
                 tl.NetTarget(p, q);
-                GameUI.Toast($"{SteamFriends.GetFriendPersonaName(from)} bought a {name}");
+                GameUI.Toast($"{NameOf(from)} bought a {name}");
                 return;
             }
             var v = go.GetComponent<VehicleBase>();
@@ -668,7 +856,7 @@ namespace FPSBase.Net
             owner[id] = own;
             v.SetNetRemote(true);
             SetTarget(id, p, q, false);
-            GameUI.Toast($"{SteamFriends.GetFriendPersonaName(from)} bought a {name}");
+            GameUI.Toast($"{NameOf(from)} bought a {name}");
         }
 
         void SendClaim(VehicleBase v, bool driving)
@@ -691,11 +879,11 @@ namespace FPSBase.Net
             if (v.Occupied && driving && me.m_SteamID < from.m_SteamID) { SendClaim(v, true); return; }
             // an old "it's mine" from before we got in: we're in it, so it stays ours
             if (v.Occupied && !driving) { SendClaim(v, true); return; }
-            if (v.Occupied) GameUI.Toast($"{SteamFriends.GetFriendPersonaName(from)} took over the {v.displayName}");
+            if (v.Occupied) GameUI.Toast($"{NameOf(from)} took over the {v.displayName}");
             owner[id] = from;
             v.SetNetRemote(true);
             v.NetRemoteDriven = driving;
-            v.NetDriverName = SteamFriends.GetFriendPersonaName(from);
+            v.NetDriverName = NameOf(from);
             v.NetRead(r);
             SetTarget(id, p, q, false);
         }
@@ -703,6 +891,7 @@ namespace FPSBase.Net
         void SendVehicles(bool slowTick)
         {
             var w = Begin(MsgVehicles);
+            w.Write(Time.unscaledTimeAsDouble);
             long countPos = w.BaseStream.Position;
             w.Write(0);
             int n = 0;
@@ -729,6 +918,8 @@ namespace FPSBase.Net
 
         void ReadVehicles(CSteamID from, BinaryReader r)
         {
+            double sent = r.ReadDouble();
+            TheirClock(from, sent);
             int n = r.ReadInt32();
             for (int i = 0; i < n; i++)
             {
@@ -744,6 +935,7 @@ namespace FPSBase.Net
                 v.NetSpeed = spd;
                 v.NetRead(new BinaryReader(new MemoryStream(blob)));
                 SetTarget(id, p, q, true);
+                AddSnap(id, sent, p, q);
             }
         }
 
@@ -806,7 +998,7 @@ namespace FPSBase.Net
         {
             if (!avatars.TryGetValue(from.m_SteamID, out var a))
             {
-                a = MakeAvatar(SteamFriends.GetFriendPersonaName(from));
+                a = MakeAvatar(NameOf(from));
                 if (a == null) return;
                 avatars[from.m_SteamID] = a;
             }
@@ -831,14 +1023,19 @@ namespace FPSBase.Net
 
         void ShowRemotes(float dt)
         {
-            float k = 1f - Mathf.Exp(-12f * dt);
+            float k = 1f - Mathf.Exp(-12f * dt), kFast = 1f - Mathf.Exp(-40f * dt);
             foreach (var kv in vTarget)
             {
                 var v = Find(kv.Key);
                 if (v == null || !v.NetRemote) continue;
                 var (p, q) = kv.Value;
-                // carry on at its speed for a moment past the last update, so it doesn't stop and start between them
-                if (vMotion.TryGetValue(kv.Key, out var mo)) p += mo.vel * Mathf.Min(Time.unscaledTime - mo.t, 0.25f);
+                if (Sample(kv.Key, out var sp, out var sq))
+                {
+                    // between its updates (already smooth): follow closely
+                    if ((v.transform.position - sp).sqrMagnitude > 100f) v.transform.SetPositionAndRotation(sp, sq);
+                    else v.transform.SetPositionAndRotation(Vector3.Lerp(v.transform.position, sp, kFast), Quaternion.Slerp(v.transform.rotation, sq, kFast));
+                    continue;
+                }
                 if ((v.transform.position - p).sqrMagnitude > 100f) v.transform.SetPositionAndRotation(p, q);
                 else v.transform.SetPositionAndRotation(Vector3.Lerp(v.transform.position, p, k), Quaternion.Slerp(v.transform.rotation, q, k));
             }
@@ -905,6 +1102,21 @@ namespace FPSBase.Net
             }
         }
 
+        // dumped dirt off the dig grounds (on the yard, by the road): piles, by their number
+        readonly Dictionary<int, (Vector3 p, MaterialLoad l)> dirtyPiles = new();
+
+        void SendPiles(CSteamID? to, bool all)
+        {
+            var list = new List<(int id, Vector3 p, MaterialLoad l)>();
+            if (all) { foreach (var p in DirtPile.All) if (p != null) list.Add((p.NetId, p.transform.position, p.load)); }
+            else { foreach (var kv in dirtyPiles) list.Add((kv.Key, kv.Value.p, kv.Value.l)); dirtyPiles.Clear(); }
+            if (list.Count == 0) return;
+            var w = Begin(MsgPiles);
+            w.Write(list.Count);
+            foreach (var e in list) { w.Write(e.id); WriteV3(w, e.p); NetIO.Write(w, e.l); }
+            if (to.HasValue) Send(to.Value, w, true); else Send(w, true, null);
+        }
+
         void ReadTerrain(BinaryReader r)
         {
             int k = r.ReadInt32();
@@ -943,9 +1155,9 @@ namespace FPSBase.Net
         // ------------------------------------------------------------------ the town's jobs (the host keeps the list)
 
         public ulong MyId => me.m_SteamID;
-        public string MyName => SteamFriends.GetPersonaName();
+        public string MyName => LanMode ? $"Player {me.m_SteamID}" : SteamFriends.GetPersonaName();
         /// <summary>How many players are in the game (you included).</summary>
-        public int CrewSize => InSession ? SteamMatchmaking.GetNumLobbyMembers(lobby) : 1;
+        public int CrewSize => InSession ? MemberList().Count : 1;
 
         /// <summary>Host: everyone's phone gets the job list.</summary>
         public void SendJobs(CSteamID? to = null)
@@ -960,7 +1172,7 @@ namespace FPSBase.Net
         public void SendJobAction(int id, int action, bool shared, string arg = null)
         {
             var w = Begin(MsgJobAction); w.Write(id); w.Write(action); w.Write(shared); w.Write(arg ?? "");
-            Send(SteamMatchmaking.GetLobbyOwner(lobby), w, true);
+            Send(HostSteam, w, true);
         }
 
         /// <summary>Host: pay one player for a job (yourself, or a friend over the network).</summary>
@@ -974,9 +1186,9 @@ namespace FPSBase.Net
         /// <summary>Host: everyone in the game gets an equal share.</summary>
         public void PayCrew(float each, string why)
         {
-            int n = SteamMatchmaking.GetNumLobbyMembers(lobby);
-            for (int i = 0; i < n; i++) PayPlayer(SteamMatchmaking.GetLobbyMemberByIndex(lobby, i).m_SteamID, each, why + " (crew share)");
-            if (n == 0) PayPlayer(MyId, each, why);
+            var all = MemberList();
+            foreach (var m in all) PayPlayer(m.m_SteamID, each, why + " (crew share)");
+            if (all.Count == 0) PayPlayer(MyId, each, why);
         }
 
         /// <summary>A player joined: send them the worked ground, the machines bought so far and where everything is.</summary>
@@ -984,6 +1196,7 @@ namespace FPSBase.Net
         {
             var sites = DigSite.Ordered();
             for (int k = 0; k < sites.Count; k++) SendCells(k, sites[k].TakeChangedCells(true), to);
+            SendPiles(to, true);
             if (IsHost) { SendPlants(to); SendJobs(to); }
             foreach (var kv in spawnedListing) if (kv.Key != null) SendSpawn(kv.Key, kv.Value, to);
             foreach (var kv in spawnedTrailers) if (kv.Key != null) SendSpawnTrailer(kv.Key, kv.Value, to);
@@ -1041,6 +1254,19 @@ namespace FPSBase.Net
                 GUILayout.Label("Multiplayer goes through Steam. Start Steam, log in, then restart the game.", rich);
                 return;
             }
+            if (LanMode)
+            {
+                GUILayout.Label($"Local test link: you are <b>{(InSession ? MyName : lanRole)}</b>.", rich);
+                if (!InSession && GUILayout.Button(lanRole == "host" ? "Host on this PC" : "Join the game on this PC", GUILayout.Height(32))) { if (lanRole == "host") Host(); else JoinLan(); }
+                if (InSession)
+                {
+                    string all = MyName + (IsHost ? " (host)" : "");
+                    foreach (var p in peers) all += ", " + NameOf(p) + (HostSteam == p ? " (host)" : "");
+                    GUILayout.Label($"<b>Players:</b> {all}", rich);
+                    if (GUILayout.Button(IsHost ? "Close game" : "Leave game", GUILayout.Height(32), GUILayout.Width(140))) Leave();
+                }
+                return;
+            }
             GUILayout.Label($"You are <b>{SteamFriends.GetPersonaName()}</b> (playing as Steam test app 480 \"Spacewar\").", rich);
             GUILayout.Space(6);
             GUILayout.BeginHorizontal();
@@ -1059,8 +1285,8 @@ namespace FPSBase.Net
             if (InSession)
             {
                 GUILayout.Space(4);
-                string who = SteamFriends.GetPersonaName() + (IsHost ? " (host)" : "");
-                foreach (var p in peers) who += ", " + SteamFriends.GetFriendPersonaName(p) + (SteamMatchmaking.GetLobbyOwner(lobby) == p ? " (host)" : "");
+                string who = MyName + (IsHost ? " (host)" : "");
+                foreach (var p in peers) who += ", " + NameOf(p) + (HostSteam == p ? " (host)" : "");
                 GUILayout.Label($"<b>Players:</b> {who}", rich);
             }
             GUILayout.Space(8);
@@ -1075,7 +1301,7 @@ namespace FPSBase.Net
                 shown++;
                 bool playing = SteamFriends.GetFriendGamePlayed(f, out FriendGameInfo_t g) && g.m_gameID.AppID().m_AppId == AppId;
                 GUILayout.BeginHorizontal(GUI.skin.box);
-                GUILayout.Label(SteamFriends.GetFriendPersonaName(f) + (playing ? "  <color=#9f9>(in game)</color>" : ""), rich);
+                GUILayout.Label(NameOf(f) + (playing ? "  <color=#9f9>(in game)</color>" : ""), rich);
                 if (playing && g.m_steamIDLobby.IsValid() && g.m_steamIDLobby != lobby && GUILayout.Button("Join", GUILayout.Width(80), GUILayout.Height(26))) Join(g.m_steamIDLobby);
                 if (!peers.Contains(f) && GUILayout.Button("Invite", GUILayout.Width(80), GUILayout.Height(26))) Invite(f);
                 GUILayout.EndHorizontal();

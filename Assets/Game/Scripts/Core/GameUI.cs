@@ -35,7 +35,7 @@ namespace FPSBase.Core
         Vector2 panelScroll;
         readonly System.Collections.Generic.List<(string text, float until)> toasts = new();
 
-        GUIStyle hudBig, hudSmall, prompt, header, toastStyle, box;
+        GUIStyle hudBig, hudSmall, prompt, header, toastStyle, box, menuPanel;
 
         public bool BlocksGameplay => paused || panelDraw != null || menuOpen;
         /// <summary>The open panel's title (null when none is open).</summary>
@@ -99,12 +99,14 @@ namespace FPSBase.Core
 
         void Update()
         {
+            FPSBase.UI.MenuScene.Want(menuOpen && !loading);
             var kb = Keyboard.current;
             if (menuOpen)
             {
                 MenuUpdate();
                 if (menuOpen && Controls.MenuBack(true) && screen != MenuScreen.Main) { screen = MenuScreen.Main; menuMessage = null; }
                 if (menuOpen) Time.timeScale = FPSBase.Net.NetSession.InSession ? 1f : 0f;
+                if (menuOpen && AudioListener.pause != (Time.timeScale == 0f)) AudioListener.pause = Time.timeScale == 0f;
                 Cursor.lockState = CursorLockMode.None;
                 Cursor.visible = true;
                 return;
@@ -145,6 +147,9 @@ namespace FPSBase.Core
             }
             // in a multiplayer game the world keeps going while the menu is open
             Time.timeScale = paused && !FPSBase.Net.NetSession.InSession ? 0f : 1f;
+            // the world's sounds stop with it (the music carries on)
+            bool hush = Time.timeScale == 0f;
+            if (AudioListener.pause != hush) AudioListener.pause = hush;
             if ((applyTimer -= Time.unscaledDeltaTime) <= 0f) { applyTimer = 0.5f; GraphicsApply.Cameras(); }
             fpsSmooth = Mathf.Lerp(fpsSmooth, 1f / Mathf.Max(Time.unscaledDeltaTime, 1e-4f), 0.05f);
             // playing: locked in the middle. A menu, the map or the phone open: free to move but kept inside the
@@ -162,9 +167,13 @@ namespace FPSBase.Core
             hudSmall = new GUIStyle(GUI.skin.label) { fontSize = 14, wordWrap = true };
             prompt = new GUIStyle(GUI.skin.label) { fontSize = 18, alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold };
             header = new GUIStyle(GUI.skin.label) { fontSize = 26, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter };
-            toastStyle = new GUIStyle(GUI.skin.box) { fontSize = 16, alignment = TextAnchor.MiddleCenter };
-            box = new GUIStyle(GUI.skin.box);
-            box.normal.background = MakeTex(new Color(0f, 0f, 0f, 0.6f));
+            header.normal.textColor = FPSBase.UI.ShopTheme.Gold;
+            hudBig.normal.textColor = FPSBase.UI.ShopTheme.Gold;
+            toastStyle = FPSBase.UI.ShopTheme.Toast;
+            box = new GUIStyle(GUI.skin.box) { border = new RectOffset(7, 7, 7, 7) };
+            box.normal.background = FPSBase.UI.ShopTheme.TexHud;
+            menuPanel = new GUIStyle(box) { padding = new RectOffset(20, 20, 14, 18) };
+            menuPanel.normal.background = FPSBase.UI.ShopTheme.TexDeep;
             markerStyle = new GUIStyle(GUI.skin.label) { fontSize = 12, alignment = TextAnchor.UpperCenter };
             markerStyle.normal.textColor = Color.white;
         }
@@ -179,8 +188,9 @@ namespace FPSBase.Core
 
         void OnGUI()
         {
+            GUI.skin = FPSBase.UI.ShopTheme.Skin; // (every menu and box in the dealer's colours)
             Styles();
-            if (menuOpen) { DrawMainMenu(); DrawTestList(true); return; }
+            if (menuOpen) { if (!menuBare) { DrawMainMenu(); DrawTestList(true); } return; }
             var eco = Economy.Instance;
 
             // Wallet (top right)
@@ -595,7 +605,7 @@ namespace FPSBase.Core
             P("1. Strip the topsoil and clay off the claim (gold-coloured stakes) — it carries little gold.");
             P("2. Dig the PAY GRAVEL underneath (richest just above bedrock) and load it in a truck.");
             P("3. Tip it into the wash plant hopper. Clean up the sluice, then sell the gold at the assay office in the Outpost.");
-            P($"Use {K(GameAction.Interact)} on buildings, pumps and machines. Esc pauses (settings, key bindings, unlimited-money test mode).");
+            P($"Use {K(GameAction.Interact)} on buildings, pumps and machines. Esc pauses (save, settings, music and sound volumes, key bindings, unlimited-money test mode).");
             H("Controller");
             P("On foot: left stick walks, right stick looks, A jump, B crouch, L3 sprint, X use, LB / RB pick a menu option. D-pad up: metal detector, RT digs with the hand shovel.");
             P("Driving: RT gas, LT brake / reverse, left stick steers, A handbrake, X get out, R3 cab view, D-pad down: flip / unstick. Trucks: right stick looks around; RB / LB dump box up / down, Y tailgate, D-pad up 4x4, D-pad right diff lock.");
@@ -658,8 +668,7 @@ namespace FPSBase.Core
         {
             float w = 680, h = Mathf.Min(780, Screen.height - 40);
             var r = new Rect((Screen.width - w) / 2f, (Screen.height - h) / 2f, w, h);
-            GUI.Box(r, GUIContent.none, box);
-            GUI.Box(r, GUIContent.none, box);
+            GUI.Box(r, GUIContent.none, menuPanel);
             GUILayout.BeginArea(new Rect(r.x + 20, r.y + 14, w - 40, h - 28));
             GUILayout.Label("Controls", header);
             GUILayout.Label("Click a key, then press the new key (Esc cancels). Keys in different groups can share a key — e.g. W drives and walks. Orange = clash with another action used at the same time.", hudSmall);
@@ -703,13 +712,13 @@ namespace FPSBase.Core
         {
             float w = 620, h = Mathf.Min(720, Screen.height - 40);
             var r = new Rect((Screen.width - w) / 2f, (Screen.height - h) / 2f, w, h);
-            GUI.Box(r, GUIContent.none, box);
-            GUI.Box(r, GUIContent.none, box);
+            FPSBase.UI.ShopTheme.Fill(new Rect(0, 0, Screen.width, Screen.height), new Color(0f, 0f, 0f, 0.35f));
+            GUI.Box(r, GUIContent.none, menuPanel);
             GUILayout.BeginArea(new Rect(r.x + 20, r.y + 14, w - 40, h - 28));
             GUILayout.Label("Paused", header);
             DrawSaveRow();
             GUILayout.Space(6);
-            int tab = GUILayout.Toolbar(pauseTab, PauseTabs, GUILayout.Height(34));
+            int tab = GUILayout.Toolbar(pauseTab, PauseTabs, FPSBase.UI.ShopTheme.Toolbar, GUILayout.Height(34));
             if (tab != pauseTab) { pauseTab = tab; pauseScroll = Vector2.zero; }
             GUILayout.Space(10);
             pauseScroll = GUILayout.BeginScrollView(pauseScroll);
@@ -767,7 +776,7 @@ namespace FPSBase.Core
             GUILayout.Space(8);
             GUILayout.Label("Excavator controls", hudBig);
             int mode = (int)GameSettings.ExcavatorControls;
-            int newMode = GUILayout.Toolbar(mode, new[] { "Realistic (ISO joysticks)", "Simplified (mouse)" }, GUILayout.Height(30));
+            int newMode = GUILayout.Toolbar(mode, new[] { "Realistic (ISO joysticks)", "Simplified (mouse)" }, FPSBase.UI.ShopTheme.Toolbar, GUILayout.Height(30));
             if (newMode != mode) GameSettings.ExcavatorControls = (ExcavatorControlMode)newMode;
             GUILayout.Label(newMode == 0
                 ? "ISO joysticks on the keyboard: stick, swing, boom, bucket and tracks each have their own keys (see Controls)."
@@ -792,6 +801,17 @@ namespace FPSBase.Core
             if (Mathf.Abs(dt - GameSettings.DetectorVolume) > 0.001f) GameSettings.DetectorVolume = dt;
             float fx = Slider("Other effects", GameSettings.EffectsVolume, 0f, 1f, "{0:P0}");
             if (Mathf.Abs(fx - GameSettings.EffectsVolume) > 0.001f) GameSettings.EffectsVolume = fx;
+            GUILayout.Space(8);
+            GUILayout.Label("Music", hudBig);
+            float mu = Slider("Music", GameSettings.MusicVolume, 0f, 1f, "{0:P0}");
+            if (Mathf.Abs(mu - GameSettings.MusicVolume) > 0.001f) GameSettings.MusicVolume = mu;
+            bool mig = Toggle("Music while playing (off: only in the menus)", GameSettings.MusicInGame);
+            if (mig != GameSettings.MusicInGame) GameSettings.MusicInGame = mig;
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(MusicPlayer.NowPlaying != null ? $"Now playing: {MusicPlayer.NowPlaying}" : "No music playing", hudSmall, GUILayout.Width(330));
+            if (GUILayout.Button("Next song", FPSBase.UI.ShopTheme.PlainButton, GUILayout.Width(120), GUILayout.Height(26))) MusicPlayer.Next();
+            GUILayout.EndHorizontal();
+            GUILayout.Label("Original lofi tracks made for the game.", hudSmall);
             GUILayout.Space(6);
             GUILayout.Label("Volumes change straight away and are saved.", hudSmall);
         }
@@ -814,7 +834,7 @@ namespace FPSBase.Core
                 string[] modes = { "Fullscreen", "Borderless", "Windowed" };
                 FullScreenMode[] modeVals = { FullScreenMode.ExclusiveFullScreen, FullScreenMode.FullScreenWindow, FullScreenMode.Windowed };
                 int wm = System.Array.IndexOf(modeVals, (FullScreenMode)GameSettings.WindowMode);
-                int nwm = GUILayout.Toolbar(Mathf.Max(0, wm), modes, GUILayout.Height(28));
+                int nwm = GUILayout.Toolbar(Mathf.Max(0, wm), modes, FPSBase.UI.ShopTheme.Toolbar, GUILayout.Height(28));
                 if (nwm != wm) { GameSettings.WindowMode = (int)modeVals[nwm]; changed = true; }
             }
             else GUILayout.Label("(Resolution and window mode apply in the built game.)", hudSmall);
@@ -826,7 +846,7 @@ namespace FPSBase.Core
             var fps = GraphicsApply.FpsChoices;
             int fi = Mathf.Max(0, System.Array.IndexOf(fps, GameSettings.FpsLimit));
             string[] fpsNames = System.Array.ConvertAll(fps, f => f == 0 ? "None" : f.ToString());
-            int nfi = GUILayout.Toolbar(fi, fpsNames, GUILayout.Height(26));
+            int nfi = GUILayout.Toolbar(fi, fpsNames, FPSBase.UI.ShopTheme.Toolbar, GUILayout.Height(26));
             if (nfi != fi) { GameSettings.FpsLimit = fps[nfi]; changed = true; }
             GUILayout.EndHorizontal();
             bool showTests = Toggle("Show the \"what to test\" list (left of the screen)", GameSettings.ShowTestList);
@@ -840,7 +860,7 @@ namespace FPSBase.Core
             if (names.Length > 1)
             {
                 int q = QualitySettings.GetQualityLevel();
-                int nq = GUILayout.Toolbar(q, names, GUILayout.Height(28));
+                int nq = GUILayout.Toolbar(q, names, FPSBase.UI.ShopTheme.Toolbar, GUILayout.Height(28));
                 if (nq != q) { GameSettings.Quality = nq; changed = true; }
             }
             float fov = Slider("Field of view", GameSettings.Fov, 55f, 100f, "{0:0}°");
@@ -851,7 +871,7 @@ namespace FPSBase.Core
             if (Mathf.Abs(gd - GameSettings.GrassDistance) > 1f) { GameSettings.GrassDistance = Mathf.Round(gd / 5f) * 5f; changed = true; }
             GUILayout.BeginHorizontal();
             GUILayout.Label("Anti-aliasing", hudSmall, GUILayout.Width(200));
-            int aa = GUILayout.Toolbar(GameSettings.AntiAliasing, GraphicsApply.AaNames, GUILayout.Height(26));
+            int aa = GUILayout.Toolbar(GameSettings.AntiAliasing, GraphicsApply.AaNames, FPSBase.UI.ShopTheme.Toolbar, GUILayout.Height(26));
             if (aa != GameSettings.AntiAliasing) { GameSettings.AntiAliasing = aa; changed = true; }
             GUILayout.EndHorizontal();
             bool mb = Toggle("Motion blur", GameSettings.MotionBlur);

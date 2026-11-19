@@ -181,6 +181,9 @@ namespace FPSBase.Mining
         }
         static GUIStyle waiting;
 
+        /// <summary>Tests: deliver a listing as if it was bought.</summary>
+        public void DevDeliver(int listing) { if (listing >= 0 && listing < listings.Length) Deliver(listings[listing]); }
+
         void Deliver(Listing l)
         {
             bool heavy = l.heavy && heavyLotSpots != null && heavyLotSpots.Length > 0;

@@ -44,6 +44,7 @@ namespace FPSBase.Mining
         /// <summary>Emit clumps for `volume` m^3 falling from `from`.</summary>
         public static void Stream(Vector3 from, Vector3 ground, float volume)
         {
+            WorkSounds.Pour(from, volume);
             carry += volume * 1500f; // clumps per m^3
             int n = Mathf.Min((int)carry, 40);
             if (n <= 0) return;
@@ -65,6 +66,7 @@ namespace FPSBase.Mining
         /// <summary>A few bits kicked up while the bucket digs.</summary>
         public static void Dig(Vector3 at)
         {
+            WorkSounds.Dig(at);
             // clods kicked up by the teeth
             for (int k = 0; k < 2; k++)
                 DirtGrains.Spray(at + Vector3.up * 0.1f + Random.insideUnitSphere * 0.15f, Random.insideUnitSphere * 1.3f + Vector3.up * 1.8f, 0, Random.Range(0.05f, 0.1f));

@@ -125,6 +125,7 @@ namespace FPSBase.Vehicles
             // shoving into a pile counts as driving into it even when the pile has stopped the machine
             Work(Mathf.Max(ForwardSpeed, throttle > 0.1f ? throttle * 0.6f : 0f), tiltIn, dt);
             workAmount = Mathf.Clamp01(Mathf.Abs(throttle) + Mathf.Abs(armIn) * 0.5f + Mathf.Abs(tiltIn) * 0.3f);
+            hydraulicAmount = Mathf.Clamp01(Mathf.Abs(armIn) + Mathf.Abs(tiltIn) * 0.8f);
         }
 
         // nobody in the seat: a bucket left tipped keeps emptying
@@ -186,6 +187,7 @@ namespace FPSBase.Vehicles
                     bucketLoad.Add(got);
                     var cc = GetComponent<ClumpContainer>();
                     if (cc != null && cc.Scoop(tip, 0.9f, bucketCapacity) is Boulder b) GameUI.Toast($"Scooped up a {b.volume:0.0#} m³ boulder");
+                    if (!got.IsEmpty) { strainAmount = Mathf.Clamp01(want / Mathf.Max(1e-4f, fillRate * dt) + 0.3f); scrapeAmount = 0.6f; }
                     if (!got.IsEmpty && (fxTimer -= dt) <= 0f) { PourFx.Dig(tip); fxTimer = 0.25f; }
                 }
             }

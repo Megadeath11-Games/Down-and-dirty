@@ -31,12 +31,24 @@ namespace FPSBase.Core
         float saveMessageUntil;
         bool confirmQuitToMenu;
 
-        GUIStyle menuTitle, menuSub, menuButton, menuRich;
+        GUIStyle menuTitle, menuSub, menuButton, menuButton2, menuRich;
+
+        static string pendingMenuMessage;
+
+        /// <summary>Back to the main menu with a fresh world (left a friend's game, or it closed). Unsaved progress is lost.</summary>
+        public void ReturnToMainMenu(string message)
+        {
+            pendingMenuMessage = message;
+            SaveGame.CurrentName = null;
+            Time.timeScale = 1f;
+            SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
+        }
 
         void MenuAwake()
         {
-            menuOpen = !Application.isBatchMode; // the automated tests start straight in the world
+            menuOpen = !Application.isBatchMode || FPSBase.Net.NetSession.LanMode; // the automated tests start straight in the world
             screen = MenuScreen.Main;
+            if (pendingMenuMessage != null) { menuMessage = pendingMenuMessage; pendingMenuMessage = null; screen = MenuScreen.Multi; }
             // dev: "-menushot <folder>" saves screenshots of the menus and the game, then quits
             var args = System.Environment.GetCommandLineArgs();
             int a = System.Array.IndexOf(args, "-menushot");
@@ -53,7 +65,12 @@ namespace FPSBase.Core
                 for (int i = 0; i < 10; i++) yield return null;
             }
             for (int i = 0; i < 90; i++) yield return null;
+            // the machines at work behind the menu, without the menu, a few seconds apart
+            menuBare = true;
+            for (int k = 0; k < 4; k++) { yield return Shot($"menu_scene{k}.png"); float until = Time.unscaledTime + 3.5f; while (Time.unscaledTime < until) yield return null; }
+            menuBare = false;
             yield return Shot("menu_main.png");
+            Debug.Log($"[Music] now playing: {MusicPlayer.NowPlaying ?? "(nothing)"}");
             screen = MenuScreen.Blog; yield return Shot("menu_blog.png");
             screen = MenuScreen.Single; RefreshSaves(SaveGame.Mode.SinglePlayer); yield return Shot("menu_single.png");
             screen = MenuScreen.Multi; RefreshSaves(SaveGame.Mode.Multiplayer); yield return Shot("menu_multi.png");
@@ -145,6 +162,9 @@ namespace FPSBase.Core
             }
         }
 
+        bool menuBare; // (a screenshot of just the scene behind)
+        bool MenuBackdropShowing => FPSBase.UI.MenuScene.Showing;
+
         void CloseMenu()
         {
             menuOpen = false;
@@ -156,9 +176,10 @@ namespace FPSBase.Core
         {
             if (menuTitle != null) return;
             menuTitle = new GUIStyle(GUI.skin.label) { fontSize = 54, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter };
-            menuTitle.normal.textColor = new Color(0.96f, 0.78f, 0.3f);
+            menuTitle.normal.textColor = FPSBase.UI.ShopTheme.Gold;
             menuSub = new GUIStyle(GUI.skin.label) { fontSize = 18, alignment = TextAnchor.MiddleCenter, wordWrap = true };
             menuButton = new GUIStyle(GUI.skin.button) { fontSize = 20, fontStyle = FontStyle.Bold };
+            menuButton2 = new GUIStyle(FPSBase.UI.ShopTheme.PlainButton) { fontSize = 18, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter };
             menuRich = new GUIStyle(GUI.skin.label) { fontSize = 15, richText = true, wordWrap = true };
         }
 
@@ -170,7 +191,7 @@ namespace FPSBase.Core
             foreach (var p in DevNotes.Blog)
             {
                 GUILayout.BeginVertical(GUI.skin.box);
-                GUILayout.Label($"<color=#f5c84c><b><size=18>{p.title}</size></b></color>   <color=#aaa>{p.date}</color>", menuRich);
+                GUILayout.Label($"<color=#f5c84c><b><size=18>{p.title}</size></b></color>   <color=#b9a685>{p.date}</color>", menuRich);
                 GUILayout.Label(p.body, menuRich);
                 GUILayout.EndVertical();
                 GUILayout.Space(8);
@@ -199,9 +220,7 @@ namespace FPSBase.Core
             if (clickable) h += 24f;
             h = Mathf.Min(h, maxH);
             GUI.color = Color.white;
-            GUI.Box(new Rect(x, y, w, h), GUIContent.none, box);
-            GUI.Box(new Rect(x, y, w, h), GUIContent.none, box);
-            GUI.color = Color.white;
+            GUI.Box(new Rect(x, y, w, h), GUIContent.none, menuOpen ? menuPanel : box);
             GUI.BeginGroup(new Rect(x, y, w, h));
             GUI.Label(new Rect(8, 4, w - 16, 20), $"What to test  <color=#aaa>({DevNotes.DoneCount()}/{items.Length} done)</color>", testHead);
             GUI.Label(new Rect(8, 22, w - 16, 18), clickable ? "<color=#aaa>click to tick off</color>" : "<color=#aaa>tick off in the pause menu (Esc)</color>", testStyle);
@@ -229,15 +248,20 @@ namespace FPSBase.Core
         void DrawMainMenu()
         {
             MenuStyles();
-            GUI.color = new Color(1f, 1f, 1f, 0.92f);
-            GUI.DrawTexture(new Rect(0, 0, Screen.width, Screen.height), box.normal.background);
-            GUI.color = Color.white;
-            float w = Mathf.Min(640f, Screen.width - 40f), h = Mathf.Min(720f, Screen.height - 40f);
-            GUILayout.BeginArea(new Rect((Screen.width - w) / 2f, (Screen.height - h) / 2f, w, h));
+            // behind: the machines at work (MenuScene), darkened at the edges; or plain dark earth if there's none
+            bool scene = MenuBackdropShowing;
+            FPSBase.UI.ShopTheme.Fill(new Rect(0, 0, Screen.width, Screen.height), new Color(0.06f, 0.042f, 0.026f, scene ? 0.18f : 0.94f));
+            float w = Mathf.Min(600f, Screen.width - 40f), h = Mathf.Min(760f, Screen.height - 40f);
+            // over to the right when the machines are working behind (they're in the middle), else in the middle
+            float x = scene && Screen.width > 1100f ? Screen.width - w - Mathf.Min(80f, Screen.width * 0.04f) : (Screen.width - w) / 2f;
+            var area = new Rect(x, (Screen.height - h) / 2f, w, h);
+            GUILayout.BeginArea(area);
+            GUILayout.FlexibleSpace();
+            GUILayout.BeginVertical(menuPanel);
             GUILayout.Label("DOWN AND DIRTY", menuTitle, GUILayout.Height(80));
             GUILayout.Label("dig it, wash it, get rich", menuSub);
             GUILayout.Space(24);
-            if (loading) { GUILayout.Label("Loading the world…", menuSub); GUILayout.EndArea(); return; }
+            if (loading) { GUILayout.Label("Loading the world…", menuSub); GUILayout.EndVertical(); GUILayout.FlexibleSpace(); GUILayout.EndArea(); return; }
             switch (screen)
             {
                 case MenuScreen.Main: MainScreen(); break;
@@ -246,6 +270,8 @@ namespace FPSBase.Core
                 default: MultiScreen(); break;
             }
             if (!string.IsNullOrEmpty(menuMessage)) { GUILayout.Space(10); GUILayout.Label($"<color=#f99>{menuMessage}</color>", menuRich); }
+            GUILayout.EndVertical();
+            GUILayout.FlexibleSpace();
             GUILayout.EndArea();
         }
 
@@ -255,9 +281,9 @@ namespace FPSBase.Core
             GUILayout.Space(8);
             if (GUILayout.Button("Multiplayer", menuButton, GUILayout.Height(58))) { screen = MenuScreen.Multi; RefreshSaves(SaveGame.Mode.Multiplayer); menuMessage = null; }
             GUILayout.Space(8);
-            if (GUILayout.Button("Dev Blog: what's new", menuButton, GUILayout.Height(48))) { screen = MenuScreen.Blog; menuScroll = Vector2.zero; menuMessage = null; }
+            if (GUILayout.Button("Dev Blog: what's new", menuButton2, GUILayout.Height(48))) { screen = MenuScreen.Blog; menuScroll = Vector2.zero; menuMessage = null; }
             GUILayout.Space(8);
-            if (GUILayout.Button("Quit", menuButton, GUILayout.Height(48))) QuitGame();
+            if (GUILayout.Button("Quit", menuButton2, GUILayout.Height(48))) QuitGame();
             GUILayout.Space(20);
             GUILayout.Label("Esc in the game opens the pause menu: save your world there.", menuSub);
         }
@@ -401,7 +427,7 @@ namespace FPSBase.Core
             {
                 if (!confirmQuitToMenu) { confirmQuitToMenu = true; return; }
                 confirmQuitToMenu = false;
-                if (FPSBase.Net.NetSession.InSession) FPSBase.Net.NetSession.Instance.Leave();
+                if (FPSBase.Net.NetSession.InSession) FPSBase.Net.NetSession.Instance.Leave(false);
                 SaveGame.CurrentName = null;
                 Time.timeScale = 1f;
                 SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);

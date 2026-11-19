@@ -78,7 +78,11 @@ namespace FPSBase.Core
         public static float EffectsVolume { get => effects ??= GetF("set.volEffects", 0.9f); set { effects = Mathf.Clamp01(value); SetF("set.volEffects", effects.Value); } }
         public static float FootstepVolume { get => steps ??= GetF("set.volSteps", 0.8f); set { steps = Mathf.Clamp01(value); SetF("set.volSteps", steps.Value); } }
         public static float DetectorVolume { get => detector ??= GetF("set.volDetector", 0.8f); set { detector = Mathf.Clamp01(value); SetF("set.volDetector", detector.Value); } }
-        static float? master, engine, effects, steps, detector;
+        public static float MusicVolume { get => music ??= GetF("set.volMusic", 0.45f); set { music = Mathf.Clamp01(value); SetF("set.volMusic", music.Value); } }
+        /// <summary>Music while you play too (not just in the menus).</summary>
+        public static bool MusicInGame { get => musicInGame ??= GetI("set.musicInGame", 1) == 1; set { musicInGame = value; SetI("set.musicInGame", value ? 1 : 0); } }
+        static bool? musicInGame;
+        static float? master, engine, effects, steps, detector, music;
 
         // ------------------------------------------------------------------ graphics
 

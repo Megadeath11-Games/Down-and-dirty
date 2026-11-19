@@ -26,6 +26,7 @@ namespace FPSBase.UI
 
         void OnGUI()
         {
+            GUI.skin = FPSBase.UI.ShopTheme.Skin;
             if (movement == null || !movement.isActiveAndEnabled) return;
             if (FPSBase.Core.GameUI.Instance != null && FPSBase.Core.GameUI.Instance.BlocksGameplay) return;
             big ??= new GUIStyle(GUI.skin.label) { fontSize = 22, alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold };

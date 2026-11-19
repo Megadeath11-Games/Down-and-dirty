@@ -39,6 +39,8 @@ namespace FPSBase.Vehicles
         protected PlayerInteractor driver;
         int enteredFrame;
         protected float workAmount; // 0..1 set by subclasses each frame for fuel burn
+        // for the sound, set by subclasses each frame (0..1): rams moving, pushing hard into the ground, an edge scraping
+        protected float hydraulicAmount, strainAmount, scrapeAmount;
 
         public override string Prompt => NetRemoteDriven ? $"{displayName}  —  {NetDriverName} is driving it"
                                                          : $"Get in {displayName}   (fuel {fuel:0}/{fuelCapacity:0} L)";
@@ -450,11 +452,13 @@ namespace FPSBase.Vehicles
                 if (Controls3D != null) Controls3D.Set(cab);
                 NetShow(Time.deltaTime);
                 if (engine == null) engine = EngineAudio.Attach(this);
-                engine.Drive(NetRemoteDriven && fuel > 0f, workAmount, Mathf.Abs(NetSpeed));
+                // (a friend's machine: only how hard it's working comes over; the rams take most of it when it isn't driving)
+                engine.Drive(NetRemoteDriven && fuel > 0f, workAmount, Mathf.Abs(NetSpeed), Mathf.Clamp01(workAmount - Mathf.Abs(NetSpeed) / 6f), 0f, 0f);
                 return;
             }
             if ((buryTimer -= Time.deltaTime) <= 0f) { buryTimer = 0.3f; BuryCheck(); }
             workAmount = 0f;
+            hydraulicAmount = strainAmount = scrapeAmount = 0f;
             cab = default;
             bool blocked = GameUI.Instance != null && GameUI.Instance.BlocksGameplay;
             if (Occupied && !blocked)
@@ -469,7 +473,7 @@ namespace FPSBase.Vehicles
             if ((trampleTimer -= Time.deltaTime) <= 0f) { trampleTimer = 0.1f; TrampleGround(); }
             if (engine == null) engine = EngineAudio.Attach(this);
             if (body == null) body = GetComponent<Rigidbody>();
-            engine.Drive(Occupied && fuel > 0f, workAmount, body != null && !body.isKinematic ? body.linearVelocity.magnitude : 0f);
+            engine.Drive(Occupied && fuel > 0f, workAmount, body != null && !body.isKinematic ? body.linearVelocity.magnitude : 0f, hydraulicAmount, strainAmount, scrapeAmount);
 
             if (Occupied && fuel > 0f)
             {

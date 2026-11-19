@@ -143,6 +143,9 @@ namespace FPSBase.Vehicles
             cab.aux = ripIn != 0f ? ripIn : angleIn;
             Work(ForwardSpeed, dt);
             workAmount = Mathf.Clamp01(Mathf.Abs(throttle) + (Mathf.Abs(bladeIn) + Mathf.Abs(tiltIn) + Mathf.Abs(angleIn)) * 0.3f + Mathf.Abs(ripIn) * 0.3f + Mathf.Clamp01(pushRate) * 0.5f);
+            hydraulicAmount = Mathf.Clamp01(Mathf.Abs(bladeIn) + Mathf.Abs(tiltIn) + Mathf.Abs(angleIn) + Mathf.Abs(ripIn));
+            scrapeAmount = Mathf.Clamp01(pushRate * 1.2f);
+            strainAmount = Mathf.Clamp01(pushRate * 0.6f);
         }
 
         /// <summary>One step of blade (and ripper) work at forward speed `v` (m/s). Public so the automated test can drive it.</summary>

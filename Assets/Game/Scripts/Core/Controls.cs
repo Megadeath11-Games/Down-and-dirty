@@ -266,8 +266,13 @@ namespace FPSBase.Core
             return c != null && !RightStickTaken(p) && !PadOnMenu(a) && c.wasPressedThisFrame;
         }
         /// <summary>-1..1: keys are all-or-nothing, a stick or trigger pushes in proportion.</summary>
+        /// <summary>Tests: hold actions down as if a player pressed them (0..1).</summary>
+        public static readonly Dictionary<GameAction, float> TestHeld = new();
+        static float TestValue(GameAction a) => TestHeld.Count > 0 && TestHeld.TryGetValue(a, out float v) ? v : 0f;
+
         public static float Axis(GameAction positive, GameAction negative)
         {
+            if (TestHeld.Count > 0) return Mathf.Clamp(TestValue(positive) - TestValue(negative), -1f, 1f);
             float k = ((Ctl(positive)?.isPressed ?? false) ? 1f : 0f) - ((Ctl(negative)?.isPressed ?? false) ? 1f : 0f);
             return Mathf.Clamp(k + PadValue(positive) - PadValue(negative), -1f, 1f);
         }

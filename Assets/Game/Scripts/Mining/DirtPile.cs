@@ -12,9 +12,50 @@ namespace FPSBase.Mining
         public MaterialLoad load;
         float radius, height;
 
+        // ---- multiplayer: every pile has a number; a change on any game goes to everyone
+        [System.NonSerialized] public int NetId;
+        /// <summary>A pile changed on this game (made, added to, dug from, gone): the network sends it.</summary>
+        public static System.Action<DirtPile> NetChanged;
+        static bool applyingNet;
+        void Changed() { if (!applyingNet) NetChanged?.Invoke(this); }
+        public float Radius => radius;
+
         public float FreeSpace => float.MaxValue;
         public bool AcceptsAt(Vector3 worldPoint) => true;
-        public void Receive(MaterialLoad l) { load.Add(l); Reshape(); }
+        public void Receive(MaterialLoad l) { load.Add(l); Reshape(); Changed(); }
+
+        public static DirtPile ById(int id) { foreach (var p in all) if (p != null && p.NetId == id) return p; return null; }
+
+        /// <summary>A pile as another player's game has it (0 m³: it's gone).</summary>
+        public static void NetApply(int id, Vector3 at, MaterialLoad l)
+        {
+            applyingNet = true;
+            try
+            {
+                var p = ById(id);
+                if (l.volume < 0.01f) { if (p != null) Destroy(p.gameObject); return; }
+                if (p == null) { p = Make(at, l); p.NetId = id; return; }
+                p.load = l; p.transform.position = at; p.Reshape();
+            }
+            finally { applyingNet = false; }
+        }
+
+        static DirtPile Make(Vector3 ground, MaterialLoad l)
+        {
+            var go = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            go.name = "DirtPile";
+            Destroy(go.GetComponent<SphereCollider>());
+            var mc = go.AddComponent<MeshCollider>();
+            mc.sharedMesh = go.GetComponent<MeshFilter>().sharedMesh;
+            if (DigSite.Instance != null && DigSite.Instance.pileMaterial != null)
+                go.GetComponent<MeshRenderer>().sharedMaterial = DigSite.Instance.pileMaterial;
+            go.transform.position = ground;
+            var pile = go.AddComponent<DirtPile>();
+            pile.NetId = Random.Range(1, int.MaxValue);
+            pile.load = l;
+            pile.Reshape();
+            return pile;
+        }
 
         void OnEnable() => all.Add(this);
         void OnDisable() => all.Remove(this);
@@ -27,17 +68,7 @@ namespace FPSBase.Mining
                 Vector3 d = p.transform.position - ground; d.y = 0f;
                 if (d.magnitude < p.radius + 0.8f) { p.Receive(l); return; }
             }
-            var go = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-            go.name = "DirtPile";
-            Destroy(go.GetComponent<SphereCollider>());
-            var mc = go.AddComponent<MeshCollider>();
-            mc.sharedMesh = go.GetComponent<MeshFilter>().sharedMesh;
-            if (DigSite.Instance != null && DigSite.Instance.pileMaterial != null)
-                go.GetComponent<MeshRenderer>().sharedMaterial = DigSite.Instance.pileMaterial;
-            go.transform.position = ground;
-            var pile = go.AddComponent<DirtPile>();
-            pile.load = l;
-            pile.Reshape();
+            Make(ground, l).Changed();
         }
 
         public static DirtPile FindContaining(Vector3 point)
@@ -56,8 +87,9 @@ namespace FPSBase.Mining
         public MaterialLoad Dig(float maxVolume)
         {
             var taken = load.Take(maxVolume);
-            if (load.volume < 0.01f) { Destroy(gameObject); return taken; }
+            if (load.volume < 0.01f) { load = default; Changed(); Destroy(gameObject); return taken; }
             Reshape();
+            Changed();
             return taken;
         }
 

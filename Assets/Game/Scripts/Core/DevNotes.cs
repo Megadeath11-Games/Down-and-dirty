@@ -13,6 +13,23 @@ namespace FPSBase.Core
         /// <summary>Newest first.</summary>
         public static readonly Post[] Blog =
         {
+            new Post { date = "Update 14  ·  Nov 19, 2026", title = "Solid multiplayer, a working main menu, lofi beats and real machine sounds",
+                body =
+                "<b>Multiplayer</b>\n" +
+                "• Tested for hours with scripted players in 2 and 3 player games, on a perfect connection and on a bad one (up to a quarter of a second of lag with 15% of the updates lost): walking, driving, digging the mine and the town, buying machines, loading and dumping trucks, the wash plant and the gold, crew jobs and their pay, towing, two people grabbing the same seat, leaving and rejoining, and saving, loading and hosting again. Everyone's world matched every time.\n" +
+                "• Friends' machines move smoothly even on a laggy connection: they're drawn a moment behind, between the updates they send, so a late or lost update no longer makes them stop and start.\n" +
+                "• Dirt piles are shared: piles a friend dumps (and digs away) are the same in your game, and a friend joining gets the piles already there.\n" +
+                "• When the host closes the game, friends go back to the main menu with a message (before, they were left in a frozen copy of the world). With three of you, the game ends for both friends, rather than one of them quietly taking over a copy.\n" +
+                "• Joining a friend while you're in your own world loads their world fresh, and leaving their game takes you back to the main menu, so you never carry a stale copy into the next game.\n" +
+                "• When a friend leaves, their machines stay where they parked them, run by the host (before, every player tried to take them over).\n" +
+                "<b>Main menu</b>\n" +
+                "• Behind the menu, a crew at work: an excavator digs a pile and loads dump trucks that take turns, while a dozer keeps pushing dirt up to it.\n" +
+                "• Every menu now has the same look as the equipment dealer: the main menu, the pause menu and its settings, the key bindings, the machine panels, the messages and the what-to-test list.\n" +
+                "<b>Music</b>\n" +
+                "• Five chill lofi tracks, made for the game (so they're free to stream and share), shuffled with a crossfade. They play in the menus and while you play, a little quieter when you're in a machine. Esc > Audio: music volume, music while playing on or off, and Next song.\n" +
+                "<b>Sound</b>\n" +
+                "• New machine sounds: the diesel has an idle and a working sound and revs between them; the hydraulic pump whines while the arm, blade or bed moves; it groans when the bucket digs hard or a ram is held at the end of its travel; the blade scrapes as a dozer or grader cuts; tracks clank as they roll; the bucket's teeth scrape through the dirt; and dirt and gravel rattle as they pour out of a bucket or a truck bed. Friends' machines are heard too.\n" +
+                "• Pausing a single-player game stops the world's sounds (the music carries on).\n" },
             new Post { date = "Update 13  ·  Nov 19, 2026", title = "Trenches of every kind, careful digging, a town that isn't copy-paste",
                 body =
                 "<b>New</b>\n" +
@@ -163,11 +180,21 @@ namespace FPSBase.Core
                 "• Dozer berms build up properly in front of the blade." },
         };
 
-        public const string TestListVersion = "2026-11-19h";
+        public const string TestListVersion = "2026-11-19i";
 
         /// <summary>What's new in this build to try out.</summary>
         public static readonly string[] TestList =
         {
+            "Main menu: an excavator loads dump trucks behind the menu while a dozer pushes dirt to it",
+            "Music: lofi plays in the menu and in the game; Esc > Audio: music volume, Next song, music while playing",
+            "Excavator: the hydraulics whine as the arm moves, groan when you dig hard, and the dirt scrapes and pours",
+            "Dozer: the blade scrapes as it pushes dirt, the tracks clank as you drive",
+            "The menus all match: pause menu, settings tabs, key bindings, map, phone, dealer",
+            "Multiplayer: the host quits, your friend goes back to the main menu with a message",
+            "Multiplayer: join a friend while you're in your own world: you get their world",
+            "Multiplayer: dump a truck into a pile: your friend sees the same pile, and can dig it",
+            "Multiplayer: drive near each other with a bad connection: friends' machines move smoothly",
+            "Pause single player (Esc): the engine and world sounds stop, the music keeps playing",
             "Accept a trench job: drive into town by the directions in the text (welcome board, street signs, orange beacon) and find the house",
             "Dig a trench to the light blue box: as wide and as deep as it shows, and get paid",
             "Get a few trench jobs: they're in different places on the lot, and different lengths, depths and widths",

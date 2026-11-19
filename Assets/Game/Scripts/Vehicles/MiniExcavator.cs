@@ -212,6 +212,12 @@ namespace FPSBase.Vehicles
             ApplyPose();
 
             workAmount = Mathf.Clamp01(Mathf.Abs(boomIn) + Mathf.Abs(stickIn) * 0.5f + Mathf.Abs(bucketIn) * 0.5f + Mathf.Abs(trackInput) + Mathf.Abs(swingIn) * 0.3f);
+            hydraulicAmount = Mathf.Clamp01(Mathf.Abs(boomIn) + Mathf.Abs(stickIn) * 0.8f + Mathf.Abs(bucketIn) * 0.7f + Mathf.Abs(swingIn) * 0.6f + Mathf.Abs(bladeIn) * 0.5f);
+            // a ram held against the end of its travel: the relief valve groans
+            if ((boomIn > 0.1f && boom >= boomRange.y - 0.01f) || (boomIn < -0.1f && boom <= boomRange.x + 0.01f) ||
+                (stickIn > 0.1f && stick >= stickRange.y - 0.01f) || (stickIn < -0.1f && stick <= stickRange.x + 0.01f) ||
+                (bucketIn > 0.1f && bucket >= bucketRange.y - 0.01f) || (bucketIn < -0.1f && bucket <= bucketRange.x + 0.01f)) strainAmount = 0.6f;
+            scrapeAmount = Mathf.Clamp01(LastBladeMoved * 40f);
 
             // Dig: bucket tip in the ground while curling or pulling in (an opened-out bucket drags instead)
             float digInput = Mathf.Max(-bucketIn, -stickIn, 0f);
@@ -227,7 +233,7 @@ namespace FPSBase.Vehicles
                     float want = Mathf.Min(rate * digInput * dt, bucketCapacity - bucketLoad.volume - rockRoom);
                     var got = DigSite.DigAnywhere(bucketTip.position, digRadius, want);
                     bucketLoad.Add(got);
-                    if (!got.IsEmpty) PourFx.Dig(bucketTip.position);
+                    if (!got.IsEmpty) { PourFx.Dig(bucketTip.position); strainAmount = Mathf.Max(strainAmount, digInput); }
                 }
                 // boulders small enough to fit roll into the bucket (they ride in it as real rocks)
                 var cc = rockBox;

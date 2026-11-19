@@ -863,6 +863,7 @@ namespace FPSBase.City
         GUIStyle badge, beaconLabel, trenchLabel;
         void OnGUI()
         {
+            GUI.skin = FPSBase.UI.ShopTheme.Skin;
             var ui = GameUI.Instance;
             if (ui == null || ui.BlocksGameplay) return;
             // the address over each job's beacon

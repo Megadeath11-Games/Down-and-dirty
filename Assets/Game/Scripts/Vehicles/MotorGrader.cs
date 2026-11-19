@@ -149,6 +149,8 @@ namespace FPSBase.Vehicles
             steer = Mathf.Clamp(steerDeg / maxSteer * 0.75f + artic / maxArtic * 0.55f + lean / maxLean * 0.12f, -1f, 1f);
             Work(ForwardSpeed, dt);
             workAmount = Mathf.Clamp01(Mathf.Abs(throttle) + Mathf.Clamp01(cutRate) * 0.6f + (Mathf.Abs(liftIn) + Mathf.Abs(circleIn) + Mathf.Abs(shiftIn)) * 0.15f);
+            hydraulicAmount = Mathf.Clamp01((Mathf.Abs(liftIn) + Mathf.Abs(circleIn) + Mathf.Abs(shiftIn)) * 0.7f);
+            scrapeAmount = Mathf.Clamp01(cutRate * 2f);
             // 140M-style pods: left = steer + left lift ram, right = side shift + right lift ram, twist for the rest
             cab.left = new Vector2(steerIn, Mathf.Clamp(-(liftIn - rollIn), -1f, 1f));
             cab.right = new Vector2(shiftIn != 0f ? shiftIn : circleIn * 0.6f, Mathf.Clamp(-(liftIn + rollIn), -1f, 1f));

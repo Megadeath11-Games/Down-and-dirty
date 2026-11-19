@@ -17,6 +17,7 @@ namespace FPSBase.City
 
         void OnGUI()
         {
+            GUI.skin = FPSBase.UI.ShopTheme.Skin;
             var ui = GameUI.Instance;
             if (ui == null || ui.BlocksGameplay) return;
             var cam = Camera.main;

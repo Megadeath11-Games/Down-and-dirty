@@ -225,6 +225,7 @@ namespace FPSBase.Player
 
         void OnGUI()
         {
+            GUI.skin = FPSBase.UI.ShopTheme.Skin;
             if (!Out || (GameUI.Instance != null && GameUI.Instance.BlocksGameplay)) return;
             meterStyle ??= new GUIStyle(GUI.skin.label) { fontSize = 16, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter };
             small ??= new GUIStyle(GUI.skin.label) { fontSize = 13, alignment = TextAnchor.MiddleCenter, wordWrap = true };

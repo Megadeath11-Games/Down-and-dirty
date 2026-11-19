@@ -39,7 +39,7 @@ namespace FPSBase.UI
             int ups = Mathf.RoundToInt(movement.HorizontalSpeed / 0.0254f);
             GUI.Label(new Rect(cx - 150, Screen.height - 60, 300, 30), $"{ups}  ({movement.HorizontalSpeed:0.0} m/s)", big);
 
-            GUI.Label(new Rect(12, 10, 560, 100),
+            GUI.Label(new Rect(12, 30, 560, 54),
                 $"{N(GameAction.MoveForward)}{N(GameAction.MoveLeft)}{N(GameAction.MoveBack)}{N(GameAction.MoveRight)} move · {N(GameAction.Sprint)} sprint · {N(GameAction.Jump)} jump (bhop: jump as you land, auto-bhop in Esc menu)\n" +
                 $"{N(GameAction.Crouch)} crouch (sprint + crouch = slide) · Hold {N(GameAction.Jump)} + {N(GameAction.MoveForward)} at a ledge to climb\n" +
                 $"{N(GameAction.Interact)} use / shops / get in vehicles · Esc menu, settings & controls", small);

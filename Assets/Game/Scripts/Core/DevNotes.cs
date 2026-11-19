@@ -13,6 +13,19 @@ namespace FPSBase.Core
         /// <summary>Newest first.</summary>
         public static readonly Post[] Blog =
         {
+            new Post { date = "Update 11  ·  Nov 19, 2026", title = "Crew jobs, a real map and a minimap",
+                body =
+                "<b>New</b>\n" +
+                "• Jobs in multiplayer: everyone sees the same customers and texts. When you accept a job you pick <b>Just me</b> (it's yours and you get all the pay) or <b>Share with crew</b> (anyone can work it and finish it, and the pay is split evenly between everyone in the game). Your friends' answers show in the conversation with their names, and a friend's own job shows who took it.\n" +
+                "• A much more detailed map (M): the real ground seen from above, shaded hills with contour lines, the roads, the buildings, the trees, the houses in town with their numbers and the street names, and the dig grounds coloured by how deep they're dug (piles show lighter). Scroll to zoom, drag to move it, or use the buttons to zoom, centre on you or see the whole map.\n" +
+                "• Every machine has a little top-down icon on the map that looks like it (excavators, dump trucks, pickups, loaders, skid steers, dozers, graders, semis, trailers) and turns the way it's facing. Players are arrows pointing where they're looking: you in red, friends in blue with their names.\n" +
+                "• A minimap in the bottom right that follows you, with the phone's new-message notice just above it.\n" +
+                "<b>Changed</b>\n" +
+                "• The compass at the top is tidied up: N, E, S, W and the in-betweens, a small pin for each place, and the names and distances underneath in two neat rows. The places closest to where you're looking get their names first, and names never pile on top of each other.\n" +
+                "• The movement hints in the top left no longer print over the map / help line.\n" +
+                "<b>Fixed</b>\n" +
+                "• Multiplayer: a machine chained on a friend's trailer no longer spins its tracks or wheels on your screen.\n" +
+                "• Multiplayer: a friend's trucks, trailers and the machines on them no longer go, stop dead and speed up again. They keep moving smoothly between updates.\n" },
             new Post { date = "Update 10  ·  Nov 19, 2026", title = "The town: customers, your phone, gravel jobs",
                 body =
                 "<b>New</b>\n" +
@@ -132,11 +145,18 @@ namespace FPSBase.Core
                 "• Dozer berms build up properly in front of the blade." },
         };
 
-        public const string TestListVersion = "2026-11-19e";
+        public const string TestListVersion = "2026-11-19f";
 
         /// <summary>What's new in this build to try out.</summary>
         public static readonly string[] TestList =
         {
+            "Multiplayer: accept a job with Share with crew, have your friend finish it, you both get half",
+            "Multiplayer: take a job Just me, your friend's phone shows it's yours",
+            "Open the map (M): scroll to zoom, drag it around, find your machines by their icons",
+            "Look around: your arrow on the map and minimap turns with you",
+            "Check the compass at the top isn't crowded any more",
+            "Get a text: the new-message notice shows above the minimap",
+            "Multiplayer: haul an excavator on a lowboy, your friend sees it move smoothly with its tracks still",
             "Drive the new road from the heavy yard over the hill to the town",
             "Wait for a text, open your phone (P), accept a job",
             "Buy gravel at the landscape supply: back the truck under the bin",

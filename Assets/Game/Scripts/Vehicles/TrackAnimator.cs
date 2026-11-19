@@ -113,7 +113,8 @@ namespace FPSBase.Vehicles
         {
             if (belts == null) return;
             if (!ownerLooked) { owner = GetComponentInParent<VehicleBase>(); ownerLooked = true; }
-            bool riding = owner != null && owner.RidingTrailer; // carried on a lowboy: the belts stay put
+            // carried on a lowboy, or moved without anyone driving it (towed, a friend's copy being hauled): the belts stay put
+            bool riding = owner != null && (owner.RidingTrailer || (owner.NetRemote && !owner.NetRemoteDriven));
             Vector3 fwd = transform.forward;
             foreach (var b in belts)
             {

@@ -41,9 +41,12 @@ namespace FPSBase.Core
         /// <summary>The open panel's title (null when none is open).</summary>
         public string PanelTitle => panelDraw != null ? panelTitle : null;
         public bool Paused => paused || menuOpen;
-        public void OpenMap() => OpenPanel("Map", DrawMap, 920f);
+        public void OpenMap() { mapView = default; OpenPanel("Map", DrawMap, 1120f); }
 
-        void Awake() { Instance = this; MenuAwake(); }
+        void Awake() { Instance = this; MenuAwake(); if (GetComponent<MapView>() == null) gameObject.AddComponent<MapView>(); }
+
+        /// <summary>Where the minimap sits (bottom right); the phone's message badge goes just above it.</summary>
+        public static Rect MinimapRect => new Rect(Screen.width - 266f, Screen.height - 266f, 250f, 250f);
 
         void Start() => GraphicsApply.All();
 
@@ -124,7 +127,7 @@ namespace FPSBase.Core
             }
             else if (!paused && Controls.Pressed(GameAction.Map))
             {
-                if (panelTitle == "Map" && panelDraw != null) ClosePanel(); else OpenPanel("Map", DrawMap, 920f);
+                if (panelTitle == "Map" && panelDraw != null) ClosePanel(); else OpenPanel("Map", DrawMap, 1120f);
             }
             else if (!paused && Controls.Pressed(GameAction.Help))
             {
@@ -217,9 +220,9 @@ namespace FPSBase.Core
             var who = ActiveVehicle as Component;
             Vector3 here = who != null ? who.transform.position : (player != null ? player.transform.position : Vector3.zero);
             var zone = SafeZone.At(here);
-            if (!paused && panelDraw == null) DrawCompass(here);
+            if (!paused && panelDraw == null) { DrawCompass(here); DrawMinimap(here); }
             if (zone != null && !paused)
-                GUI.Label(new Rect(Screen.width / 2f - 300, 40, 600, 30), zone.zoneName + "  —  SAFE ZONE", prompt);
+                GUI.Label(new Rect(Screen.width / 2f - 300, 76, 600, 30), zone.zoneName + "  —  SAFE ZONE", prompt);
             if (!paused && panelDraw == null)
                 GUI.Label(new Rect(10, 10, 420, 22), $"[{Controls.N(GameAction.Map)}] map & machines   [{Controls.N(GameAction.Help)}] help" + (ActiveVehicle == null ? $"   [{Controls.N(GameAction.DetectorToggle)}] metal detector" : $"   [{Controls.N(GameAction.Recover)}] flip upright"), hudSmall);
 
@@ -233,7 +236,7 @@ namespace FPSBase.Core
             {
                 float a = Mathf.Clamp01((toasts[i].until - Time.unscaledTime) * 2f);
                 GUI.color = new Color(1f, 1f, 1f, a);
-                GUI.Box(new Rect(Screen.width / 2f - 320, 76 + i * 40, 640, 36), toasts[i].text, toastStyle);
+                GUI.Box(new Rect(Screen.width / 2f - 320, 110 + i * 40, 640, 36), toasts[i].text, toastStyle);
             }
             GUI.color = Color.white;
 
@@ -244,40 +247,101 @@ namespace FPSBase.Core
 
         // ------------------------------------------------------------------ compass
 
-        void DrawCompass(Vector3 here)
+        /// <summary>Which way you're looking (the camera's heading, degrees from north).</summary>
+        static float CamYaw()
         {
             var cam = Camera.main;
             if (cam == null) foreach (var c in Camera.allCameras) if (c.isActiveAndEnabled) { cam = c; break; }
-            if (cam == null) return;
-            float yaw = cam.transform.eulerAngles.y;
-            const float w = 600f, half = 90f; // degrees shown either side
+            return cam != null ? cam.transform.eulerAngles.y : 0f;
+        }
+
+        GUIStyle compassBig, compassSmall;
+
+        /// <summary>
+        /// The compass strip: N/E/S/W and the in-betweens, a pin for each place, and its name and distance
+        /// underneath in up to two rows. The places nearest where you're looking get their names first; ones that
+        /// would overlap just show the pin.
+        /// </summary>
+        void DrawCompass(Vector3 here)
+        {
+            float yaw = CamYaw();
+            const float w = 640f, half = 80f; // degrees shown either side
             var r = new Rect(Screen.width / 2f - w / 2f, 6, w, 30);
             GUI.Box(r, GUIContent.none, box);
+            compassBig ??= new GUIStyle(prompt) { fontSize = 17, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter };
+            compassSmall ??= new GUIStyle(prompt) { fontSize = 11, fontStyle = FontStyle.Normal, alignment = TextAnchor.MiddleCenter };
             float X(float bearing) => r.center.x + Mathf.DeltaAngle(yaw, bearing) / half * (w / 2f);
             for (int d = 0; d < 360; d += 15)
             {
                 float dd = Mathf.DeltaAngle(yaw, d);
                 if (Mathf.Abs(dd) > half) continue;
                 float x = X(d);
-                string lab = d switch { 0 => "N", 90 => "E", 180 => "S", 270 => "W", _ => null };
-                if (lab != null) GUI.Label(new Rect(x - 15, r.y + 3, 30, 24), lab, prompt);
-                else GUI.DrawTexture(new Rect(x - 0.5f, r.y + (d % 45 == 0 ? 8 : 13), 1, d % 45 == 0 ? 14 : 8), Texture2D.whiteTexture);
+                GUI.color = new Color(1f, 1f, 1f, 1f - Mathf.Abs(dd) / half * 0.6f);
+                string big = d switch { 0 => "N", 90 => "E", 180 => "S", 270 => "W", _ => null };
+                string mid = d switch { 45 => "NE", 135 => "SE", 225 => "SW", 315 => "NW", _ => null };
+                if (big != null) { if (d == 0) GUI.color = new Color(1f, 0.55f, 0.4f, GUI.color.a); GUI.Label(new Rect(x - 15, r.y + 1, 30, 26), big, compassBig); }
+                else if (mid != null) GUI.Label(new Rect(x - 15, r.y + 3, 30, 22), mid, compassSmall);
+                else GUI.DrawTexture(new Rect(x - 0.5f, r.y + 11, 1, 8), Texture2D.whiteTexture);
             }
+            // where you're facing
+            GUI.color = new Color(1f, 0.82f, 0.35f);
+            GUI.DrawTexture(new Rect(r.center.x - 1, r.y, 2, 6), Texture2D.whiteTexture);
+            GUI.DrawTexture(new Rect(r.center.x - 1, r.yMax - 6, 2, 6), Texture2D.whiteTexture);
+
+            var marks = new System.Collections.Generic.List<(float x, string text, Color col)>();
             void Mark(Vector3 at, string label, Color col)
             {
                 Vector3 d = at - here; d.y = 0f;
-                if (d.magnitude < 3f) return;
+                float dist = d.magnitude;
+                if (dist < 3f) return;
                 float bearing = Mathf.Atan2(d.x, d.z) * Mathf.Rad2Deg;
                 if (Mathf.Abs(Mathf.DeltaAngle(yaw, bearing)) > half) return;
-                float x = X(bearing);
-                GUI.color = col;
-                GUI.DrawTexture(new Rect(x - 4, r.y + r.height - 9, 8, 8), Texture2D.whiteTexture);
-                GUI.Label(new Rect(x - 80, r.yMax, 160, 20), $"{label} {d.magnitude:0} m", markerStyle);
-                GUI.color = Color.white;
+                marks.Add((X(bearing), $"{label}  {(dist >= 1000f ? $"{dist / 1000f:0.0} km" : $"{dist:0} m")}", col));
             }
             foreach (var m in MapMarker.All) Mark(m.transform.position, m.label, m.color);
             var last = FPSBase.Vehicles.VehicleBase.LastDriven;
             if (last != null && !ReferenceEquals(last, ActiveVehicle)) Mark(last.transform.position, last.displayName, new Color(0.55f, 0.85f, 1f));
+
+            // pins on the strip
+            foreach (var (x, _, col) in marks) { GUI.color = col; GUI.DrawTexture(new Rect(x - 5, r.yMax - 11, 10, 10), MapView.Pin); }
+            // names under it, nearest the middle first, two rows, never on top of each other
+            marks.Sort((p, q) => Mathf.Abs(p.x - r.center.x).CompareTo(Mathf.Abs(q.x - r.center.x)));
+            var rows = new[] { new System.Collections.Generic.List<Rect>(), new System.Collections.Generic.List<Rect>() };
+            foreach (var (x, text, col) in marks)
+            {
+                float tw = markerStyle.CalcSize(new GUIContent(text)).x + 12f;
+                float lx = Mathf.Clamp(x - tw / 2f, r.xMin, r.xMax - tw);
+                for (int row = 0; row < 2; row++)
+                {
+                    var lr = new Rect(lx, r.yMax + 2 + row * 19, tw, 18);
+                    bool clash = false; foreach (var o in rows[row]) if (o.Overlaps(lr)) { clash = true; break; }
+                    if (clash) continue;
+                    rows[row].Add(lr);
+                    GUI.color = new Color(0.05f, 0.04f, 0.03f, 0.72f); GUI.DrawTexture(lr, Texture2D.whiteTexture);
+                    GUI.color = Color.Lerp(col, Color.white, 0.45f); GUI.Label(lr, text, markerStyle);
+                    break;
+                }
+            }
+            GUI.color = Color.white;
+        }
+
+        // ------------------------------------------------------------------ minimap
+
+        float minimapRange = 170f;
+        GUIStyle miniNote;
+
+        void DrawMinimap(Vector3 here)
+        {
+            var mv = MapView.Instance;
+            if (mv == null || !mv.Ready) return;
+            var r = MinimapRect;
+            GUI.Box(new Rect(r.x - 5, r.y - 5, r.width + 10, r.height + 10), GUIContent.none, box);
+            mv.Draw(r, new Rect(here.x - minimapRange / 2f, here.z - minimapRange / 2f, minimapRange, minimapRange), false, here, CamYaw());
+            miniNote ??= new GUIStyle(hudSmall) { fontSize = 12, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter };
+            GUI.color = new Color(0f, 0f, 0f, 0.55f); GUI.DrawTexture(new Rect(r.center.x - 11, r.y + 2, 22, 18), Texture2D.whiteTexture);
+            GUI.color = new Color(1f, 0.6f, 0.45f); GUI.Label(new Rect(r.center.x - 11, r.y + 2, 22, 18), "N", miniNote);
+            GUI.color = new Color(0f, 0f, 0f, 0.55f); GUI.DrawTexture(new Rect(r.xMax - 122, r.yMax - 20, 120, 18), Texture2D.whiteTexture);
+            GUI.color = Color.white; GUI.Label(new Rect(r.xMax - 122, r.yMax - 20, 120, 18), $"{minimapRange:0} m  [{Controls.N(GameAction.Map)}] map", miniNote);
         }
 
         GUIStyle markerStyle;
@@ -331,13 +395,23 @@ namespace FPSBase.Core
         /// <summary>Open the map to pick where a tow truck should take `v` (you ride along).</summary>
         public void OpenTow(FPSBase.Vehicles.VehicleBase v)
         {
-            towing = v; towDest = null;
-            OpenPanel("Map", DrawMap, 920f);
+            towing = v; towDest = null; mapView = default;
+            OpenPanel("Map", DrawMap, 1120f);
         }
 
         // ------------------------------------------------------------------ map
 
         static Vector3 Ground(Vector3 p) => FPSBase.Mining.VehicleDealer.GroundAt(p);
+
+        Rect mapView;           // the part of the world the big map shows (zoom / drag)
+        bool mapGrab, mapDragged;
+        Vector2 mapDown;
+
+        static Rect Zoomed(Rect v, float k, Rect world)
+        {
+            float ns = Mathf.Clamp(v.width * k, 40f, world.width * 1.25f);
+            return new Rect(v.center.x - ns / 2f, v.center.y - ns / 2f, ns, ns);
+        }
 
         void DrawMap()
         {
@@ -352,39 +426,46 @@ namespace FPSBase.Core
                 Vector3 q = m.transform.position;
                 world = Rect.MinMaxRect(Mathf.Min(world.xMin, q.x - 20), Mathf.Min(world.yMin, q.z - 20), Mathf.Max(world.xMax, q.x + 20), Mathf.Max(world.yMax, q.z + 30));
             }
-            float size = Mathf.Max(world.width, world.height);
-            world = new Rect(world.center.x - size / 2f, world.center.y - size / 2f, size, size);
+            var mv = MapView.Instance;
+            if (mv != null && mv.Ready) world = mv.World;
+            else { float size = Mathf.Max(world.width, world.height); world = new Rect(world.center.x - size / 2f, world.center.y - size / 2f, size, size); }
+            if (mapView.width <= 0f) mapView = world;
 
-            GUILayout.Label("Click Travel to walk there instantly (on foot only). A tow truck brings an empty machine to you, or takes it anywhere (it costs money).", hudSmall);
-            Rect r = GUILayoutUtility.GetRect(500, 470, GUILayout.ExpandWidth(true));
+            GUILayout.Label("Scroll to zoom in, drag to move the map. Click Travel to walk there instantly (on foot only). A tow truck brings an empty machine to you, or takes it anywhere (it costs money).", hudSmall);
+            Rect r = GUILayoutUtility.GetRect(500, Mathf.Clamp(Screen.height - 400f, 420f, 720f), GUILayout.ExpandWidth(true));
             float px = Mathf.Min(r.width, r.height);
             r = new Rect(r.x + (r.width - px) / 2f, r.y, px, px);
-            Vector2 M(Vector3 p) => new Vector2(r.x + (p.x - world.x) / world.width * r.width, r.yMax - (p.z - world.y) / world.height * r.height);
-            void Fill(Rect wr, Color c)
+
+            // zoom (scroll, toward the mouse) and drag
+            var ev = Event.current;
+            Vector3 W(Vector2 q) => new Vector3(mapView.x + (q.x - r.x) / r.width * mapView.width, 0f, mapView.y + (r.yMax - q.y) / r.height * mapView.height);
+            if (r.Contains(ev.mousePosition) && ev.type == EventType.ScrollWheel)
             {
-                Vector2 a = M(new Vector3(wr.xMin, 0, wr.yMax)), b = M(new Vector3(wr.xMax, 0, wr.yMin));
-                GUI.color = c; GUI.DrawTexture(Rect.MinMaxRect(a.x, a.y, b.x, b.y), Texture2D.whiteTexture);
+                Vector3 at = W(ev.mousePosition);
+                float k = ev.delta.y > 0f ? 1.25f : 0.8f;
+                float ns = Mathf.Clamp(mapView.width * k, 40f, world.width * 1.25f);
+                float fx = (at.x - mapView.x) / mapView.width, fz = (at.z - mapView.y) / mapView.height;
+                mapView = new Rect(at.x - fx * ns, at.z - fz * ns, ns, ns);
+                ev.Use();
             }
-            Fill(world, new Color(0.22f, 0.36f, 0.16f));
-            if (site != null)
+            else if (r.Contains(ev.mousePosition) && ev.type == EventType.MouseDown && ev.button == 0) { mapGrab = true; mapDragged = false; mapDown = ev.mousePosition; ev.Use(); }
+            else if (mapGrab && ev.type == EventType.MouseDrag)
             {
-                Fill(site.FieldRect, new Color(0.34f, 0.42f, 0.2f));
-                var c = site.claimRect;
-                Fill(c, new Color(0.55f, 0.4f, 0.2f));
-                const float e = 1.2f;
-                var gold = new Color(1f, 0.8f, 0.3f);
-                Fill(new Rect(c.xMin, c.yMin, c.width, e * 2), gold); Fill(new Rect(c.xMin, c.yMax - e * 2, c.width, e * 2), gold);
-                Fill(new Rect(c.xMin, c.yMin, e * 2, c.height), gold); Fill(new Rect(c.xMax - e * 2, c.yMin, e * 2, c.height), gold);
+                if ((ev.mousePosition - mapDown).sqrMagnitude > 16f) mapDragged = true;
+                float ppm = r.width / mapView.width;
+                mapView.x -= ev.delta.x / ppm; mapView.y += ev.delta.y / ppm;
+                ev.Use();
             }
-            foreach (var other in FPSBase.Mining.DigSite.All)
-                if (other != null && other != site) Fill(other.FieldRect, new Color(0.30f, 0.45f, 0.20f));
-            foreach (var st in FPSBase.City.Street.All) Fill(st.Rect, new Color(0.25f, 0.25f, 0.27f));
-            foreach (var hs in FPSBase.City.House.All)
+            else if (mapGrab && ev.type == EventType.MouseUp)
             {
-                var hj = FPSBase.City.Jobs.Instance != null ? FPSBase.City.Jobs.Instance.OpenJobAt(hs) : null;
-                var hp = hs.transform.position;
-                Fill(new Rect(hp.x - 4f, hp.z - 4f, 8f, 8f), hj == null ? new Color(0.75f, 0.68f, 0.55f) : hj.state == FPSBase.City.JobState.Accepted ? new Color(1f, 0.5f, 0.1f) : new Color(1f, 0.85f, 0.3f));
+                mapGrab = false;
+                if (!mapDragged && towing != null && r.Contains(ev.mousePosition)) towDest = Ground(W(ev.mousePosition));
+                ev.Use();
             }
+
+            var shown = mapView;
+            Vector2 M(Vector3 p) => new Vector2(r.x + (p.x - shown.x) / shown.width * r.width, r.yMax - (p.z - shown.y) / shown.height * r.height);
+            if (mv != null) mv.Draw(r, shown, true, me, CamYaw());
             void Dot(Vector3 p, float s, Color c, string label)
             {
                 Vector2 q = M(p);
@@ -393,23 +474,20 @@ namespace FPSBase.Core
                 GUI.color = c; GUI.DrawTexture(new Rect(q.x - s / 2, q.y - s / 2, s, s), Texture2D.whiteTexture);
                 if (label != null) { GUI.color = Color.white; GUI.Label(new Rect(q.x + s, q.y - 10, 180, 20), label, markerStyle); }
             }
-            foreach (var v in FPSBase.Vehicles.VehicleBase.All) Dot(v.transform.position, 6, new Color(0.55f, 0.85f, 1f), ReferenceEquals(v, FPSBase.Vehicles.VehicleBase.LastDriven) ? v.displayName : null);
-            foreach (var m in MapMarker.All) Dot(m.transform.position, 10, m.color, m.label);
-            Dot(me, 12, new Color(1f, 0.25f, 0.2f), "YOU");
             GUI.color = Color.white;
+
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("Zoom in", GUILayout.Height(26), GUILayout.Width(90))) mapView = Zoomed(mapView, 0.6f, world);
+            if (GUILayout.Button("Zoom out", GUILayout.Height(26), GUILayout.Width(90))) mapView = Zoomed(mapView, 1.6f, world);
+            if (GUILayout.Button("Centre on me", GUILayout.Height(26), GUILayout.Width(120))) mapView = new Rect(me.x - mapView.width / 2f, me.z - mapView.height / 2f, mapView.width, mapView.height);
+            if (GUILayout.Button("Whole map", GUILayout.Height(26), GUILayout.Width(100))) mapView = world;
+            GUILayout.Label("  <color=#ff5a40>▲</color> you   <color=#5ab4ff>▲</color> friends   <color=#ffe050>●</color> customer waiting   <color=#ff8020>●</color> job taken   <color=#ffd060>■</color> your claim", hudSmall);
+            GUILayout.EndHorizontal();
 
             if (towing != null)
             {
                 if (towing == null || towing.Occupied) { towing = null; return; }
                 Dot(towing.transform.position, 12, new Color(1f, 0.6f, 0.1f), towing.displayName);
-                var ev = Event.current;
-                if (ev.type == EventType.MouseDown && ev.button == 0 && r.Contains(ev.mousePosition))
-                {
-                    Vector2 q = ev.mousePosition;
-                    var w = new Vector3(world.x + (q.x - r.x) / r.width * world.width, 0f, world.y + (r.yMax - q.y) / r.height * world.height);
-                    towDest = Ground(w);
-                    ev.Use();
-                }
                 if (towDest.HasValue) { Dot(towDest.Value, 12, new Color(1f, 0.9f, 0.2f), "TOW HERE"); GUI.color = Color.white; }
                 GUILayout.Space(6);
                 GUILayout.Label($"Tow {towing.displayName}", hudBig);
@@ -510,6 +588,8 @@ namespace FPSBase.Core
             P($"Stand where it's loudest and press {K(GameAction.HandDig)} to dig with the shovel until the find pops out. Nuggets go to your gold, coins and relics pay cash. Bigger finds ring deeper.");
             H("Machines");
             P($"{K(GameAction.Phone)} opens your phone: people in the town over the hill (east, follow the road from the heavy yard) text you jobs, a gravel driveway or a drainage ditch, with what they'll pay. Accept one and it's staked out and pinned on the map. Buy gravel at the landscape supply on the south side of town (back a truck under the bin), dump it on the drive, spread it with a skid steer, then Finish on the phone to get paid.");
+            P("Playing with friends, everyone gets the same customers. Accept a job Just me (all the pay is yours) or Share with crew (anyone can do it and finish it, and the pay is split between everyone).");
+            P("The minimap in the bottom right follows you: machines are little icons that look like them, and players are arrows pointing where they look. The big map zooms with the scroll wheel and drags around.");
             P($"{K(GameAction.Map)} opens the map: fast travel, see all your machines, have one towed (to you, or anywhere: you ride along) or flip it upright. Look at a machine on foot and scroll to refuel it from a tidy tank, reposition it or call a tow. In a machine, {K(GameAction.Recover)} flips it upright / unsticks it.");
             P("Machines burn diesel — refuel at the Outpost pumps. Buy bigger machines from the dealer (heavy ones are delivered to the heavy-equipment yard).");
             P("Excavator: push the bucket in too hard and the ground lifts the machine — the HUD warns you. Big dozers have rippers for hard ground and boulders.");

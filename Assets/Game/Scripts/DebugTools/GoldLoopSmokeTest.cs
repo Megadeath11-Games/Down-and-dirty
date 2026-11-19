@@ -913,6 +913,54 @@ namespace FPSBase.DebugTools
                 for (int i = 0; i < 5; i++) yield return null;
             }
 
+            // the map picture, the machine icons (Update 11)
+            {
+                var mv = MapView.Instance;
+                Check(mv != null, "the map is there");
+                if (mv != null)
+                {
+                    mv.BakeAll();
+                    var hp = houses[0].transform.position;
+                    Check(mv.Baked && mv.World.Contains(new Vector2(hp.x, hp.z)) && mv.World.Contains(new Vector2(main.FieldRect.center.x, main.FieldRect.center.y)),
+                        $"the map covers the mine and the town ({mv.World})");
+                }
+                var kinds = new System.Collections.Generic.HashSet<string>();
+                foreach (var v in FPSBase.Vehicles.VehicleBase.All) { kinds.Add(MapView.KindOf(v)); Check(MapView.IconFor(v) != null, $"{v.displayName} has a map icon ({MapView.KindOf(v)})"); }
+                log.AppendLine($"INFO  machine icons: {string.Join(", ", kinds)}");
+                Check(MapView.Arrow != null && GameUI.MinimapRect.width > 100f, "players are arrows, and the minimap sits bottom right");
+            }
+
+            // multiplayer jobs: a friend takes one just for themself (Update 11)
+            {
+                var J = FPSBase.City.Jobs.ActAccept;
+                var h3 = houses[14];
+                var fj = jobs.NewRequest(h3, FPSBase.City.JobKind.Ditch);
+                jobs.ApplyAction(fj.id, FPSBase.City.Jobs.ActAccept, false, 777UL, "Friend");
+                Check(fj.state == FPSBase.City.JobState.Accepted && fj.owner == 777UL && fj.ownerName == "Friend" && !fj.shared,
+                    "a friend can take a job just for themself (it's theirs, with their name)");
+                bool friendText = jobs.texts.Exists(t => t.house == h3.index && t.from == "Friend");
+                Check(friendText, "their answer shows in the conversation with their name");
+
+                jobs.ApplyAction(fj.id, FPSBase.City.Jobs.ActFinish, false, 555UL, "Someone else");
+                jobs.ApplyAction(fj.id, FPSBase.City.Jobs.ActCancel, false, 555UL, "Someone else");
+                Check(fj.state == FPSBase.City.JobState.Accepted, "someone else can't finish or cancel a friend's own job");
+                jobs.ApplyAction(fj.id, FPSBase.City.Jobs.ActFinish, false, 777UL, "Friend");
+                Check(fj.state == FPSBase.City.JobState.Paid, "the friend who took it can finish it");
+                // the list as the host sends it: owners and names come through, and this phone keeps its read marks
+                var gj = jobs.NewRequest(houses[15], FPSBase.City.JobKind.Driveway);
+                jobs.ApplyAction(gj.id, J, true, 888UL, "Pal");
+                var ms = new MemoryStream(); jobs.Write(new BinaryWriter(ms));
+                for (int i = 0; i < jobs.texts.Count; i++) { var t = jobs.texts[i]; t.read = true; jobs.texts[i] = t; }
+                int unread0 = jobs.Unread, nj = jobs.jobs.Count;
+                ms.Position = 0; jobs.Read(new BinaryReader(ms), true);
+                var back2 = jobs.ById(gj.id);
+                Check(back2 != null && back2.owner == 888UL && back2.ownerName == "Pal" && jobs.jobs.Count == nj && jobs.Unread == unread0,
+                    $"the host's job list reads back on a friend's phone (owner {back2?.ownerName}, {jobs.Unread} unread)");
+                Check(GameObject.Find($"Job stakes: {houses[15].Address}") != null, "a friend's phone stakes out the jobs too");
+                jobs.ApplyAction(gj.id, FPSBase.City.Jobs.ActCancel, false, 888UL, "Pal"); yield return null;
+                Check(GameObject.Find($"Job stakes: {houses[15].Address}") == null, "and pulls the stakes when it's cancelled");
+            }
+
             // saved and loaded: the jobs and the town's ground
             var h2 = houses[9];
             var sj = jobs.NewRequest(h2, FPSBase.City.JobKind.Ditch);

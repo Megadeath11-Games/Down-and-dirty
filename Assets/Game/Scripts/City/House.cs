@@ -46,7 +46,7 @@ namespace FPSBase.City
             get
             {
                 var j = Jobs.Instance != null ? Jobs.Instance.OpenJobAt(this) : null;
-                string what = j == null ? "" : j.state == JobState.Offered ? $"  —  wants: {j.Title} (${j.pay:N0}, answer on your phone)" : $"  —  your job: {j.Title}";
+                string what = j == null ? "" : j.state == JobState.Offered ? $"  —  wants: {j.Title} (${j.pay:N0}, answer on your phone)" : $"  —  {(Jobs.WhoHas(j) == "you" ? "your" : Jobs.WhoHas(j) == "the crew" ? "the crew's" : Jobs.WhoHas(j) + "'s")} job: {j.Title}";
                 return $"{Address}  ({Owner}){what}";
             }
         }

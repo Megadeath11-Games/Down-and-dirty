@@ -123,7 +123,7 @@ namespace FPSBase.Net
         void OnSceneReloaded(UnityEngine.SceneManagement.Scene s, UnityEngine.SceneManagement.LoadSceneMode m)
         {
             // a fresh copy of the world: forget the old one's machines and players
-            owner.Clear(); spawnedListing.Clear(); vTarget.Clear();
+            owner.Clear(); spawnedListing.Clear(); vTarget.Clear(); vMotion.Clear();
             foreach (var a in avatars.Values) if (a.root != null) Destroy(a.root);
             avatars.Clear();
             localPlayer = null;
@@ -288,7 +288,8 @@ namespace FPSBase.Net
         // ------------------------------------------------------------------ messages
 
         const byte MsgHello = 1, MsgPlayer = 2, MsgVehicles = 3, MsgClaim = 4, MsgSpawn = 5, MsgTerrain = 6, MsgLoad = 7, MsgBye = 8,
-            MsgPlant = 9, MsgPlantLoad = 10, MsgPlantAction = 11, MsgPlantGold = 12, MsgTrailers = 13;
+            MsgPlant = 9, MsgPlantLoad = 10, MsgPlantAction = 11, MsgPlantGold = 12, MsgTrailers = 13,
+            MsgJobs = 14, MsgJobAction = 15, MsgJobPay = 16;
         const int ChReliable = 0, ChFast = 1;
 
         static BinaryWriter Begin(byte type)
@@ -409,6 +410,21 @@ namespace FPSBase.Net
                     break;
                 }
                 case MsgTrailers: ReadTrailers(from, r); break;
+                case MsgJobs: if (!IsHost && FPSBase.City.Jobs.Instance != null) FPSBase.City.Jobs.Instance.Read(r, true); break;
+                case MsgJobAction:
+                {
+                    int id = r.ReadInt32(), a = r.ReadInt32(); bool shared = r.ReadBoolean();
+                    if (IsHost && FPSBase.City.Jobs.Instance != null)
+                        FPSBase.City.Jobs.Instance.ApplyAction(id, a, shared, from.m_SteamID, SteamFriends.GetFriendPersonaName(from));
+                    break;
+                }
+                case MsgJobPay:
+                {
+                    float amt = r.ReadSingle(); string why = r.ReadString();
+                    Economy.Instance?.Earn(amt);
+                    GameUI.Toast($"You got ${amt:N0} for {why}");
+                    break;
+                }
                 case MsgBye: break;
             }
         }
@@ -444,6 +460,23 @@ namespace FPSBase.Net
         readonly Dictionary<int, CSteamID> owner = new();
         readonly Dictionary<VehicleBase, int> spawnedListing = new();
         readonly Dictionary<int, (Vector3 p, Quaternion q)> vTarget = new();
+        // how fast each friend's machine is going (from its last two updates), to keep it moving between updates
+        readonly Dictionary<int, (float t, Vector3 vel)> vMotion = new();
+
+        void SetTarget(int id, Vector3 p, Quaternion q, bool track)
+        {
+            float now = Time.unscaledTime;
+            Vector3 vel = Vector3.zero;
+            if (track && vTarget.TryGetValue(id, out var old) && vMotion.TryGetValue(id, out var m))
+            {
+                float dt = now - m.t;
+                if (dt > 0.02f && dt < 0.6f) vel = Vector3.Lerp(m.vel, (p - old.p) / dt, 0.6f);
+                else if (dt <= 0.02f) vel = m.vel;
+                if (vel.sqrMagnitude > 60f * 60f) vel = Vector3.zero; // a jump, not driving
+            }
+            vTarget[id] = (p, q);
+            vMotion[id] = (now, vel);
+        }
 
         /// <summary>The machines in the scene get the same ids on every player's game (sorted by name and where they start).</summary>
         public static void AssignSceneIds()
@@ -634,7 +667,7 @@ namespace FPSBase.Net
             if (own == me) return; // it was ours (we bought it, left and came back)
             owner[id] = own;
             v.SetNetRemote(true);
-            vTarget[id] = (p, q);
+            SetTarget(id, p, q, false);
             GameUI.Toast($"{SteamFriends.GetFriendPersonaName(from)} bought a {name}");
         }
 
@@ -664,7 +697,7 @@ namespace FPSBase.Net
             v.NetRemoteDriven = driving;
             v.NetDriverName = SteamFriends.GetFriendPersonaName(from);
             v.NetRead(r);
-            vTarget[id] = (p, q);
+            SetTarget(id, p, q, false);
         }
 
         void SendVehicles(bool slowTick)
@@ -680,7 +713,7 @@ namespace FPSBase.Net
                 bool moving = v.Occupied || v.RidingTrailer || (rb != null && !rb.isKinematic && rb.linearVelocity.sqrMagnitude > 0.01f);
                 if (!moving && !slowTick) continue;
                 w.Write(v.NetId);
-                w.Write(v.Occupied);
+                w.Write((byte)((v.Occupied ? 1 : 0) | (v.RidingTrailer ? 2 : 0)));
                 WriteV3(w, v.transform.position); WriteQ(w, v.transform.rotation);
                 w.Write(rb != null && !rb.isKinematic ? Vector3.Dot(rb.linearVelocity, v.transform.forward) : 0f);
                 var ms = new MemoryStream(); var bw = new BinaryWriter(ms);
@@ -699,7 +732,7 @@ namespace FPSBase.Net
             int n = r.ReadInt32();
             for (int i = 0; i < n; i++)
             {
-                int id = r.ReadInt32(); bool driven = r.ReadBoolean();
+                int id = r.ReadInt32(); byte flags = r.ReadByte(); bool driven = (flags & 1) != 0;
                 Vector3 p = ReadV3(r); Quaternion q = ReadQ(r); float spd = r.ReadSingle();
                 int len = r.ReadUInt16();
                 byte[] blob = r.ReadBytes(len);
@@ -707,9 +740,10 @@ namespace FPSBase.Net
                 // only the machine's owner says where it is (a late packet from a previous owner is ignored)
                 if (v == null || !v.NetRemote || !owner.TryGetValue(id, out var o) || o != from) continue;
                 v.NetRemoteDriven = driven;
+                v.RidingTrailer = (flags & 2) != 0; // chained on their trailer: wheels and tracks hold still
                 v.NetSpeed = spd;
                 v.NetRead(new BinaryReader(new MemoryStream(blob)));
-                vTarget[id] = (p, q);
+                SetTarget(id, p, q, true);
             }
         }
 
@@ -738,6 +772,18 @@ namespace FPSBase.Net
         }
         readonly Dictionary<ulong, Avatar> avatars = new();
         PlayerInteractor localPlayer;
+
+        /// <summary>The other players: name, where they are (their machine when driving) and which way they face.</summary>
+        public IEnumerable<(string name, Vector3 pos, float yaw)> OtherPlayers()
+        {
+            foreach (var a in avatars.Values)
+            {
+                if (a.root == null) continue;
+                Vector3 pos = a.shown; float yaw = a.shownYaw;
+                if (a.vehicle != 0) foreach (var v in VehicleBase.All) if (v != null && v.NetId == a.vehicle) { pos = v.transform.position; yaw = v.transform.eulerAngles.y; break; }
+                yield return (a.name, pos, yaw);
+            }
+        }
 
         void SendPlayer()
         {
@@ -791,6 +837,8 @@ namespace FPSBase.Net
                 var v = Find(kv.Key);
                 if (v == null || !v.NetRemote) continue;
                 var (p, q) = kv.Value;
+                // carry on at its speed for a moment past the last update, so it doesn't stop and start between them
+                if (vMotion.TryGetValue(kv.Key, out var mo)) p += mo.vel * Mathf.Min(Time.unscaledTime - mo.t, 0.25f);
                 if ((v.transform.position - p).sqrMagnitude > 100f) v.transform.SetPositionAndRotation(p, q);
                 else v.transform.SetPositionAndRotation(Vector3.Lerp(v.transform.position, p, k), Quaternion.Slerp(v.transform.rotation, q, k));
             }
@@ -892,12 +940,51 @@ namespace FPSBase.Net
             }
         }
 
+        // ------------------------------------------------------------------ the town's jobs (the host keeps the list)
+
+        public ulong MyId => me.m_SteamID;
+        public string MyName => SteamFriends.GetPersonaName();
+        /// <summary>How many players are in the game (you included).</summary>
+        public int CrewSize => InSession ? SteamMatchmaking.GetNumLobbyMembers(lobby) : 1;
+
+        /// <summary>Host: everyone's phone gets the job list.</summary>
+        public void SendJobs(CSteamID? to = null)
+        {
+            if (!IsHost || FPSBase.City.Jobs.Instance == null) return;
+            var w = Begin(MsgJobs);
+            FPSBase.City.Jobs.Instance.Write(w);
+            if (to != null) Send(to.Value, w, true); else Send(w, true, null);
+        }
+
+        /// <summary>A friend's answer to a customer: the host does it.</summary>
+        public void SendJobAction(int id, int action, bool shared)
+        {
+            var w = Begin(MsgJobAction); w.Write(id); w.Write(action); w.Write(shared);
+            Send(SteamMatchmaking.GetLobbyOwner(lobby), w, true);
+        }
+
+        /// <summary>Host: pay one player for a job (yourself, or a friend over the network).</summary>
+        public void PayPlayer(ulong id, float amount, string why)
+        {
+            if (id == MyId || id == 0) { Economy.Instance?.Earn(amount); GameUI.Toast($"You got ${amount:N0} for {why}"); return; }
+            var w = Begin(MsgJobPay); w.Write(amount); w.Write(why ?? "");
+            Send(new CSteamID(id), w, true);
+        }
+
+        /// <summary>Host: everyone in the game gets an equal share.</summary>
+        public void PayCrew(float each, string why)
+        {
+            int n = SteamMatchmaking.GetNumLobbyMembers(lobby);
+            for (int i = 0; i < n; i++) PayPlayer(SteamMatchmaking.GetLobbyMemberByIndex(lobby, i).m_SteamID, each, why + " (crew share)");
+            if (n == 0) PayPlayer(MyId, each, why);
+        }
+
         /// <summary>A player joined: send them the worked ground, the machines bought so far and where everything is.</summary>
         void SendWorldTo(CSteamID to)
         {
             var sites = DigSite.Ordered();
             for (int k = 0; k < sites.Count; k++) SendCells(k, sites[k].TakeChangedCells(true), to);
-            if (IsHost) SendPlants(to);
+            if (IsHost) { SendPlants(to); SendJobs(to); }
             foreach (var kv in spawnedListing) if (kv.Key != null) SendSpawn(kv.Key, kv.Value, to);
             foreach (var kv in spawnedTrailers) if (kv.Key != null) SendSpawnTrailer(kv.Key, kv.Value, to);
             // the machines this game runs: their owner (us), where they are and what's in them

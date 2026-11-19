@@ -13,6 +13,8 @@ namespace FPSBase.EditorTools
     public static class BuildScript
     {
         public const string OutPath = "Build/Windows/FPS-BaseBuilder.exe";
+        /// <summary>BUILD_OUT overrides where it goes (a preview build while the game is running).</summary>
+        static string Out => string.IsNullOrEmpty(System.Environment.GetEnvironmentVariable("BUILD_OUT")) ? OutPath : System.Environment.GetEnvironmentVariable("BUILD_OUT");
 
         [MenuItem("Tools/FPS Base/Build Windows EXE")]
         public static void BuildWindows()
@@ -30,7 +32,7 @@ namespace FPSBase.EditorTools
             var report = BuildPipeline.BuildPlayer(new BuildPlayerOptions
             {
                 scenes = scenes,
-                locationPathName = OutPath,
+                locationPathName = Out,
                 target = BuildTarget.StandaloneWindows64,
                 options = BuildOptions.None,
             });
@@ -38,7 +40,7 @@ namespace FPSBase.EditorTools
             var s = report.summary;
             // Steam multiplayer runs as Steam's test app 480 ("Spacewar"): the exe finds its app id here
             if (s.result == BuildResult.Succeeded)
-                System.IO.File.WriteAllText(System.IO.Path.Combine(System.IO.Path.GetDirectoryName(OutPath), "steam_appid.txt"), "480");
+                System.IO.File.WriteAllText(System.IO.Path.Combine(System.IO.Path.GetDirectoryName(Out), "steam_appid.txt"), "480");
             Debug.Log($"[BuildScript] {s.result}: {s.outputPath}  size {s.totalSize / (1024f * 1024f):0} MB  errors {s.totalErrors}  time {s.totalTime}");
             if (Application.isBatchMode && s.result != BuildResult.Succeeded) EditorApplication.Exit(1);
         }

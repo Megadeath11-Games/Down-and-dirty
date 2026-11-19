@@ -159,7 +159,16 @@ namespace FPSBase.Vehicles
             }
         }
 
-        public void NetTarget(Vector3 p, Quaternion q) { netPos = p; netRot = q; netHas = true; }
+        public void NetTarget(Vector3 p, Quaternion q)
+        {
+            // how fast it's going (from the last two updates), to keep it moving between updates
+            float now = Time.unscaledTime, dt = now - netTime;
+            if (netHas && dt > 0.02f && dt < 0.6f) { var v = (p - netPos) / dt; netVel = v.sqrMagnitude < 3600f ? Vector3.Lerp(netVel, v, 0.6f) : Vector3.zero; }
+            else if (!netHas || dt >= 0.6f) netVel = Vector3.zero;
+            netPos = p; netRot = q; netHas = true; netTime = now;
+        }
+        Vector3 netVel; float netTime;
+        Vector3 NetAim => netPos + netVel * Mathf.Min(Time.unscaledTime - netTime, 0.25f);
 
         /// <summary>What it's hitched to and what it's doing (position and rotation go separately).</summary>
         public void NetWriteState(System.IO.BinaryWriter w)
@@ -722,8 +731,9 @@ namespace FPSBase.Vehicles
             if (NetRemote && netHas && !busy)
             {
                 float k = 1f - Mathf.Exp(-12f * Time.deltaTime);
-                if ((transform.position - netPos).sqrMagnitude > 100f) transform.SetPositionAndRotation(netPos, netRot);
-                else transform.SetPositionAndRotation(Vector3.Lerp(transform.position, netPos, k), Quaternion.Slerp(transform.rotation, netRot, k));
+                Vector3 aim = NetAim;
+                if ((transform.position - aim).sqrMagnitude > 100f) transform.SetPositionAndRotation(aim, netRot);
+                else transform.SetPositionAndRotation(Vector3.Lerp(transform.position, aim, k), Quaternion.Slerp(transform.rotation, netRot, k));
                 // towed: keep the coupler on the hitch of our copy of their truck (both copies are smoothed on their own)
                 if (Hitched != null && NeckOn && couplerPoint != null && (Hitched.transform.position - couplerPoint.position).sqrMagnitude < 9f)
                     transform.position += Hitched.transform.position - couplerPoint.position;

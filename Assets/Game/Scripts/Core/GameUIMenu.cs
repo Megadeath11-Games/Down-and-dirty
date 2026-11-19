@@ -57,7 +57,7 @@ namespace FPSBase.Core
             screen = MenuScreen.Blog; yield return Shot("menu_blog.png");
             screen = MenuScreen.Single; RefreshSaves(SaveGame.Mode.SinglePlayer); yield return Shot("menu_single.png");
             screen = MenuScreen.Multi; RefreshSaves(SaveGame.Mode.Multiplayer); yield return Shot("menu_multi.png");
-            CloseMenu(); yield return Shot("game_hud.png");
+            CloseMenu(); MapView.Instance?.BakeAll(); yield return Shot("game_hud.png");
             paused = true; yield return Shot("game_paused.png");
             paused = false;
             var dealer = FindFirstObjectByType<FPSBase.Mining.VehicleDealer>();
@@ -88,8 +88,15 @@ namespace FPSBase.Core
                 for (int i = 0; i < 5; i++) yield return null;
                 yield return Shot("phone.png");
                 ClosePanel();
+                MapView.Instance?.BakeAll();
+                yield return Shot("town_hud.png");
                 OpenMap();
                 yield return Shot("map.png");
+                mapView = new Rect(h.transform.position.x - 70f, h.transform.position.z - 70f, 140f, 140f);
+                yield return Shot("map_town.png");
+                var yard = FPSBase.Vehicles.VehicleBase.All.Count > 0 ? FPSBase.Vehicles.VehicleBase.All[0].transform.position : Vector3.zero;
+                mapView = new Rect(yard.x - 50f, yard.z - 50f, 100f, 100f);
+                yield return Shot("map_machines.png");
                 ClosePanel();
                 var bin = FindFirstObjectByType<FPSBase.City.GravelBin>();
                 if (bin != null)

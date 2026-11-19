@@ -30,6 +30,218 @@ namespace FPSBase.Mining
             public Transform ignore;
             public byte cat;
             public bool visual, clod;
+            public bool pushed;   // cut by a blade: part of the heap rolling in front of it
+            public float shoved;  // seconds since a blade last shoved it
+            public bool onClod;   // sitting on other clods (last step)
+        }
+
+        // ------------------------------------------------------------------ blades pushing clods
+
+        /// <summary>A blade face this frame: clods behind it are shoved along in front of it.</summary>
+        struct Pusher { public Vector3 edge, fwd, right, vel; public float halfW, fullW, height, life, t; }
+        readonly List<Pusher> pushers = new();
+        readonly List<Pusher> recent = new(); // blades that stopped a moment ago (clods left on the machine still go off its front)
+
+        /// <summary>
+        /// A blade (dozer, grader, loader, excavator dozer blade) is working here: its face runs `width` across at
+        /// `edge` (its cutting edge), facing `forward`, `height` tall. Called every step it works; its speed is
+        /// worked out from where it was last time. Clods behind the face get shoved along at the blade's speed.
+        /// </summary>
+        public static void Blade(Vector3 edge, Vector3 forward, float width, float height, float fullWidth = 0f)
+        {
+            var me = Instance;
+            forward.y = 0f; if (forward.sqrMagnitude < 1e-6f) return; forward.Normalize();
+            float now = (Time.inFixedTimeStep ? Time.fixedTime : Time.time) + testClock;
+            int best = -1; float bd = 0.5f;
+            for (int k = 0; k < me.pushers.Count; k++)
+            {
+                if (me.pushers[k].t >= now) continue; // (already moved on this step: another part of the same blade)
+                float d = Vector3.Distance(me.pushers[k].edge, edge);
+                if (d < bd && Vector3.Dot(me.pushers[k].fwd, forward) > 0.7f) { bd = d; best = k; }
+            }
+            var p = new Pusher { edge = edge, fwd = forward, right = new Vector3(forward.z, 0f, -forward.x), halfW = width * 0.5f, fullW = fullWidth > 0f ? fullWidth : width, height = height, life = 0.15f, t = now };
+            if (best >= 0)
+            {
+                var o = me.pushers[best];
+                float dt = now - o.t;
+                p.vel = dt > 1e-4f ? Vector3.Lerp(o.vel, (edge - o.edge) / dt, 0.5f) : o.vel;
+                me.pushers[best] = p;
+            }
+            else me.pushers.Add(p);
+        }
+
+        /// <summary>
+        /// Dirt a blade just cut (`load`, from a column of ground `cellSize` across centred at `at`, between
+        /// `bottom` and `top`): it becomes clods in place that the blade then pushes. False if there's no room for
+        /// more clods (the caller drops it the old way).
+        /// </summary>
+        public static bool Cut(Vector3 at, float cellSize, float bottom, float top, MaterialLoad load, Transform ignore, bool visual = false, float minClod = 0.006f)
+        {
+            if (load.IsEmpty) return true;
+            var me = Instance;
+            Traits(load, out float gv, out float mu, out float bounce, out _, out _, out bool clod);
+            gv = Mathf.Max(gv, minClod); // (a big blade's clods are bigger: fewer of them for the same heap)
+            int n = Mathf.Clamp(Mathf.CeilToInt(load.volume / gv), 1, 24);
+            if (me.count + n > MaxGrains - 300) return false;
+            var each = load.Scaled(1f / n);
+            float r = RadiusOf(each.volume);
+            for (int i = 0; i < n; i++)
+            {
+                me.g[me.count++] = new Grain
+                {
+                    p = new Vector3(at.x + Random.Range(-0.5f, 0.5f) * cellSize, Mathf.Lerp(bottom + r, Mathf.Max(bottom + r, top), Random.value), at.z + Random.Range(-0.5f, 0.5f) * cellSize),
+                    v = Vector3.zero,
+                    rot = Random.rotation, spinAxis = Random.onUnitSphere, spin = 0f,
+                    r = r * Random.Range(0.85f, 1.15f), mu = mu, bounce = bounce * 0.5f, settleTime = 0.45f,
+                    load = visual ? default : each, ignore = ignore, cat = PickCategory(load), clod = false, visual = visual, pushed = true,
+                };
+            }
+            return true;
+        }
+
+        /// <summary>The spot just in front of the nearest blade face (for a clod that landed on the machine behind it).</summary>
+        bool FrontOfBlade(Vector3 p, out Vector3 front)
+        {
+            front = p; float best = 36f; bool found = false;
+            for (int k = 0; k < pushers.Count + recent.Count; k++)
+            {
+                var b = k < pushers.Count ? pushers[k] : recent[k - pushers.Count];
+                Vector3 d = p - b.edge; d.y = 0f;
+                if (d.sqrMagnitude > best) continue;
+                best = d.sqrMagnitude; found = true;
+                float lat = Mathf.Clamp(Vector3.Dot(d, b.right), -b.halfW, b.halfW);
+                front = b.edge + b.right * lat + b.fwd * Random.Range(0.3f, 0.9f) + Vector3.up * (b.height * 0.6f);
+            }
+            return found;
+        }
+
+        /// <summary>Is a blade working within `radius` of `p` (this step)?</summary>
+        public static bool NearBlade(Vector3 p, float radius)
+        {
+            if (inst == null) return false;
+            foreach (var b in inst.pushers) { Vector3 d = p - b.edge; d.y = 0f; if (d.sqrMagnitude < (radius + b.halfW) * (radius + b.halfW)) return true; }
+            return false;
+        }
+
+        /// <summary>The clod size the nearest working blade makes (as on its driver's game).</summary>
+        public static float NearBladeClod(Vector3 p)
+        {
+            float best = float.MaxValue, w = 2.5f;
+            if (inst != null) foreach (var b in inst.pushers) { float d = (p - b.edge).sqrMagnitude; if (d < best) { best = d; w = b.fullW; } }
+            return Mathf.Clamp(w * 0.004f, 0.006f, 0.022f);
+        }
+
+        /// <summary>m^3 (and gold) of real clods within `radius` of `center` across the ground (a heap in front of a blade).</summary>
+        public static float VolumeNear(Vector3 center, float radius, out float gold)
+        {
+            gold = 0f;
+            if (inst == null) return 0f;
+            float v = 0f, r2 = radius * radius;
+            for (int i = 0; i < inst.count; i++)
+            {
+                ref Grain q = ref inst.g[i];
+                if (q.visual) continue;
+                float dx = q.p.x - center.x, dz = q.p.z - center.z;
+                if (dx * dx + dz * dz > r2 || Mathf.Abs(q.p.y - center.y) > 3f) continue;
+                v += q.load.volume; gold += q.load.goldGrams;
+            }
+            return v;
+        }
+
+        /// <summary>Shove every clod that's behind a blade face out in front of it, at the blade's speed.</summary>
+        void ApplyPushers(float dt)
+        {
+            for (int k = recent.Count - 1; k >= 0; k--) { var o = recent[k]; o.life -= dt; if (o.life <= 0f) recent.RemoveAt(k); else recent[k] = o; }
+            for (int k = pushers.Count - 1; k >= 0; k--)
+            {
+                var b = pushers[k];
+                b.life -= dt;
+                if (b.life <= 0f) { b.life = 4f; recent.Add(b); pushers.RemoveAt(k); continue; }
+                pushers[k] = b;
+                float speed = Vector3.Dot(b.vel, b.fwd);
+                for (int i = 0; i < count; i++)
+                {
+                    ref Grain q = ref g[i];
+                    Vector3 rel = q.p - b.edge;
+                    float up = rel.y;
+                    if (up < -0.3f || up > b.height + 1.6f) continue; // (higher than the blade: still kept off the machine)
+                    float lat = Vector3.Dot(rel, b.right);
+                    if (Mathf.Abs(lat) > b.halfW + q.r * 0.5f) continue;
+                    float lon = Vector3.Dot(rel, b.fwd);
+                    if (lon > q.r || lon < -0.9f) continue;
+                    // behind (or in) the face: out in front of it, moving with it
+                    q.p += b.fwd * (q.r - lon);
+                    float vf = Vector3.Dot(q.v, b.fwd);
+                    float want = Mathf.Max(0f, speed) * Random.Range(1.0f, 1.12f);
+                    if (vf < want) q.v += b.fwd * (want - vf);
+                    // the heap rolls: low clods ride up the face, some tumble off the ends
+                    if (up < b.height * 0.8f) q.v += Vector3.up * (Mathf.Max(0f, speed) * 0.25f * Random.value);
+                    q.v += b.right * (Random.Range(-0.5f, 0.5f) * Mathf.Max(0f, speed));
+                    // the heap is taller than the blade: the top rolls forward and down its front
+                    if (up > b.height * 0.85f) q.v += b.fwd * Mathf.Max(0.6f, speed) * 0.6f;
+                    q.rest = 0f; q.shoved = 0f; q.pushed = true; q.age = Mathf.Min(q.age, 1f);
+                }
+            }
+        }
+
+        // ------------------------------------------------------------------ clods resting on clods
+
+        const float HashCell = 0.32f;
+        readonly Dictionary<long, int> heads = new();
+        readonly int[] nextInCell = new int[MaxGrains];
+
+        static long HashKey(int x, int y, int z) => ((long)(x & 0x1FFFFF) << 42) | ((long)(y & 0x1FFFFF) << 21) | (long)(z & 0x1FFFFF);
+
+        /// <summary>
+        /// Clods in a heap push each other apart, so they pile up (instead of all sharing one spot on the ground) and
+        /// roll off each other at the sides. A clod sitting on others counts as resting, so a heap left alone settles.
+        /// </summary>
+        void CollideClods()
+        {
+            heads.Clear();
+            int live = 0;
+            for (int i = 0; i < count; i++)
+            {
+                ref Grain q = ref g[i];
+                q.onClod = false;
+                if (!q.pushed && q.age < 0.25f) { nextInCell[i] = -2; continue; } // still falling out of a bucket
+                var key = HashKey(Mathf.FloorToInt(q.p.x / HashCell), Mathf.FloorToInt(q.p.y / HashCell), Mathf.FloorToInt(q.p.z / HashCell));
+                nextInCell[i] = heads.TryGetValue(key, out int h) ? h : -1;
+                heads[key] = i;
+                live++;
+            }
+            if (live < 2) return;
+            for (int i = 0; i < count; i++)
+            {
+                if (nextInCell[i] == -2) continue;
+                ref Grain a = ref g[i];
+                int cx = Mathf.FloorToInt(a.p.x / HashCell), cy = Mathf.FloorToInt(a.p.y / HashCell), cz = Mathf.FloorToInt(a.p.z / HashCell);
+                for (int dz = -1; dz <= 1; dz++)
+                    for (int dy = -1; dy <= 1; dy++)
+                        for (int dx = -1; dx <= 1; dx++)
+                        {
+                            if (!heads.TryGetValue(HashKey(cx + dx, cy + dy, cz + dz), out int j)) continue;
+                            for (; j >= 0; j = nextInCell[j])
+                            {
+                                if (j <= i) continue;
+                                ref Grain b = ref g[j];
+                                Vector3 d = a.p - b.p;
+                                float rr = (a.r + b.r) * 0.82f; // (lumpy: they nest into each other a little)
+                                float d2 = d.sqrMagnitude;
+                                if (d2 >= rr * rr || d2 < 1e-10f) continue;
+                                float dist = Mathf.Sqrt(d2);
+                                Vector3 n = d / dist;
+                                float push = (rr - dist) * 0.5f;
+                                a.p += n * push; b.p -= n * push;
+                                Vector3 vr = a.v - b.v;
+                                float vn = Vector3.Dot(vr, n);
+                                if (vn < 0f) { a.v -= n * (vn * 0.5f); b.v += n * (vn * 0.5f); }
+                                Vector3 vt = vr - n * Vector3.Dot(vr, n);
+                                a.v -= vt * 0.12f; b.v += vt * 0.12f; // rough: they drag each other along
+                                if (n.y > 0.45f) a.onClod = true; else if (n.y < -0.45f) b.onClod = true;
+                            }
+                        }
+            }
         }
 
         static DirtGrains inst;
@@ -40,6 +252,10 @@ namespace FPSBase.Mining
         readonly Collider[] overlaps = new Collider[12];
 
         public static int Live => inst == null ? 0 : inst.count;
+        /// <summary>Clods from a friend's blade, shown on this screen (their game has the real ones).</summary>
+        public static int LivePushedVisual { get { if (inst == null) return 0; int n = 0; for (int i = 0; i < inst.count; i++) if (inst.g[i].visual && inst.g[i].pushed) n++; return n; } }
+        /// <summary>Real clods a blade is pushing on this game.</summary>
+        public static int LivePushed { get { if (inst == null) return 0; int n = 0; for (int i = 0; i < inst.count; i++) if (!inst.g[i].visual && inst.g[i].pushed) n++; return n; } }
         /// <summary>m^3 of dirt currently in the air (not yet landed anywhere).</summary>
         public static float InFlight
         {
@@ -165,6 +381,17 @@ namespace FPSBase.Mining
             Draw();
         }
 
+        static float testClock;
+
+        /// <summary>Tests: run the clods `dt` on (and move the clock the blades are timed by), without waiting for a frame.</summary>
+        public static void Tick(float dt)
+        {
+            testClock += dt;
+            if (inst == null) return;
+            Physics.SyncTransforms();
+            inst.Step(dt);
+        }
+
         /// <summary>Run the simulation until everything has landed (used by tests and SettleNow).</summary>
         public static void FastForward(float maxSeconds = 30f)
         {
@@ -181,6 +408,8 @@ namespace FPSBase.Mining
                 ref Grain q = ref g[i];
                 var site = DigSite.At(q.p);
                 q.age += dt;
+                q.shoved += dt;
+                bool held = q.pushed && q.shoved < 0.3f; // being pushed along by a blade: don't settle it yet
                 q.v += grav;
                 q.v *= 1f - 0.05f * dt; // air drag
                 Vector3 np = q.p + q.v * dt;
@@ -212,7 +441,11 @@ namespace FPSBase.Mining
                             if (q.v.sqrMagnitude < 0.25f) q.bodyRest += dt; else q.bodyRest = 0f;
                             bool staticGround = h.rigidbody == null && n.y > 0.75f && (site == null || !site.Contains(h.point));
                             if (staticGround && q.bodyRest > 0.15f) { DigSite.DropAt(h.point, q.load); gone = true; }
-                            else if (q.bodyRest > 1.2f) { DropBelow(np, ref q); gone = true; }
+                            else if (q.bodyRest > (q.pushed ? 0.3f : 1.2f))
+                            {
+                                if (q.pushed && h.rigidbody != null && FrontOfBlade(np, out Vector3 front)) { q.p = front; q.v = Vector3.zero; q.bodyRest = 0f; np = front; }
+                                else { DropBelow(np, ref q); gone = true; }
+                            }
                         }
                     }
                 }
@@ -238,7 +471,7 @@ namespace FPSBase.Mining
                             Friction(ref q, n, dt);
                             onSomething = true;
                             if (q.v.sqrMagnitude < 0.04f) q.rest += dt; else q.rest = 0f;
-                            if (q.rest > q.settleTime || q.age > 10f)
+                            if (!held && (q.rest > q.settleTime || q.age > 10f))
                             {
                                 if (!q.visual) Land(site, ref q);
                                 gone = true;
@@ -246,8 +479,14 @@ namespace FPSBase.Mining
                         }
                     }
                     else if (q.p.y < -60f) gone = true;
-                    else if (q.visual && q.age > 3f) gone = true;
-                    if (!gone && q.age > 14f) { if (!q.visual) DropBelow(q.p, ref q); gone = true; }
+                    else if (q.visual && q.age > 3f && !held) gone = true;
+                    // resting on other clods in a heap: it joins the ground where it sits (the heap settles)
+                    if (!gone && q.onClod && !held && q.pushed && site != null && site.Contains(q.p))
+                    {
+                        if (q.v.sqrMagnitude < 0.06f) q.rest += dt; else q.rest = 0f;
+                        if (q.rest > q.settleTime + 0.25f) { if (!q.visual) Land(site, ref q); gone = true; }
+                    }
+                    if (!gone && q.age > 14f && !held) { if (!q.visual) DropBelow(q.p, ref q); gone = true; }
                 }
 
                 if (gone)
@@ -261,6 +500,8 @@ namespace FPSBase.Mining
                 if (onSomething && q.v.sqrMagnitude > 1e-4f) q.spinAxis = Vector3.Cross(Vector3.up, q.v).normalized;
                 q.rot = Quaternion.AngleAxis(sp * dt, q.spinAxis) * q.rot;
             }
+            if (pushers.Count > 0 || recent.Count > 0) ApplyPushers(dt);
+            CollideClods();
         }
 
         /// <summary>Coulomb-style friction: gravity along a slope steeper than atan(mu) keeps it sliding, gentler slopes stop it.</summary>

@@ -404,7 +404,8 @@ namespace FPSBase.DebugTools
                 d.SetBlade(-0.15f);
                 Vector3 fw = d.transform.forward, rt = d.transform.right;
                 float before = site.TotalLoose();
-                for (int i = 0; i < 300; i++) { Vector3 np = d.transform.position + fw * 0.02f; np.y = site.SurfaceY(np); d.transform.position = np; d.Work(1f, 0.02f); }
+                for (int i = 0; i < 300; i++) { Vector3 np = d.transform.position + fw * 0.02f; np.y = site.SurfaceY(np); d.transform.position = np; d.Work(1f, 0.02f); DirtGrains.Tick(0.02f); }
+                DirtGrains.FastForward(); site.SettleNow();
                 // where the pushed dirt went, sideways from the line the machine drove along
                 float sum = 0f, moment = 0f;
                 for (float a = 0f; a <= 12f; a += 0.5f)

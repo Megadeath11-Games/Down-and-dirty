@@ -91,6 +91,47 @@ namespace FPSBase.Core
                 dealer.DevShow(6, 30);
                 yield return Shot("shop_dealer_transport.png");
                 ClosePanel();
+                // a dozer pushing dirt: the cut rolls in front of the blade as clods
+                int medL = System.Array.FindIndex(dealer.listings, l => l.name.Contains("Medium Dozer"));
+                if (medL >= 0 && player != null)
+                {
+                    dealer.DevDeliver(medL);
+                    FPSBase.Vehicles.Bulldozer dz = null;
+                    foreach (var v in FPSBase.Vehicles.VehicleBase.All) if (v is FPSBase.Vehicles.Bulldozer b && b.name.Contains("Medium Dozer")) dz = b;
+                    if (dz != null)
+                    {
+                        var site = FPSBase.Mining.DigSite.Instance;
+                        Vector3 st = new Vector3(60f, 0f, -80f); st.y = site.SurfaceY(st) + 0.6f;
+                        var rb = dz.GetComponent<Rigidbody>();
+                        rb.isKinematic = true; dz.transform.SetPositionAndRotation(st, Quaternion.identity); rb.position = st; rb.rotation = Quaternion.identity; rb.isKinematic = false;
+                        Physics.SyncTransforms();
+                        for (int i = 0; i < 60; i++) yield return null;
+                        dz.Interact(player);
+                        for (int i = 0; i < 10; i++) yield return null;
+                        dz.SetBlade(-0.18f);
+                        Controls.TestHeld[GameAction.DriveForward] = 0.7f;
+                        float ground0 = site.OriginalY(st);
+                        for (int s = 0; s < 6; s++)
+                        {
+                            float u = Time.unscaledTime + 1f; while (Time.unscaledTime < u) yield return null;
+                            Debug.Log($"[Clods] {s + 1} s: pitch {dz.transform.eulerAngles.x:0.0}°, blade edge {dz.bladeEdge.position.y - site.OriginalY(dz.bladeEdge.position):+0.00;-0.00} m vs the ground, heap {dz.HeapVolume:0.0} m³, {FPSBase.Mining.DirtGrains.LivePushed} clods, {dz.transform.position.z - st.z:0.0} m along");
+                            if (s == 2) yield return Shot("dozer_push1.png");
+                        }
+                        float until = Time.unscaledTime;
+                        yield return Shot("dozer_push1.png");
+                        until = Time.unscaledTime + 3f; while (Time.unscaledTime < until) yield return null;
+                        yield return Shot("dozer_push2.png");
+                        Controls.TestHeld.Clear();
+                        Debug.Log($"[Clods] pushing: {FPSBase.Mining.DirtGrains.LivePushed} clods in front of the blade");
+                        dz.SetBlade(0.5f);
+                        until = Time.unscaledTime + 4f; while (Time.unscaledTime < until) yield return null;
+                        dz.Exit();
+                        for (int i = 0; i < 10; i++) yield return null;
+                        player.PlaceAt(st + new Vector3(-7f, 0.5f, 10f), 120f);
+                        for (int i = 0; i < 30; i++) yield return null;
+                        yield return Shot("dozer_push_left.png");
+                    }
+                }
             }
             var plant = FindFirstObjectByType<FPSBase.Mining.WashPlant>();
             if (plant != null) { plant.Interact(null); yield return Shot("panel_plant.png"); ClosePanel(); }

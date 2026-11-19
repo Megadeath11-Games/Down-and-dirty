@@ -79,6 +79,33 @@ namespace FPSBase.Vehicles
             bladeHeight = NetIO.Ease(bladeHeight, netBlade, dt); ripper = NetIO.Ease(ripper, netRip, dt);
             bladeTilt = NetIO.Ease(bladeTilt, netTilt, dt); bladeAngle = NetIO.Ease(bladeAngle, netAngle, dt);
             ApplyBlade();
+            // a friend pushing dirt: their blade shoves the clods shown on this screen too, face for face as on theirs
+            if (bladeEdge != null && FPSBase.Mining.DigSite.PushClods)
+            {
+                var site = FPSBase.Mining.DigSite.At(bladeEdge.position);
+                Vector3 e = bladeEdge.position;
+                if (site != null && site.Contains(e) && e.y < site.SurfaceY(e + transform.forward * 0.6f) + 0.15f)
+                {
+                    float h = Mathf.Clamp(bladeWidth * 0.32f, 0.5f, 2.2f);
+                    BladeFaces(out Vector3 f, out Vector3 bladeRight, out bool square);
+                    if (square) FPSBase.Mining.DirtGrains.Blade(e, transform.forward, bladeWidth, h);
+                    else
+                        for (int i = 0; i < 4; i++)
+                            FPSBase.Mining.DirtGrains.Blade(e + bladeRight * ((i + 0.5f) / 4 - 0.5f) * bladeWidth, f, bladeWidth / 4 + 0.04f, h, bladeWidth);
+                }
+            }
+        }
+
+        /// <summary>Which way the blade's face pushes (`f`), its own right, and whether it's square (not tilted or angled).</summary>
+        void BladeFaces(out Vector3 f, out Vector3 bladeRight, out bool square)
+        {
+            bladeRight = Swivel != null ? Swivel.right : transform.right;
+            Vector3 flatRight = Vector3.ProjectOnPlane(bladeRight, Vector3.up).normalized;
+            if (flatRight.sqrMagnitude < 0.5f) flatRight = transform.right;
+            f = Vector3.Cross(flatRight, Vector3.up).normalized;
+            Vector3 travel = Vector3.ProjectOnPlane(transform.forward, Vector3.up).normalized;
+            if (travel.sqrMagnitude > 0.5f && Vector3.Dot(f, travel) > 0f) f = Vector3.Slerp(travel, f, 0.75f).normalized;
+            square = Mathf.Abs(bladeTilt) < 0.5f && Mathf.Abs(bladeAngle) < 0.5f;
         }
 
         public void SetBlade(float height) { bladeHeight = Mathf.Clamp(height, bladeRange.x, bladeRange.y); ApplyBlade(); }
@@ -167,18 +194,25 @@ namespace FPSBase.Vehicles
             bool square = Mathf.Abs(bladeTilt) < 0.5f && Mathf.Abs(bladeAngle) < 0.5f;
             if (v > 0.05f && site.Contains(edge))
             {
+                // the blade cuts as deep as it's set below the tracks, not deeper: when the nose dips into the cut the
+                // blade would go lower still and dig itself in (a driver eases it up; this keeps the cut even)
+                float deepest = Mathf.Min(bladeHeight, 0f) - 0.08f;
+                edge.y = Mathf.Max(edge.y, site.SurfaceY(edge + f * 0.4f) + deepest);
                 if (square) moved = site.BladePush(edge, transform.forward, bladeWidth, edge.y, pushAhead, out hard);
                 else
                 {
                     const int segs = 4;
                     float w = bladeWidth / segs;
+                    site.BladeWidthHintSet(bladeWidth);
                     for (int i = 0; i < segs; i++)
                     {
-                        Vector3 p = edge + bladeRight * ((i + 0.5f) / segs - 0.5f) * bladeWidth;
+                        Vector3 p = bladeEdge.position + bladeRight * ((i + 0.5f) / segs - 0.5f) * bladeWidth;
                         if (!site.Contains(p)) continue;
+                        p.y = Mathf.Max(p.y, site.SurfaceY(p + f * 0.4f) + deepest + Mathf.Min(0f, p.y - bladeEdge.position.y)); // (a tilted blade's low end still goes deeper)
                         moved += site.BladePush(p, f, w + 0.04f, p.y, pushAhead, out float h);
                         hard += h;
                     }
+                    site.BladeWidthHintSet(0f);
                 }
             }
             pushRate = Mathf.Lerp(pushRate, moved / Mathf.Max(dt, 1e-4f), 1f - Mathf.Exp(-dt * 6f));
@@ -200,6 +234,9 @@ namespace FPSBase.Vehicles
             {
                 heapTimer = 0.2f;
                 heapVolume = site.LooseVolume(edge + f * (pushAhead + 0.1f), bladeWidth * 0.55f, out heapGold);
+                // plus the clods rolling in front of the blade (cut dirt the blade is shoving along)
+                heapVolume += FPSBase.Mining.DirtGrains.VolumeNear(edge + f * (pushAhead * 0.5f + 0.3f), bladeWidth * 0.6f, out float clodGold);
+                heapGold += clodGold;
                 heapMix = site.LooseLoad(edge + f * (pushAhead + 0.1f), bladeWidth * 0.55f);
             }
             // a big heap slows the machine down, and so does cutting unbroken ground

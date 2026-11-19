@@ -94,9 +94,18 @@ namespace FPSBase.Mining
                     float pk = (tb >> 1) / 127f;
                     int x = i % res, z = i / res;
                     if (x < 0 || z < 0 || x >= res || z >= res) continue;
+                    float was = Surf(x, z);
                     native[z, x] = nat; loose[z, x] = lo; looseGold[z, x] = go;
                     looseSand[z, x] = sa; looseGravel[z, x] = gr; looseClay[z, x] = cl;
                     trampled[z, x] = tr; packed[z, x] = pk;
+                    // a friend's blade cut this away: show it as clods rolling in front of their blade (only for show:
+                    // the dirt itself arrives as ground from their game when their clods come to rest)
+                    float now = Surf(x, z);
+                    if (was - now > 0.02f && PushClods)
+                    {
+                        var cp = CellPos(x, z);
+                        if (DirtGrains.NearBlade(cp, 1.2f)) DirtGrains.Cut(cp, cell, now, was, new MaterialLoad((was - now) * cellArea, 0f), null, true, DirtGrains.NearBladeClod(cp));
+                    }
                     everChanged.Add(i);
                     MarkHeights(x, z);
                 }

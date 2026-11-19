@@ -94,6 +94,20 @@ namespace FPSBase.Vehicles
             lift = NetIO.Ease(lift, netPose[3], dt); roll = NetIO.Ease(roll, netPose[4], dt); circleDeg = NetIO.Ease(circleDeg, netPose[5], dt);
             shiftM = NetIO.Ease(shiftM, netPose[6], dt); pitchDeg = NetIO.Ease(pitchDeg, netPose[7], dt); ripper = NetIO.Ease(ripper, netPose[8], dt);
             Apply();
+            // a friend grading: their moldboard shoves the clods shown on this screen too, in the same 5 pieces
+            if (bladeEndL != null && bladeEndR != null && DigSite.PushClods)
+            {
+                Vector3 a = bladeEndL.position, b = bladeEndR.position, c0 = Vector3.Lerp(a, b, 0.5f);
+                var site = DigSite.At(c0);
+                if (site != null && site.Contains(c0) && Mathf.Min(a.y, b.y) < site.SurfaceY(c0) + 0.12f)
+                {
+                    Vector3 n = Vector3.ProjectOnPlane(pitch != null ? pitch.forward : transform.forward, Vector3.up);
+                    if (n.sqrMagnitude < 1e-4f) n = transform.forward;
+                    Vector3 along = b - a; along.y = 0f;
+                    for (int i = 0; i < 5; i++)
+                        FPSBase.Mining.DirtGrains.Blade(Vector3.Lerp(a, b, (i + 0.5f) / 5), n.normalized, along.magnitude / 5 + 0.05f, Mathf.Clamp((along.magnitude / 5 + 0.05f) * 0.32f, 0.5f, 2.2f), along.magnitude);
+                }
+            }
         }
 
         public void SetRipper(float deg) { ripper = Mathf.Clamp(deg, ripperRange.x, ripperRange.y); Apply(); }
@@ -196,12 +210,14 @@ namespace FPSBase.Vehicles
                 Vector3 along = b - a; along.y = 0f;
                 float len = along.magnitude;
                 const int segs = 5;
+                site.BladeWidthHintSet(len);
                 for (int i = 0; i < segs; i++)
                 {
                     Vector3 c = Vector3.Lerp(a, b, (i + 0.5f) / segs);
                     if (!site.Contains(c)) continue;
                     moved += site.BladePush(c, n, len / segs + 0.05f, c.y, 0.45f, out _);
                 }
+                site.BladeWidthHintSet(0f);
             }
             cutRate = Mathf.Lerp(cutRate, moved / Mathf.Max(dt, 1e-4f), 1f - Mathf.Exp(-dt * 6f));
             if (moved > 0f && (fxTimer -= dt) <= 0f) { PourFx.Dig(Vector3.Lerp(a, b, 0.5f) + Vector3.up * 0.3f); fxTimer = 0.25f; }

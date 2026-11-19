@@ -402,6 +402,12 @@ namespace FPSBase.Mining
         /// </summary>
         public float BladePush(Vector3 edge, Vector3 forward, float width, float bottomY) => BladePush(edge, forward, width, bottomY, 0.8f, out _);
 
+        /// <summary>Blades cut dirt into real clods that they push along (off: it moves straight to the cells ahead).</summary>
+        public static bool PushClods = System.Array.IndexOf(System.Environment.GetCommandLineArgs(), "-noclods") < 0;
+        /// <summary>The whole blade's width while a machine pushes in pieces (an angled blade: 4 pieces), for the clod size.</summary>
+        public static float BladeWidthHint;
+        public void BladeWidthHintSet(float w) => BladeWidthHint = w;
+
         /// <summary>As above; `ahead` = how far in front of the edge the dirt lands, `fromNative` = how much was cut from unbroken ground.</summary>
         public float BladePush(Vector3 edge, Vector3 forward, float width, float bottomY, float ahead, out float fromNative)
             => BladePush(edge, forward, width, bottomY, ahead, float.MaxValue, out fromNative);
@@ -421,6 +427,9 @@ namespace FPSBase.Mining
             Vector3 right = new Vector3(forward.z, 0f, -forward.x);
             const float back = 0.35f, front = 0.3f;
             float reach = width * 0.5f + 1f;
+            bool clods = PushClods && Application.isPlaying;
+            if (clods) DirtGrains.Blade(edge, forward, width, Mathf.Clamp(width * 0.32f, 0.5f, 2.2f), BladeWidthHint);
+            float bladeWidthNow = BladeWidthHint > 0f ? BladeWidthHint : width;
             Range(edge, reach, out int x0, out int z0, out int x1, out int z1);
             float moved = 0f;
             for (int z = z0; z <= z1; z++)
@@ -441,10 +450,15 @@ namespace FPSBase.Mining
                     Touch(x, z);
                     // each cut row lands in its own row of the heap in front (not all in one row: that made a spike)
                     float band = Mathf.InverseLerp(-back, front, lon);
-                    Vector3 to = edge + right * lat + forward * (ahead + band * Mathf.Max(cell * 1.5f, ahead * 0.6f));
-                    AddLoose(Mathf.RoundToInt((to.x - origin.x) / cell), Mathf.RoundToInt((to.z - origin.z) / cell), m);
-                    // clods tumble off the cut and roll onto the heap in front of the blade
-                    if (Random.value < 0.18f)
+                    // the cut dirt becomes clods right where it was, and the blade face shoves them along (a real
+                    // rolling heap); only if there are too many clods about already does it drop ahead the old way
+                    if (!(clods && DirtGrains.Cut(new Vector3(origin.x + x * cell, 0f, origin.z + z * cell), cell, bottomY, s, m, null, false, Mathf.Clamp(bladeWidthNow * 0.004f, 0.006f, 0.022f))))
+                    {
+                        Vector3 to = edge + right * lat + forward * (ahead + band * Mathf.Max(cell * 1.5f, ahead * 0.6f));
+                        AddLoose(Mathf.RoundToInt((to.x - origin.x) / cell), Mathf.RoundToInt((to.z - origin.z) / cell), m);
+                    }
+                    // a few bits fly off the cut
+                    if (Random.value < (clods ? 0.05f : 0.18f))
                         DirtGrains.Spray(new Vector3(origin.x + x * cell, s - 0.05f, origin.z + z * cell),
                             forward * Random.Range(1.2f, 2.6f) + Vector3.up * Random.Range(0.8f, 2.2f) + right * Random.Range(-0.7f, 0.7f),
                             DirtGrains.PickCategory(m), Random.Range(0.06f, 0.13f));
@@ -609,10 +623,15 @@ namespace FPSBase.Mining
             DrawClumps();
         }
 
-        void LateUpdate() => Flush(8);
+        // redraw what changed: as many pieces as fit in a few milliseconds (a busy heap stays smooth), nearest first
+        void LateUpdate() => Flush(64, 3.5f);
 
         /// <summary>Push height changes to the physics collider and rebuild up to `maxChunks` changed meshes.</summary>
-        public void Flush(int maxChunks)
+        public void Flush(int maxChunks) => Flush(maxChunks, float.MaxValue);
+
+        static readonly System.Diagnostics.Stopwatch flushWatch = new();
+
+        public void Flush(int maxChunks, float maxMs)
         {
             if (dx1 >= dx0)
             {
@@ -625,9 +644,32 @@ namespace FPSBase.Mining
                 dx0 = dz0 = int.MaxValue; dx1 = dz1 = -1;
             }
             int built = 0;
-            for (int j = 0; j < chunksZ && built < maxChunks; j++)
-                for (int i = 0; i < chunksX && built < maxChunks; i++)
-                    if (chunkDirty[j, i]) { RebuildChunk(i, j); built++; }
+            if (maxMs >= float.MaxValue)
+            {
+                for (int j = 0; j < chunksZ && built < maxChunks; j++)
+                    for (int i = 0; i < chunksX && built < maxChunks; i++)
+                        if (chunkDirty[j, i]) { RebuildChunk(i, j); built++; }
+                return;
+            }
+            // nearest the camera first, and stop when the time's up (at least 4 a frame, so nothing waits forever)
+            var cam = Camera.main;
+            Vector3 eye = cam != null ? cam.transform.position : origin;
+            flushWatch.Restart();
+            while (built < maxChunks)
+            {
+                int bi = -1, bj = -1; float bd = float.MaxValue;
+                for (int j = 0; j < chunksZ; j++)
+                    for (int i = 0; i < chunksX; i++)
+                    {
+                        if (!chunkDirty[j, i]) continue;
+                        float cx = origin.x + (i + 0.5f) * chunkCells * cell - eye.x, cz = origin.z + (j + 0.5f) * chunkCells * cell - eye.z;
+                        float dd = cx * cx + cz * cz;
+                        if (dd < bd) { bd = dd; bi = i; bj = j; }
+                    }
+                if (bi < 0) break;
+                RebuildChunk(bi, bj); built++;
+                if (built >= 4 && flushWatch.Elapsed.TotalMilliseconds > maxMs) break;
+            }
         }
 
         /// <summary>Let all the dirt settle and redraw everything right now (used by the automated test).</summary>

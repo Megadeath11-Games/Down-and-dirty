@@ -13,6 +13,12 @@ namespace FPSBase.Core
         /// <summary>Newest first.</summary>
         public static readonly Post[] Blog =
         {
+            new Post { date = "Update 19  ·  Nov 19, 2026", title = "Dirt rolls in clods in front of the blade",
+                body =
+                "• Pushing dirt with a dozer or grader now cuts the ground into small clods that roll and tumble in front of the blade, pile up against each other and spill off the ends, then settle back into the ground where they stop. No more dirt jumping from one square to the next.\n" +
+                "• The ground redraws near you first and in small pieces each frame, so the cut follows the blade smoothly.\n" +
+                "• The blade no longer digs itself in: when the nose dips into the cut it keeps cutting at the depth you set, instead of diving deeper and deeper.\n" +
+                "• Multiplayer: when your friend pushes dirt you see their clods rolling in front of their blade, and the ground you both end up with is the same. Small dirt piles show up for everyone too.\n" },
             new Post { date = "Update 18  ·  Nov 19, 2026", title = "Town ground fixed, trench markers follow the ground",
                 body =
                 "• The town's ground was built wrong: the hills from the edge of town were squeezed in toward the yards (so some lots sloped), and a strip along East Ave and the north edge sat 8 m down. It now lies flat in town and meets the hills properly. Your saved worlds are moved onto the fixed ground when you load them, with everything you dug kept as deep as it was.\n" +
@@ -196,11 +202,15 @@ namespace FPSBase.Core
                 "• Dozer berms build up properly in front of the blade." },
         };
 
-        public const string TestListVersion = "2026-11-19m";
+        public const string TestListVersion = "2026-11-19n";
 
         /// <summary>What's new in this build to try out.</summary>
         public static readonly string[] TestList =
         {
+            "Dozer: lower the blade a little and push: the dirt rolls ahead as clods, piles up and spills off the ends, smooth with no jumps",
+            "Dozer: push a long way with the blade below the ground: the machine stays level instead of nosing down into the cut",
+            "Grader: angle the blade and drive: the clods roll along it and off the trailing end into a row",
+            "Multiplayer: watch your friend push dirt: you see their clods roll in front of their blade, and the ground matches after",
             "Town: walk along East Ave and the north edge of town: no deep pit, the yards are flat and meet the hills",
             "Trench job on a slope: the blue box follows the ground, dig it and get paid",
             "Load an old save: what you dug in town is still there, at the same depth",

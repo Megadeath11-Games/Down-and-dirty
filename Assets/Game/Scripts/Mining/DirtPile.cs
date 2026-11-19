@@ -33,7 +33,7 @@ namespace FPSBase.Mining
             try
             {
                 var p = ById(id);
-                if (l.volume < 0.01f) { if (p != null) Destroy(p.gameObject); return; }
+                if (l.volume <= 1e-5f) { if (p != null) Destroy(p.gameObject); return; } // (0 m³: it's gone; any bit more is a pile, even a small one)
                 if (p == null) { p = Make(at, l); p.NetId = id; return; }
                 p.load = l; p.transform.position = at; p.Reshape();
             }

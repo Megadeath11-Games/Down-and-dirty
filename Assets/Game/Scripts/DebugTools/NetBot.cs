@@ -332,6 +332,64 @@ namespace FPSBase.DebugTools
                 yield return Sync("bigdozer-done");
             }
 
+            // ---------------- pushing dirt: each of you pushes with your own dozer while the other watches
+            {
+                if (host) { dealer.DevDeliver(Listing(dealer, "Medium Dozer")); yield return Frames(30); Share("meddozer", Newest(typeof(Bulldozer)).NetId.ToString()); }
+                yield return Sync("meddozer");
+                int myDozer = host ? int.Parse(File.ReadAllText(Path.Combine(dir, "host.val.meddozer"))) : int.Parse(File.ReadAllText(Path.Combine(dir, "join.val.bigdozer")));
+                var pushSite = DigSite.Instance;
+                foreach (var pusherRole in new[] { "join", "host" })
+                {
+                    bool me = role == pusherRole;
+                    Vector3 st = new Vector3(pusherRole == "join" ? 60f : 100f, 0f, -72f);
+                    if (me)
+                    {
+                        var dz = ById(myDozer) as Bulldozer;
+                        if (dz == null) { Fail($"{pusherRole} has a dozer to push with"); }
+                        else
+                        {
+                            st.y = pushSite.SurfaceY(st) + 0.6f;
+                            var rb = dz.GetComponent<Rigidbody>();
+                            rb.isKinematic = true; dz.transform.SetPositionAndRotation(st, Quaternion.identity); rb.position = st; rb.rotation = Quaternion.identity; rb.isKinematic = false;
+                            Physics.SyncTransforms();
+                            yield return Seconds(1.5f);
+                            dz.Interact(Me); yield return Frames(10);
+                            dz.SetBlade(-0.15f);
+                            Controls.TestHeld[GameAction.DriveForward] = 0.7f;
+                            int most = 0;
+                            int frames = 0; float worstMs = 0f;
+                            for (float t = 0f; t < 6f; t += Time.deltaTime) { most = Mathf.Max(most, DirtGrains.LivePushed); frames++; worstMs = Mathf.Max(worstMs, Time.unscaledDeltaTime * 1000f); yield return null; }
+                            Controls.TestHeld.Clear();
+                            Info($"{pusherRole} pushed with the {dz.displayName}: up to {most} clods rolling in front of the blade, {frames / 6f:0} fps, slowest frame {worstMs:0} ms");
+                            Check(most > 40, $"you push dirt and it rolls in front of your blade as clods (up to {most})");
+                            dz.SetBlade(0.4f);
+                            yield return Seconds(1f);
+                            dz.Exit(); yield return Frames(10);
+                        }
+                    }
+                    else
+                    {
+                        int most = 0;
+                        int frames = 0;
+                        for (float t = 0f; t < 9f; t += Time.deltaTime) { most = Mathf.Max(most, DirtGrains.LivePushedVisual); frames++; yield return null; }
+                        Info($"watching {pusherRole} push: up to {most} of their clods on this screen, {frames / 9f:0} fps");
+                        Check(most > 25, $"your friend's dozer pushes dirt: you see it rolling in front of their blade as clods (up to {most})");
+                    }
+                    yield return Seconds(7f); // everything settles, and the ground goes out
+                    // the ground they pushed, on both games
+                    float sum = 0f; int n = 0;
+                    for (float a = -2f; a <= 16f; a += 0.5f)
+                        for (float b = -3f; b <= 3f; b += 0.5f) { sum += pushSite.SurfaceY(new Vector3(st.x + b, 0f, st.z + a)); n++; }
+                    Share($"push-{pusherRole}", sum.ToString("R", System.Globalization.CultureInfo.InvariantCulture));
+                    yield return Sync($"pushed-{pusherRole}");
+                    float mine = float.Parse(File.ReadAllText(Path.Combine(dir, $"{role}.val.push-{pusherRole}")), System.Globalization.CultureInfo.InvariantCulture);
+                    float theirs = float.Parse(File.ReadAllText(Path.Combine(dir, $"{other}.val.push-{pusherRole}")), System.Globalization.CultureInfo.InvariantCulture);
+                    float off = Mathf.Abs(mine - theirs) / n;
+                    Check(off < 0.01f, $"the ground {(me ? "you" : "your friend")} pushed is the same on both games (on average {off * 100f:0.0} cm apart)");
+                    yield return Sync($"push-checked-{pusherRole}");
+                }
+            }
+
             // ---------------- dirt into a machine the other player runs: the host loads the friend's truck
             {
                 int tid = int.Parse(File.ReadAllText(Path.Combine(dir, "join.val.truck")));

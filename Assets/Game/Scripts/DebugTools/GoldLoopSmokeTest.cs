@@ -834,7 +834,7 @@ namespace FPSBase.DebugTools
                     for (int k = 0; k < 4; k++) town.Dig(new Vector3(x, town.OriginalY(new Vector3(x, 0f, z)) + 0.01f, z), 0.4f, 5f);
             for (float x = r.xMin + 0.25f; x < r.xMax; x += 0.5f)
                 for (float z = r.yMin + 0.25f; z < r.yMax; z += 0.5f)
-                    DigSite.DropAt(new Vector3(x, 0f, z), FPSBase.City.GravelBin.Make(0, 0.25f * 0.11f));
+                    DigSite.DropAt(new Vector3(x, 0f, z), FPSBase.City.GravelBin.Make(0, 0.25f * (j.depth + 0.03f)));
             town.Flush(9999);
             jobs.Check(j);
             log.AppendLine($"INFO  driveway spread out: {j.status}");
@@ -847,21 +847,85 @@ namespace FPSBase.DebugTools
             var dj = jobs.NewRequest(h1, FPSBase.City.JobKind.Ditch);
             jobs.Accept(dj);
             Check(!dj.ready, "the ditch isn't dug yet");
-            Vector3 A = h1.ditchA, B = h1.ditchB;
-            for (int pass = 0; pass < 3; pass++)
-                for (float t = 0f; t <= 1f; t += 0.02f)
-                {
-                    Vector3 q = Vector3.Lerp(A, B, t);
-                    town.Dig(new Vector3(q.x, town.OriginalY(q) - 0.75f, q.z), 0.45f, 2f);
-                }
-            town.Flush(9999);
+            Vector3 A = dj.a, B = dj.b;
+            log.AppendLine($"INFO  trench at {h1.Address}: {FPSBase.City.Job.Places[dj.place]}, {dj.Length:0.0} m long, {dj.depth:0.0#} m deep, {dj.width * 100f:0} cm wide, ${dj.pay:N0}");
+            Check(GameObject.Find($"Job stakes: {h1.Address}")?.transform.Find("Trench Box") != null, "the trench is marked with a see-through box its size");
+            DigTrench(town, dj);
             jobs.Check(dj);
             log.AppendLine($"INFO  ditch dug: {dj.status}");
-            Check(dj.ready && jobs.Finish(dj), "dug down the side of the lot, the ditch passes and pays");
-            Check(town.CutDepth(Vector3.Lerp(A, B, 0.5f)) > 0.5f && main.SurfaceY(new Vector3(70f, 0f, -12f)) > -1f, "the ditch is in the town's ground (the mine's isn't touched)");
+            float dm0 = eco.Money;
+            Check(dj.ready && jobs.Finish(dj), "dug to its depth and width, the trench passes and pays");
+            Check(dj.damage <= 0f ? eco.Money >= dm0 + dj.pay - 1f : true, $"dug carefully, nothing's damaged and it pays in full (damage {dj.damage:P0}, hits {string.Join(",", dj.hits)})");
+            Check(town.CutDepth(Vector3.Lerp(A, B, 0.5f)) > 0.3f && main.SurfaceY(new Vector3(70f, 0f, -12f)) > -1f, "the ditch is in the town's ground (the mine's isn't touched)");
+
+            // trenches vary: where on the lot, how deep, how wide, how long; and they never go through the house or the drive
+            {
+                var places = new System.Collections.Generic.HashSet<int>(); var depths = new System.Collections.Generic.HashSet<float>(); var widths = new System.Collections.Generic.HashSet<float>();
+                float minL = 999f, maxL = 0f; bool allFit = true;
+                for (int k = 0; k < houses.Count; k++)
+                {
+                    var tj = jobs.NewRequest(houses[k], FPSBase.City.JobKind.Ditch);
+                    if (tj == null) continue;
+                    places.Add(tj.place); depths.Add(tj.depth); widths.Add(tj.width); minL = Mathf.Min(minL, tj.Length); maxL = Mathf.Max(maxL, tj.Length);
+                    var f = houses[k].Footprint;
+                    for (float t = 0f; t <= 1f; t += 0.05f) { var q = Vector3.Lerp(tj.a, tj.b, t); if (f.Contains(new Vector2(q.x, q.z)) || houses[k].driveway.Contains(new Vector2(q.x, q.z))) allFit = false; }
+                    jobs.Decline(tj);
+                }
+                log.AppendLine($"INFO  trench variety: places {string.Join(",", places)}, depths {string.Join(",", depths)}, widths {string.Join(",", widths)}, lengths {minL:0.0}..{maxL:0.0} m");
+                Check(places.Count >= 4 && depths.Count >= 4 && widths.Count >= 3 && maxL - minL > 5f, "trenches come in different places, depths, widths and lengths");
+                Check(allFit, "no trench goes under a house or across a driveway");
+            }
+
+            // the town isn't copy-paste: different sizes, roofs, colours
+            {
+                var sizes = new System.Collections.Generic.HashSet<string>(); var colours = new System.Collections.Generic.HashSet<Material>(); var roofs = new System.Collections.Generic.HashSet<string>();
+                foreach (var hh in houses)
+                {
+                    sizes.Add($"{hh.houseLocal.width:0.0}x{hh.houseLocal.height:0.0}");
+                    var wl = hh.transform.Find("Walls"); if (wl != null) colours.Add(wl.GetComponent<Renderer>().sharedMaterial);
+                    var rf = hh.transform.Find("Roof"); if (rf != null) { var bs = rf.GetComponent<Renderer>().bounds.size; roofs.Add($"{bs.x:0.0}/{bs.y:0.0}/{bs.z:0.0}"); }
+                }
+                log.AppendLine($"INFO  houses: {sizes.Count} sizes, {colours.Count} wall colours, {roofs.Count} roof shapes");
+                Check(sizes.Count > 30 && colours.Count >= 8 && roofs.Count > 10, "the houses are all different (sizes, colours, roofs)");
+                Check(FindObjectsByType<FPSBase.City.StreetSign>(FindObjectsSortMode.None).Length >= 7, "street signs at the corners and a welcome board");
+                Check(houses[20].Directions.Contains(houses[20].street) && houses[20].Directions.Contains("house on your"), $"directions to the house: {houses[20].Directions}");
+            }
+
+            // hitting the mailbox on a job takes a share off the bill
+            {
+                var hd = houses[22];
+                var mj = jobs.NewRequest(hd, FPSBase.City.JobKind.Ditch);
+                jobs.Accept(mj);
+                var box = hd.Part("mailbox");
+                Check(box != null, "the mailbox can be damaged");
+                if (box != null)
+                {
+                    Quaternion r0 = hd.mailbox.rotation;
+                    jobs.Damage(hd, box, "Skid Steer");
+                    jobs.Damage(hd, box, "Skid Steer"); // the same thing twice only counts once
+                    Check(Mathf.Abs(mj.damage - box.penalty) < 0.001f && mj.hits.Count == 1 && Quaternion.Angle(r0, hd.mailbox.rotation) > 30f,
+                        $"knocking the mailbox over takes {mj.damage:P0} off the bill and it falls over");
+                    Check(jobs.texts.Exists(t => t.house == hd.index && t.body.Contains("mailbox")), "the customer texts about it");
+                    // the save keeps the damage
+                    var ms = new MemoryStream(); jobs.Write(new BinaryWriter(ms)); ms.Position = 0; jobs.Read(new BinaryReader(ms), true);
+                    var mb = jobs.ById(mj.id);
+                    Check(mb != null && mb.hits.Contains("mailbox") && Mathf.Abs(mb.damage - box.penalty) < 0.001f, "the damage is in the save (and sent to friends)");
+                    // they hold back that share when it's paid
+                    DigTrench(town, mb);
+                    float pm = eco.Money;
+                    bool ok = jobs.Finish(mb);
+                    log.AppendLine($"INFO  damaged job: {mb.status}; paid ${eco.Money - pm:N0} of ${mb.pay:N0}");
+                    Check(ok && Mathf.Abs((eco.Money - pm) - mb.pay * (1f - mb.damage)) < 2f, $"the bill is paid less the damage (${eco.Money - pm:N0} of ${mb.pay:N0})");
+                }
+                // with no job there, they bill you
+                var hn = houses[30]; var post = hn.Part("mailbox");
+                float bm = eco.Money;
+                if (post != null) jobs.Damage(hn, post, "Pickup");
+                Check(post != null && (eco.Unlimited || Mathf.Abs(bm - eco.Money - post.fine) < 1f), "wreck a mailbox with no job there and they bill you");
+            }
 
             // the house's lot is hard under the house
-            Vector3 under = h1.transform.TransformPoint(new Vector3(h1.driveway.width > 0 ? 0f : 0f, 0f, 13f));
+            Vector3 under = new Vector3(h1.Footprint.center.x, 0f, h1.Footprint.center.y);
             float before = town.SurfaceY(under);
             town.Dig(under + Vector3.down * 0.8f, 0.5f, 2f);
             Check(Mathf.Abs(town.SurfaceY(under) - before) < 0.02f, "you can't dig under a house");
@@ -966,7 +1030,7 @@ namespace FPSBase.DebugTools
             var h2 = houses[9];
             var sj = jobs.NewRequest(h2, FPSBase.City.JobKind.Ditch);
             jobs.Accept(sj);
-            Vector3 dp = Vector3.Lerp(h2.ditchA, h2.ditchB, 0.5f);
+            Vector3 dp = Vector3.Lerp(sj.a, sj.b, 0.5f);
             town.Dig(new Vector3(dp.x, town.OriginalY(dp) - 0.7f, dp.z), 0.6f, 3f);
             town.Flush(9999);
             float cut = town.CutDepth(dp);
@@ -983,11 +1047,30 @@ namespace FPSBase.DebugTools
             for (int i = 0; i < 10; i++) yield return new WaitForFixedUpdate();
             town.Flush(9999);
             var back = jobs.OpenJobAt(h2);
+            Check(back != null && (back.a - sj.a).sqrMagnitude < 0.01f && (back.b - sj.b).sqrMagnitude < 0.01f && Mathf.Abs(back.width - sj.width) < 0.001f && back.place == sj.place,
+                "the trench's place, length and width come back from the save");
             Check(loadErr == null && back != null && back.state == FPSBase.City.JobState.Accepted && jobs.jobs.Count == nJobs && jobs.texts.Count == nTexts,
                 $"jobs and texts come back from the save ({jobs.jobs.Count} jobs, {jobs.texts.Count} texts; saved {nJobs} / {nTexts})");
             Check(Mathf.Abs(town.CutDepth(dp) - cut) < 0.05f, $"the town's dug ground comes back ({town.CutDepth(dp):0.00} m deep, saved {cut:0.00})");
             Check(GameObject.Find($"Job stakes: {h2.Address}") != null, "the accepted job's stakes come back");
             File.Delete(listed.path);
+        }
+
+        /// <summary>Dig a job's trench out to its depth across its width (as an excavator would).</summary>
+        static void DigTrench(DigSite town, FPSBase.City.Job j)
+        {
+            Vector3 dir = j.b - j.a; dir.y = 0f; float len = dir.magnitude; dir /= Mathf.Max(len, 0.01f);
+            Vector3 side = Vector3.Cross(Vector3.up, dir);
+            float half = Mathf.Max(0f, j.width / 2f - 0.12f);
+            int lanes = Mathf.Max(1, Mathf.CeilToInt(2f * half / 0.15f));
+            for (int pass = 0; pass < 3; pass++)
+                for (int l = 0; l <= lanes; l++)
+                    for (float t = 0f; t <= len; t += 0.15f)
+                    {
+                        Vector3 q = j.a + dir * t + side * (-half + 2f * half * l / lanes);
+                        town.Dig(new Vector3(q.x, town.OriginalY(q) - j.depth - 0.08f, q.z), 0.18f, 2f);
+                    }
+            town.Flush(9999);
         }
 
         /// <summary>Update 11: both dump trucks tow the equipment trailers (gravel in the box, a skid steer behind).</summary>

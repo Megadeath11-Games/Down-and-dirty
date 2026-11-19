@@ -413,9 +413,9 @@ namespace FPSBase.Net
                 case MsgJobs: if (!IsHost && FPSBase.City.Jobs.Instance != null) FPSBase.City.Jobs.Instance.Read(r, true); break;
                 case MsgJobAction:
                 {
-                    int id = r.ReadInt32(), a = r.ReadInt32(); bool shared = r.ReadBoolean();
+                    int id = r.ReadInt32(), a = r.ReadInt32(); bool shared = r.ReadBoolean(); string arg = r.ReadString();
                     if (IsHost && FPSBase.City.Jobs.Instance != null)
-                        FPSBase.City.Jobs.Instance.ApplyAction(id, a, shared, from.m_SteamID, SteamFriends.GetFriendPersonaName(from));
+                        FPSBase.City.Jobs.Instance.ApplyAction(id, a, shared, from.m_SteamID, SteamFriends.GetFriendPersonaName(from), arg == "" ? null : arg);
                     break;
                 }
                 case MsgJobPay:
@@ -957,9 +957,9 @@ namespace FPSBase.Net
         }
 
         /// <summary>A friend's answer to a customer: the host does it.</summary>
-        public void SendJobAction(int id, int action, bool shared)
+        public void SendJobAction(int id, int action, bool shared, string arg = null)
         {
-            var w = Begin(MsgJobAction); w.Write(id); w.Write(action); w.Write(shared);
+            var w = Begin(MsgJobAction); w.Write(id); w.Write(action); w.Write(shared); w.Write(arg ?? "");
             Send(SteamMatchmaking.GetLobbyOwner(lobby), w, true);
         }
 

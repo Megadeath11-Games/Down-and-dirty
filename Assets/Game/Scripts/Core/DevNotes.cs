@@ -13,6 +13,16 @@ namespace FPSBase.Core
         /// <summary>Newest first.</summary>
         public static readonly Post[] Blog =
         {
+            new Post { date = "Update 13  ·  Nov 19, 2026", title = "Trenches of every kind, careful digging, a town that isn't copy-paste",
+                body =
+                "<b>New</b>\n" +
+                "• Trench jobs vary: a drainage ditch down the side of the lot, a ditch along the front yard, a trench across the back yard, a drain pipe trench from the downspout, or a trench along the side of the house. Each one has its own length (about 5 to 18 m), depth (40 cm to 1.2 m) and width (40 cm to 1 m), and the pay follows the size. Driveways ask for different gravel thicknesses too (5 to 12 cm).\n" +
+                "• Be careful on their lot. Hit the house, the mailbox, a fence, the hedge, the shed, a tree or the porch with a machine (or a trailer) and the customer takes a share off the bill to fix it (10% for a mailbox, 20% for the house...). Digging right up against the foundation, under the mailbox post or into a tree's roots counts too. The customer's text warns you what's close to the work. Mailboxes and fence sections get knocked over, and it's saved and shows for your friends. Wreck something where you don't have a job and they send you the bill.\n" +
+                "• The trench is marked with a see-through light blue box exactly as wide and as deep as it has to be dug, with an orange outline on the ground. A driveway shows a blue slab as thick as the gravel has to be.\n" +
+                "• Finding the house: an orange beacon stands over every job's house, the job's text tells you which way to turn coming into town and which house it is (\"turn right on West Ave, then left onto Birch Ln. Number 111 is the sixth house on your left\"), there are street signs at every corner, and a welcome board where the road comes in lists your jobs and the turn for each.\n" +
+                "• The town is all different now: houses of different sizes and depths, one or two storeys, gable, hip or flat roofs, single or double garages, 12 wall colours and 6 roof colours, porches, shutters, flower beds, chimneys, picket or wood fences, hedges, garden sheds and different trees.\n" +
+                "<b>Fixed</b>\n" +
+                "• A driveway passes when the gravel is laid to its thickness, give or take a centimetre and a half.\n" },
             new Post { date = "Update 12  ·  Nov 19, 2026", title = "Dump truck hitches, readable prompts",
                 body =
                 "<b>New</b>\n" +
@@ -153,11 +163,16 @@ namespace FPSBase.Core
                 "• Dozer berms build up properly in front of the blade." },
         };
 
-        public const string TestListVersion = "2026-11-19g";
+        public const string TestListVersion = "2026-11-19h";
 
         /// <summary>What's new in this build to try out.</summary>
         public static readonly string[] TestList =
         {
+            "Accept a trench job: drive into town by the directions in the text (welcome board, street signs, orange beacon) and find the house",
+            "Dig a trench to the light blue box: as wide and as deep as it shows, and get paid",
+            "Get a few trench jobs: they're in different places on the lot, and different lengths, depths and widths",
+            "Bump a mailbox or fence on a job: it falls over, they text you, and the pay is less",
+            "Drive around town: the houses are all different (sizes, roofs, colours, fences, sheds, trees)",
             "Hitch a trailer with a skid steer to a dump truck, tow it to a job with gravel in the box, unhitch, dump and spread",
             "Look at the landscape supply bin: the text sits in its box",
             "Fill a loader bucket: the BUCKET FULL bar shows the whole message",
@@ -173,7 +188,6 @@ namespace FPSBase.Core
             "Wait for a text, open your phone (P), accept a job",
             "Buy gravel at the landscape supply: back the truck under the bin",
             "Dump the gravel on the driveway, unload a skid steer at the curb and spread it, then Finish on the phone",
-            "Dig a drainage ditch along the stakes with an excavator and get paid",
             "Save in town, load: your jobs, texts and the dug yards come back",
             "Multiplayer: a friend sees the gravel and ditches you make in town",
             "Equipment dealer: click the categories, hover over the machines for their pictures and specs, buy one",

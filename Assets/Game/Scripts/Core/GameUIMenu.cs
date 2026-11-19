@@ -80,10 +80,30 @@ namespace FPSBase.Core
                 var h = FPSBase.City.House.All[3];
                 var hj = jobsC.NewRequest(h, FPSBase.City.JobKind.Driveway);
                 jobsC.Accept(hj);
-                jobsC.NewRequest(FPSBase.City.House.All[12], FPSBase.City.JobKind.Ditch);
+                var tj = jobsC.NewRequest(FPSBase.City.House.All[12], FPSBase.City.JobKind.Ditch);
                 player.PlaceAt(h.transform.position - h.transform.forward * 9f + h.transform.right * 3f + Vector3.up * 0.3f, h.transform.eulerAngles.y - 12f);
                 for (int i = 0; i < 120; i++) yield return null;
                 yield return Shot("town_street.png");
+                // a trench job: the light blue box shows how wide and deep to dig, the beacon marks the house
+                if (tj != null)
+                {
+                    jobsC.Accept(tj);
+                    Vector3 mid = (tj.a + tj.b) / 2f, along = tj.b - tj.a; along.y = 0f;
+                    Vector3 side = Vector3.Cross(Vector3.up, along.normalized);
+                    Vector3 at = mid + side * 5f - along.normalized * 3f;
+                    var th = FPSBase.City.House.All[12];
+                    if (th.Footprint.Contains(new Vector2(at.x, at.z))) at = mid - side * 5f - along.normalized * 3f;
+                    player.PlaceAt(at + Vector3.up * 0.3f, Quaternion.LookRotation(new Vector3(mid.x - at.x, 0f, mid.z - at.z)).eulerAngles.y);
+                    for (int i = 0; i < 60; i++) yield return null;
+                    yield return Shot("town_trench.png");
+                }
+                // the road into town: the welcome board with the turns for your jobs, and a street of different houses
+                player.PlaceAt(new Vector3(350f, 0.3f, 6f), 80f);
+                for (int i = 0; i < 90; i++) yield return null;
+                yield return Shot("town_welcome.png");
+                player.PlaceAt(new Vector3(382f, 0.3f, 60f), 90f);
+                for (int i = 0; i < 90; i++) yield return null;
+                yield return Shot("town_houses.png");
                 jobsC.OpenPhone(h);
                 for (int i = 0; i < 5; i++) yield return null;
                 yield return Shot("phone.png");

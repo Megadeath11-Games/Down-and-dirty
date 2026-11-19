@@ -30,7 +30,7 @@ namespace FPSBase.Player
             Look = Cursor.lockState == CursorLockMode.Locked ? mouse.delta.ReadValue() : Vector2.zero;
             // controller: the right stick looks (a curve: fine aim near the middle, a quick turn at full tilt)
             var gp = Gamepad.current;
-            if (gp != null && Cursor.lockState == CursorLockMode.Locked)
+            if (gp != null && Cursor.lockState == CursorLockMode.Locked && !(GameUI.Instance != null && GameUI.Instance.BlocksGameplay))
             {
                 Vector2 st = gp.rightStick.ReadValue();
                 Look += st * st.magnitude * 3200f * Time.deltaTime;

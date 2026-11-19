@@ -59,6 +59,20 @@ namespace FPSBase.Core
             screen = MenuScreen.Multi; RefreshSaves(SaveGame.Mode.Multiplayer); yield return Shot("menu_multi.png");
             CloseMenu(); yield return Shot("game_hud.png");
             paused = true; yield return Shot("game_paused.png");
+            paused = false;
+            var dealer = FindFirstObjectByType<FPSBase.Mining.VehicleDealer>();
+            if (dealer != null)
+            {
+                dealer.Interact(null);
+                dealer.DevShow(0, 2);
+                for (int i = 0; i < 30 * 60 && (i < 10 || FPSBase.UI.VehiclePreviews.Pending > 0); i++) yield return null;
+                yield return Shot("shop_dealer.png");
+                dealer.DevShow(6, 30);
+                yield return Shot("shop_dealer_transport.png");
+                ClosePanel();
+            }
+            var plant = FindFirstObjectByType<FPSBase.Mining.WashPlant>();
+            if (plant != null) { plant.Interact(null); yield return Shot("panel_plant.png"); ClosePanel(); }
             Application.Quit();
         }
 

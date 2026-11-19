@@ -66,7 +66,7 @@ namespace FPSBase.Mining
             if (depth < overburdenDepth) return LTopsoil;
             if (depth < overburdenDepth + ClayThickness(wx, wz)) return LClay;
             float sandN = Mathf.PerlinNoise(wx * 0.045f + 11f, wz * 0.045f - 3f + seed * 0.05f);
-            if (sandN > 0.6f && depth < bedrockDepth - 0.8f) return LSand;
+            if (sandN > 0.6f && depth < payDepth - 0.8f) return LSand;
             return InClaim(wx, wz) ? LPay : LGravel;
         }
 
@@ -170,7 +170,7 @@ namespace FPSBase.Mining
                 float wx = origin.x + R(m, size - m), wz = origin.z + R(m, size - m);
                 float r = Mathf.Lerp(0.22f, 0.85f, Mathf.Pow(R(0f, 1f), 1.6f));
                 bool inClaim = InClaim(wx, wz);
-                float floorDepth = inClaim ? bedrockDepth : offClaimDigDepth;
+                float floorDepth = Mathf.Min(inClaim ? bedrockDepth : offClaimDigDepth, payDepth);
                 // most rocks sit in the gravel, some in the topsoil
                 float depth = R(0f, 1f) < 0.65f ? R(overburdenDepth, floorDepth) : R(0.35f, overburdenDepth);
                 depth = Mathf.Clamp(depth, r + 0.15f, floorDepth - r * 0.4f);

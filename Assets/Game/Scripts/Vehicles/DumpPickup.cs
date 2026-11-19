@@ -45,6 +45,8 @@ namespace FPSBase.Vehicles
         public float tiltSpeed = 12f;
         public float pourStartTilt = 28f;
         public float pourRate = 0.35f;       // m^3/s at full tilt
+        [Tooltip("Seconds a full box takes to rush out with the tailgate fully open and the box all the way up.")]
+        public float fullDumpSeconds = 4f;
         [Tooltip("Tailgate, hinged along its top edge: swings out as the load pushes on it.")]
         public Transform tailgate;
         public float tailgateMaxSwing = 75f;
@@ -305,7 +307,9 @@ namespace FPSBase.Vehicles
             if (tailgate != null) tailgate.localRotation = Quaternion.Euler(gateSwing, 0f, 0f); // swings out the back
             if (!flowing || tailgatePour == null) return;
             float f = Mathf.InverseLerp(pourStartTilt, maxTilt, tilt);
-            var pour = load.Take(pourRate * (0.25f + f) * Mathf.Pow(gate, 1.2f) * dt);
+            // a fully unlatched gate lets the whole load rush out in a few seconds, like a real dump truck
+            float rate = Mathf.Max(pourRate, capacity / Mathf.Max(0.5f, fullDumpSeconds) / 1.25f);
+            var pour = load.Take(rate * (0.25f + f) * Mathf.Pow(gate, 1.2f) * dt);
             if (pour.IsEmpty) return;
             Poured += pour.volume;
             // out along the gate's width (a random spot each frame: spread evenly over time)

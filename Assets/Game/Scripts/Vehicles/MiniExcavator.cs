@@ -128,6 +128,14 @@ namespace FPSBase.Vehicles
                 bucketIn = Controls.Axis(GameAction.ExBucketDump, GameAction.ExBucketCurl);
                 trackInput = Controls.Axis(GameAction.TracksForward, GameAction.TracksBack);
                 turnInput = Controls.Axis(GameAction.TracksRight, GameAction.TracksLeft);
+                // controller: while a trigger drives the tracks, the left stick steers them (instead of swinging)
+                var gp = Gamepad.current;
+                if (gp != null && !(GameUI.Instance != null && GameUI.Instance.BlocksGameplay) && Mathf.Max(gp.leftTrigger.ReadValue(), gp.rightTrigger.ReadValue()) > 0.1f)
+                {
+                    float sx = gp.leftStick.ReadValue().x;
+                    turnInput = Mathf.Clamp(turnInput + sx, -1f, 1f);
+                    swingIn = Mathf.Clamp(swingIn - sx, -1f, 1f);
+                }
             }
             else
             {
@@ -168,7 +176,9 @@ namespace FPSBase.Vehicles
             if (digging || v.magnitude < 0.12f || v.magnitude > 25f || !site.Contains(tip)) return;
             if (site.SurfaceY(tip) < tip.y + 0.02f) return; // not in the dirt
             float width = Mathf.Max(0.4f, digRadius * 2.4f);
-            LastSpread = site.Spread(tip, v.normalized, width, tip.y, Mathf.Clamp(0.25f * sizeScale, 0.15f, 0.8f));
+            // the bucket shaves unbroken ground too (a little per frame, never below the teeth), so dragging it
+            // across undug ground levels and reshapes it
+            LastSpread = site.Spread(tip, v.normalized, width, tip.y, Mathf.Clamp(0.25f * sizeScale, 0.15f, 0.8f), 1.2f * dt);
             if (LastSpread > 0.002f && Random.value < 0.15f) PourFx.Dig(tip);
         }
 

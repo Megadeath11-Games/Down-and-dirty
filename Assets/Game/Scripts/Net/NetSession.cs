@@ -867,7 +867,7 @@ namespace FPSBase.Net
         // ------------------------------------------------------------------ wash plant (the host's is the real one)
 
         /// <summary>The plants in the same order on every game (by where they stand).</summary>
-        static List<WashPlant> Plants()
+        public static List<WashPlant> Plants()
         {
             var list = new List<WashPlant>(WashPlant.All);
             list.RemoveAll(p => p == null);

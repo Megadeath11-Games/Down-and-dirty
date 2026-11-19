@@ -188,11 +188,14 @@ namespace FPSBase.Core
         static int padLookFrame = -10;
         static bool RightStickTaken(Pad p) => p >= Pad.RUp && Time.frameCount - padLookFrame <= 1;
 
+        /// <summary>A menu or panel is up: the controller is driving the pointer, not the player (the View button still closes the map).</summary>
+        static bool PadOnMenu(GameAction a) => a != GameAction.Map && GameUI.Instance != null && GameUI.Instance.BlocksGameplay;
+
         static float PadValue(GameAction a)
         {
             var p = PadOf(a);
             var c = PadCtl(p);
-            if (c == null || RightStickTaken(p)) return 0f;
+            if (c == null || RightStickTaken(p) || PadOnMenu(a)) return 0f;
             return Mathf.Clamp01(c.ReadValue());
         }
 
@@ -254,7 +257,7 @@ namespace FPSBase.Core
             if (Ctl(a)?.wasPressedThisFrame ?? false) return true;
             var p = PadOf(a);
             var c = PadCtl(p);
-            return c != null && !RightStickTaken(p) && c.wasPressedThisFrame;
+            return c != null && !RightStickTaken(p) && !PadOnMenu(a) && c.wasPressedThisFrame;
         }
         /// <summary>-1..1: keys are all-or-nothing, a stick or trigger pushes in proportion.</summary>
         public static float Axis(GameAction positive, GameAction negative)

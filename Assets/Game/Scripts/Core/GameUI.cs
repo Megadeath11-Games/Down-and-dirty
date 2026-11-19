@@ -56,10 +56,25 @@ namespace FPSBase.Core
         {
             panelTitle = title;
             panelDraw = draw;
+            panelDrawRect = null;
             panelScroll = Vector2.zero;
         }
 
-        public void ClosePanel() { panelDraw = null; towing = null; towDest = null; }
+        /// <summary>A big shop window that lays itself out in the rect it's given (no outer scroll).</summary>
+        public void OpenShop(string title, Action<Rect> draw)
+        {
+            panelTitle = title;
+            panelDraw = () => { };
+            panelDrawRect = draw;
+            panelScroll = Vector2.zero;
+        }
+
+        Action<Rect> panelDrawRect;
+        GUIStyle panelStyle;
+        /// <summary>Set by a shop: shown at the top right of its window (your money).</summary>
+        public string PanelCorner { get; set; }
+
+        public void ClosePanel() { panelDraw = null; panelDrawRect = null; PanelCorner = null; towing = null; towDest = null; }
 
         void OpenMultiplayer()
         {
@@ -460,7 +475,7 @@ namespace FPSBase.Core
             H("Controller");
             P("On foot: left stick walks, right stick looks, A jump, B crouch, L3 sprint, X use, LB / RB pick a menu option. D-pad up: metal detector, RT digs with the hand shovel.");
             P("Driving: RT gas, LT brake / reverse, left stick steers, A handbrake, X get out, R3 cab view, D-pad down: flip / unstick. Trucks: right stick looks around; RB / LB dump box up / down, Y tailgate, D-pad up 4x4, D-pad right diff lock.");
-            P("Machines: right stick works the blade / arms (pull back to raise, sideways to tilt or curl / dump); hold L3 to look around with it instead. Dozer: LB / RB swivel the blade, Y / B ripper. Excavator: left stick swings and runs the stick, right stick boom and bucket, RT / LT tracks, D-pad left / right turns, RB / LB front blade.");
+            P("Machines: right stick works the blade / arms (pull back to raise, sideways to tilt or curl / dump); hold L3 to look around with it instead. Dozer: LB / RB swivel the blade, Y / B ripper. Excavator: left stick swings and runs the stick, right stick boom and bucket. RT / LT drive the tracks, and while you hold one the left stick steers them; D-pad left / right spins on the spot. RB / LB front blade. Dozers and loaders steer with the left stick like a truck.");
             P("Menus and shops: left stick moves the pointer, A clicks, right stick scrolls, B goes back, Menu (Start) pauses. View opens the map.");
             H("Ground layers");
             P("Topsoil — top ~1.2 m. Easy digging, almost no gold.");
@@ -482,19 +497,31 @@ namespace FPSBase.Core
 
         void DrawPanel()
         {
-            float w = 560, h = Mathf.Min(620, Screen.height - 80);
-            var r = new Rect((Screen.width - w) / 2f, (Screen.height - h) / 2f, w, h);
-            GUI.Box(r, GUIContent.none, box);
-            GUI.Box(r, GUIContent.none, box);
-            GUILayout.BeginArea(new Rect(r.x + 16, r.y + 12, w - 32, h - 24));
-            GUILayout.Label(panelTitle, header);
-            GUILayout.Space(8);
-            panelScroll = GUILayout.BeginScrollView(panelScroll);
-            panelDraw?.Invoke();
-            GUILayout.EndScrollView();
-            GUILayout.Space(6);
-            if (GUILayout.Button("Close (Esc)", GUILayout.Height(32))) ClosePanel();
-            GUILayout.EndArea();
+            // the shop look (brown, gold and green) for every panel
+            var oldSkin = GUI.skin;
+            GUI.skin = FPSBase.UI.ShopTheme.Skin;
+            panelStyle ??= new GUIStyle { normal = { background = FPSBase.UI.ShopTheme.TexDeep }, border = new RectOffset(7, 7, 7, 7) };
+            bool shop = panelDrawRect != null;
+            float w = shop ? Mathf.Min(1280f, Screen.width - 40f) : 600f, h = shop ? Mathf.Min(800f, Screen.height - 40f) : Mathf.Min(660f, Screen.height - 80f);
+            var r = new Rect(Mathf.Round((Screen.width - w) / 2f), Mathf.Round((Screen.height - h) / 2f), w, h);
+            FPSBase.UI.ShopTheme.Fill(new Rect(0, 0, Screen.width, Screen.height), new Color(0f, 0f, 0f, 0.35f));
+            GUI.Box(r, GUIContent.none, panelStyle);
+            // title bar: gold title, a gold rule under it, the shop's corner note (money) on the right
+            GUI.Label(new Rect(r.x + 20, r.y + 10, w - 40, 40), panelTitle, FPSBase.UI.ShopTheme.Title);
+            if (!string.IsNullOrEmpty(PanelCorner)) GUI.Label(new Rect(r.x + 20, r.y + 14, w - 40, 32), PanelCorner, FPSBase.UI.ShopTheme.Money);
+            FPSBase.UI.ShopTheme.Fill(new Rect(r.x + 16, r.y + 54, w - 32, 2), FPSBase.UI.ShopTheme.GoldDim);
+            var body = new Rect(r.x + 18, r.y + 66, w - 36, h - 66 - 58);
+            if (shop) panelDrawRect(body);
+            else
+            {
+                GUILayout.BeginArea(body);
+                panelScroll = GUILayout.BeginScrollView(panelScroll);
+                panelDraw?.Invoke();
+                GUILayout.EndScrollView();
+                GUILayout.EndArea();
+            }
+            if (GUI.Button(new Rect(r.xMax - 200, r.yMax - 48, 182, 36), Controls.HasPad ? "Close  (Esc / B)" : "Close  (Esc)", FPSBase.UI.ShopTheme.PlainButton)) ClosePanel();
+            GUI.skin = oldSkin;
         }
 
         void DrawControlsMenu()

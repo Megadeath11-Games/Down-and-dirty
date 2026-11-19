@@ -49,6 +49,7 @@ namespace FPSBase.DebugTools
                         case "skidcarry": yield return SkidCarryTests(); break;
                         case "equip": yield return EquipTrailerTests(); break;
                         case "update8": yield return Update8Tests(); break;
+                        case "update9": yield return Update9Tests(); break;
                         case "slosh": yield return SloshTests(DigSite.Instance, FindFirstObjectByType<DumpPickup>()); break;
                         case "materials": yield return MaterialsTests(DigSite.Instance, Economy.Instance, FindFirstObjectByType<WashPlant>(), FindFirstObjectByType<DumpPickup>()); break;
                         default: log.AppendLine($"INFO  unknown quick test '{part}'"); break;
@@ -323,6 +324,8 @@ namespace FPSBase.DebugTools
             float money = eco.Money, bedAt = pk.load.volume;
             int boughtBefore = FindObjectsByType<BoughtFrom>(FindObjectsSortMode.None).Length;
 
+            var plantS = FindFirstObjectByType<WashPlant>();
+            plantS.throughput.level = 2; plantS.recovery.level = 1; plantS.scrubber.level = 3; plantS.hopperSize.level = 1;
             string err = SaveGame.Save("smoke test world", SaveGame.Mode.SinglePlayer);
             Check(err == null, $"saved the world ({err ?? "ok"})");
             var listed = SaveGame.List(SaveGame.Mode.SinglePlayer).Find(s => s.name == "smoke test world");
@@ -336,6 +339,7 @@ namespace FPSBase.DebugTools
             float h2 = site.SurfaceY(p);
             eco.Earn(5000f);
             ex.fuel = 40f;
+            plantS.throughput.level = 0; plantS.recovery.level = 0; plantS.scrubber.level = 0; plantS.hopperSize.level = 0;
             ex.transform.position += Vector3.right * 6f;
             var exRb = ex.GetComponent<Rigidbody>(); if (exRb != null) exRb.position = ex.transform.position;
             Destroy(pk.gameObject); Destroy(bw.gameObject);
@@ -349,6 +353,8 @@ namespace FPSBase.DebugTools
             float h3 = site.SurfaceY(p);
             Check(h2 < h1 - 0.2f && Mathf.Abs(h3 - h1) < 0.05f, $"the dug ground comes back as saved (saved {h1:0.00}, dug deeper {h2:0.00}, loaded {h3:0.00})");
             Check(Mathf.Abs(eco.Money - money) < 1f, $"money comes back (${eco.Money:N0}, saved ${money:N0})");
+            Check(plantS.throughput.level == 2 && plantS.recovery.level == 1 && plantS.scrubber.level == 3 && plantS.hopperSize.level == 1,
+                $"the wash plant's upgrades come back (throughput {plantS.throughput.level}, recovery {plantS.recovery.level}, scrubber {plantS.scrubber.level}, hopper {plantS.hopperSize.level}; saved 2 / 1 / 3 / 1)");
             Check(Vector3.Distance(ex.transform.position, exAt) < 0.6f && Mathf.Abs(ex.fuel - 7f) < 0.5f, $"the claim's excavator is back where it was with its fuel ({Vector3.Distance(ex.transform.position, exAt):0.00} m off, {ex.fuel:0.0} L)");
             int boughtAfter = FindObjectsByType<BoughtFrom>(FindObjectsSortMode.None).Length;
             Check(boughtAfter == boughtBefore, $"every bought machine comes back once ({boughtAfter}, saved {boughtBefore})");
@@ -786,6 +792,116 @@ namespace FPSBase.DebugTools
         /// forwards and backing up; the excavator's load lands where the dump marker shows (not under the teeth);
         /// a friend's dump shows dirt falling on your screen; a machine gets chained on a trailer a friend runs.
         /// </summary>
+        IEnumerator Update9Tests()
+        {
+            var dealer = FindFirstObjectByType<VehicleDealer>();
+            var site = DigSite.Instance;
+            // --- controller: with a menu up the sticks drive the pointer, not the player
+            {
+                var ins = UnityEngine.InputSystem.InputSystem.settings;
+                var bg0 = ins.backgroundBehavior; var ed0 = ins.editorInputBehaviorInPlayMode;
+                ins.backgroundBehavior = UnityEngine.InputSystem.InputSettings.BackgroundBehavior.IgnoreFocus;
+                ins.editorInputBehaviorInPlayMode = UnityEngine.InputSystem.InputSettings.EditorInputBehaviorInPlayMode.AllDeviceInputAlwaysGoesToGameView;
+                var gp = UnityEngine.InputSystem.InputSystem.AddDevice<UnityEngine.InputSystem.Gamepad>();
+                gp.MakeCurrent();
+                yield return null;
+                UnityEngine.InputSystem.InputSystem.QueueStateEvent(gp, new UnityEngine.InputSystem.LowLevel.GamepadState { leftStick = new Vector2(0f, 1f), rightTrigger = 1f });
+                UnityEngine.InputSystem.InputSystem.Update();
+                float free = Controls.Axis(GameAction.MoveForward, GameAction.MoveBack);
+                GameUI.Instance.OpenPanel("test", () => GUILayout.Label("test"));
+                float onMenu = Controls.Axis(GameAction.MoveForward, GameAction.MoveBack);
+                float gasOnMenu = Controls.Axis(GameAction.DriveForward, GameAction.DriveBack);
+                GameUI.Instance.ClosePanel();
+                Check(free > 0.9f && Mathf.Abs(onMenu) < 0.01f && Mathf.Abs(gasOnMenu) < 0.01f,
+                    $"controller: the left stick walks ({free:0.00}) but not with a menu open ({onMenu:0.00}, gas {gasOnMenu:0.00})");
+                UnityEngine.InputSystem.InputSystem.RemoveDevice(gp);
+                ins.backgroundBehavior = bg0; ins.editorInputBehaviorInPlayMode = ed0;
+            }
+
+            // --- how deep the 90 t can reach, and the ground lets it
+            {
+                var pf = Prefab0(dealer, "Mining Excavator");
+                Check(pf != null, "found the 90 t mining excavator");
+                if (pf != null)
+                {
+                    var ex = Instantiate(pf, new Vector3(-300f, 600f, -300f), Quaternion.identity).GetComponent<MiniExcavator>();
+                    var rb = ex.GetComponent<Rigidbody>(); if (rb != null) rb.isKinematic = true;
+                    yield return null;
+                    var T = typeof(MiniExcavator);
+                    var fb = T.GetField("boom", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                    var fs = T.GetField("stick", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                    var fk = T.GetField("bucket", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                    var ap = T.GetMethod("ApplyPose", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                    float baseY = float.MaxValue;
+                    foreach (var c in ex.GetComponentsInChildren<Collider>()) if (!c.isTrigger) baseY = Mathf.Min(baseY, c.bounds.min.y);
+                    float low = float.MaxValue;
+                    for (float b = ex.boomRange.x; b <= ex.boomRange.y; b += 2.5f)
+                        for (float st = ex.stickRange.x; st <= ex.stickRange.y; st += 5f)
+                        {
+                            fb.SetValue(ex, b); fs.SetValue(ex, st); fk.SetValue(ex, -60f); ap.Invoke(ex, null);
+                            low = Mathf.Min(low, ex.bucketTip.position.y);
+                        }
+                    float reach = baseY - low;
+                    log.AppendLine($"INFO  90 t excavator: deepest the bucket teeth reach is {reach:0.0} m below its tracks; ground goes {site.bedrockDepth:0.#} m to bedrock on the claim, {site.offClaimDigDepth:0.#} m off it");
+                    Check(reach > 5f && site.bedrockDepth >= reach, $"the 90 t can dig as deep as its arm reaches ({reach:0.0} m, bedrock at {site.bedrockDepth:0.#} m)");
+                    Destroy(ex.gameObject);
+                }
+                // dig a deep hole on the claim
+                Vector2 c2 = site.claimRect.center + new Vector2(-30f, 25f);
+                Vector3 at = new Vector3(c2.x, 0f, c2.y); at.y = site.SurfaceY(at);
+                float top = at.y;
+                for (int i = 0; i < 400; i++)
+                {
+                    float sy = site.SurfaceY(at);
+                    site.BladePush(at + Vector3.up * 0.2f, Vector3.forward, 2.5f, sy - 0.6f, 6f, out _);
+                    if (sy < top - 11.5f) break;
+                }
+                float deep = top - site.SurfaceY(at);
+                Check(deep > 9f, $"the claim can be dug 9+ m deep ({deep:0.0} m)");
+                float g45 = 0f, g10 = 0f;
+                for (int i = 0; i < 20; i++) { g45 += site.GradeAt(c2.x + i, c2.y, 4.4f); g10 += site.GradeAt(c2.x + i, c2.y, 10f); }
+                Check(g10 > g45, $"the gravel gets richer toward bedrock ({g45 / 20f:0.0} g/m3 at 4.4 m, {g10 / 20f:0.0} at 10 m)");
+            }
+
+            // --- a fully unlatched dump truck empties in a few seconds
+            foreach (var nm in new[] { "Single-Axle Dump", "Haul Truck" })
+            {
+                var pf = Prefab0(dealer, nm);
+                if (pf == null) { Check(false, $"found the {nm}"); continue; }
+                var t = Instantiate(pf, new Vector3(-260f, 600f, -260f), Quaternion.identity).GetComponent<DumpPickup>();
+                var rb = t.GetComponent<Rigidbody>(); if (rb != null) rb.isKinematic = true;
+                t.load = new MaterialLoad(t.capacity, 0f);
+                t.gateSetting = 0;
+                yield return null;
+                float tStart = Time.time; float tiltNow = 0f;
+                while (!t.load.IsEmpty && Time.time - tStart < 30f)
+                {
+                    tiltNow = Mathf.Min(t.maxTilt, tiltNow + t.tiltSpeed * Time.deltaTime);
+                    t.SetTilt(tiltNow);
+                    yield return null;
+                }
+                // from when it starts to pour (the box reaching the pour angle)
+                float secs = Time.time - tStart - t.pourStartTilt / t.tiltSpeed;
+                Check(t.load.IsEmpty && secs < 6f, $"{nm} ({t.capacity:0.#} m3), gate fully open: the load is out {secs:0.0} s after it starts to pour");
+                Destroy(t.gameObject);
+                for (int i = 0; i < 5; i++) yield return null;
+            }
+
+            // --- a dragged bucket reshapes unbroken ground
+            {
+                Vector2 c2 = site.claimRect.center + new Vector2(25f, -30f);
+                Vector3 at = new Vector3(c2.x, 0f, c2.y);
+                float y0 = site.SurfaceY(at);
+                float oldWay = site.Spread(at + Vector3.up * 0.3f, Vector3.right, 2f, y0 - 0.3f, 0.6f, 0f);
+                float moved = 0f;
+                for (int i = 0; i < 40; i++) moved += site.Spread(at + Vector3.right * (i * 0.05f), Vector3.right, 2f, y0 - 0.3f, 0.6f, 1.2f / 50f);
+                float y1 = site.SurfaceY(at);
+                Check(oldWay < 0.001f && moved > 0.2f && y1 < y0 - 0.12f,
+                    $"dragging the bucket over undug ground shaves it (before: {oldWay:0.000} m3; now {moved:0.00} m3, ground down {y0 - y1:0.00} m)");
+            }
+            yield break;
+        }
+
         IEnumerator Update8Tests()
         {
             var dealer = FindFirstObjectByType<VehicleDealer>();

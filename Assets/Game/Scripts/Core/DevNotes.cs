@@ -13,6 +13,17 @@ namespace FPSBase.Core
         /// <summary>Newest first.</summary>
         public static readonly Post[] Blog =
         {
+            new Post { date = "Update 9  ·  Nov 19, 2026", title = "New shop, deep digging, fast dumps",
+                body =
+                "<b>New</b>\n" +
+                "• The equipment dealer is redone: categories down the side, a picture of every machine, and hover over one for what it is, its price and its full spec sheet (weight, size, bucket or box, speed, fuel, hitches).\n" +
+                "• A dragged bucket reshapes undug ground: open the bucket and pull it across the grass and it shaves the high spots and pushes the dirt along, like grading with a real excavator.\n" +
+                "<b>Changed / fixed</b>\n" +
+                "• Wash plant upgrades are saved with the game.\n" +
+                "• Dig much deeper: bedrock on the claim is now 12 m down (was 4.5 m), and off the claim you can go 6 m. The 90 t reaches about 7 m below its tracks, all of it diggable. The gravel keeps getting a little richer down toward bedrock.\n" +
+                "• Dump trucks: a fully open tailgate lets the load rush out in about 4-5 seconds, whatever the size of the truck (the big ones took half a minute).\n" +
+                "• Controller: with a menu or shop open the sticks only move the pointer, your character stays put.\n" +
+                "• Controller, excavators: hold RT or LT to drive the tracks and steer them with the left stick. The D-pad still spins on the spot.\n" },
             new Post { date = "Update 8  ·  Nov 19, 2026", title = "Controller support, wide lowboys, dump marker",
                 body =
                 "<b>New</b>\n" +
@@ -112,23 +123,18 @@ namespace FPSBase.Core
                 "• Dozer berms build up properly in front of the blade." },
         };
 
-        public const string TestListVersion = "2026-11-19c";
+        public const string TestListVersion = "2026-11-19d";
 
         /// <summary>What's new in this build to try out.</summary>
         public static readonly string[] TestList =
         {
-            "Controller: drive a truck (RT / LT / left stick), the right stick looks around",
-            "Controller: dig with an excavator (both sticks), hold L3 to look around",
-            "Controller: open the pause menu (Menu) and a shop: the left stick moves the pointer, A clicks, B backs out",
-            "Drive the 50 t or 90 t excavator onto its lowboy: the tracks stay on the deck",
-            "Excavator: line the green ring up on a truck bed, dump: it lands in the bed",
-            "Multiplayer: a friend dumps their truck / bucket: you see the dirt fall",
-            "Multiplayer: your friend sits in the semi, you drive a machine onto the lowboy and get out: it chains down",
-            "Haul Truck 25t: back it up the wash plant ramp loaded, and up a hill",
-            "Drive a machine onto the lowboy and park: it gets chained down",
-            "Hook the gooseneck back on and haul: the load's tyres / tracks stay still",
-            "Get in the carried machine: the chains come off",
-            "Save with the neck off / bowser hitched, load: they come back that way",
+            "Controller: open the pause menu (Menu) and a shop: the left stick moves the pointer (not you), A clicks, B backs out",
+            "Equipment dealer: click the categories, hover over the machines for their pictures and specs, buy one",
+            "Upgrade the wash plant, save, load: the upgrades are still there",
+            "Dig a deep hole with the 90 t, as deep as the arm reaches",
+            "Open the excavator bucket and drag it across undug grass: it shaves the ground",
+            "Controller: excavator, hold RT and steer the tracks with the left stick",
+            "Dump truck: tailgate FULL OPEN, raise the box: the load rushes out in a few seconds",
             "Read the Dev Blog on the main menu",
         };
 

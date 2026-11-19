@@ -18,14 +18,16 @@ namespace FPSBase.Mining
 
         [Header("Geology (depths below original surface, m)")]
         public float overburdenDepth = 1.2f;
-        public float bedrockDepth = 4.5f;
+        public float bedrockDepth = 12f;
+        /// <summary>Depth of the main pay streak. The gravel gets richer down to here, then a little richer still toward bedrock.</summary>
+        public float payDepth = 4.5f;
         [Tooltip("Gold grade in the pay layer, grams per cubic meter (min..max across the claim).")]
         public float minGrade = 2f, maxGrade = 14f;
         public float overburdenGrade = 0.15f;
         public int seed = 1337;
         [Tooltip("World X/Z rectangle of the gold claim. Outside it the dirt has (almost) no gold and you can't dig as deep.")]
         public Rect claimRect = new Rect(50f, -30f, 40f, 40f);
-        public float offClaimDigDepth = 2.5f;
+        public float offClaimDigDepth = 6f;
 
         [Header("Loose dirt")]
         [Tooltip("Steepest slope loose dirt can hold (degrees).")]
@@ -168,8 +170,10 @@ namespace FPSBase.Mining
             float grade = Mathf.Lerp(minGrade, maxGrade, n * n);
             if (streak > 0.68f) grade *= 2f;
             // richest just above bedrock, like a real placer deposit
-            float t = Mathf.InverseLerp(overburdenDepth, bedrockDepth, depth);
-            return grade * Mathf.Lerp(0.6f, 1.4f, t) * LayerAt(worldX, worldZ, depth).gradeMul;
+            float mul = depth <= payDepth
+                ? Mathf.Lerp(0.6f, 1.4f, Mathf.InverseLerp(overburdenDepth, payDepth, depth))
+                : Mathf.Lerp(1.4f, 1.9f, Mathf.InverseLerp(payDepth, bedrockDepth, depth));
+            return grade * mul * LayerAt(worldX, worldZ, depth).gradeMul;
         }
 
         /// <summary>Loose dirt (m^3) and its gold within `radius` of a point.</summary>
@@ -350,16 +354,17 @@ namespace FPSBase.Mining
 
         /// <summary>As above; `ahead` = how far in front of the edge the dirt lands, `fromNative` = how much was cut from unbroken ground.</summary>
         public float BladePush(Vector3 edge, Vector3 forward, float width, float bottomY, float ahead, out float fromNative)
-            => BladePush(edge, forward, width, bottomY, ahead, false, out fromNative);
+            => BladePush(edge, forward, width, bottomY, ahead, float.MaxValue, out fromNative);
 
         /// <summary>
-        /// Spread loose dirt (an excavator bucket dragged or swung through a pile): like BladePush, but only the
-        /// loose layer moves; unbroken ground under it stays put. Returns m^3 moved.
+        /// Spread dirt (an excavator bucket dragged or swung through a pile): like BladePush, but it takes the
+        /// loose layer plus at most `nativeCut` metres of the unbroken ground under it, so a dragged bucket can
+        /// shave high ground and grade it, like a real one. Returns m^3 moved.
         /// </summary>
-        public float Spread(Vector3 edge, Vector3 dir, float width, float bottomY, float ahead)
-            => BladePush(edge, dir, width, bottomY, ahead, true, out _);
+        public float Spread(Vector3 edge, Vector3 dir, float width, float bottomY, float ahead, float nativeCut = 0f)
+            => BladePush(edge, dir, width, bottomY, ahead, Mathf.Max(0f, nativeCut), out _);
 
-        float BladePush(Vector3 edge, Vector3 forward, float width, float bottomY, float ahead, bool looseOnly, out float fromNative)
+        float BladePush(Vector3 edge, Vector3 forward, float width, float bottomY, float ahead, float nativeLimit, out float fromNative)
         {
             fromNative = 0f;
             forward.y = 0f; forward.Normalize();
@@ -378,7 +383,7 @@ namespace FPSBase.Mining
                     float s = Surf(x, z);
                     if (s <= bottomY + 0.01f) continue;
                     float looseHere = loose[z, x] * cellArea;
-                    float cutDepth = looseOnly ? Mathf.Min(s - bottomY, loose[z, x]) : s - bottomY;
+                    float cutDepth = Mathf.Min(s - bottomY, loose[z, x] + nativeLimit);
                     if (cutDepth <= 0.002f) continue;
                     var m = Remove(x, z, cutDepth, bottomY);
                     if (m.IsEmpty) continue;

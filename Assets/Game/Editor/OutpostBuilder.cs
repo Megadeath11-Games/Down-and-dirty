@@ -188,7 +188,7 @@ namespace FPSBase.EditorTools
                 L("Transport & fuel", "Gooseneck Equipment Trailer 10 t", 14500f, prefabs.goose10, false, "Tandem-dual gooseneck trailer (6.7 m deck, 6.8 t payload). Fit the gooseneck ball in the pickup's bed and back in under the coupler. Folding ramps at the back: lower them, drive on, park and it's chained down. Carries the skid steers and the 5 t excavator."),
                 L("Transport & fuel", "Semi Truck 25 t + RGN Lowboy", 145000f, prefabs.semis[0], true, "Tandem-drive tractor with a condo sleeper and a 25 t removable-gooseneck lowboy (6.4 m deck). Detach the neck to drop the deck, drive a machine on over the front, hook the neck back on and haul it. 600 L tank."),
                 L("Transport & fuel", "Semi Truck 55 t + RGN Lowboy", 230000f, prefabs.semis[1], true, "Tri-drive heavy hauler with a 55 t RGN lowboy (7.4 m deck, 3 axles). Carries the 20 t and 50 t excavators and the 22 t dozer. 900 L tank."),
-                L("Transport & fuel", "Semi Truck 95 t + RGN Lowboy", 360000f, prefabs.semis[2], true, "Quad-drive mining hauler, 95 t RGN lowboy with a 3.1 m wide deck and a two-axle booster. Moves the 70-90 t excavators and the mining dozer. 1,200 L tank."),
+                L("Transport & fuel", "Semi Truck 95 t + RGN Lowboy", 360000f, prefabs.semis[2], true, "Quad-drive mining hauler, 95 t RGN lowboy with a 5.2 m wide deck and a two-axle booster. Moves the 70-90 t excavators and the mining dozer. 1,200 L tank."),
             };
         }
     }

@@ -90,6 +90,7 @@ namespace FPSBase.Core
                     WriteGround(w);
                     WriteMachines(w);
                     WritePiles(w);
+                    WritePlants(w);
                 }
                 if (File.Exists(path)) File.Delete(path);
                 File.Move(tmp, path);
@@ -178,6 +179,31 @@ namespace FPSBase.Core
             foreach (var p in DirtPile.All) if (p != null && !p.load.IsEmpty) piles.Add(p);
             w.Write(piles.Count);
             foreach (var p in piles) { V3(w, p.transform.position); NetIO.Write(w, p.load); }
+        }
+
+        const int PlantsTag = 0x504C4E54; // "PLNT": the wash plants (upgrades, hopper, sluice gold, fuel). Older saves end before it.
+
+        static void WritePlants(BinaryWriter w)
+        {
+            var plants = Net.NetSession.Plants();
+            w.Write(PlantsTag); w.Write(plants.Count);
+            foreach (var p in plants)
+            {
+                var ms = new MemoryStream(); p.NetWrite(new BinaryWriter(ms));
+                w.Write((int)ms.Length); w.Write(ms.GetBuffer(), 0, (int)ms.Length);
+            }
+        }
+
+        static void ReadPlants(BinaryReader r)
+        {
+            if (r.BaseStream.Length - r.BaseStream.Position < 8 || r.ReadInt32() != PlantsTag) return;
+            var plants = Net.NetSession.Plants();
+            int n = r.ReadInt32();
+            for (int i = 0; i < n; i++)
+            {
+                var bytes = r.ReadBytes(r.ReadInt32());
+                if (i < plants.Count) plants[i].NetRead(new BinaryReader(new MemoryStream(bytes)));
+            }
         }
 
         // ------------------------------------------------------------------ load
@@ -297,6 +323,7 @@ namespace FPSBase.Core
                 }
                 int np = r.ReadInt32();
                 for (int k = 0; k < np; k++) { Vector3 p = RV3(r); var l = NetIO.ReadLoad(r); DirtPile.DropAt(p, l); }
+                ReadPlants(r);
             }
             catch (Exception e) { error = "The save is damaged: " + e.Message; }
 

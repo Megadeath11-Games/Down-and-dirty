@@ -13,6 +13,10 @@ namespace FPSBase.Core
         /// <summary>Newest first.</summary>
         public static readonly Post[] Blog =
         {
+            new Post { date = "Update 18  ·  Nov 19, 2026", title = "Town ground fixed, trench markers follow the ground",
+                body =
+                "• The town's ground was built wrong: the hills from the edge of town were squeezed in toward the yards (so some lots sloped), and a strip along East Ave and the north edge sat 8 m down. It now lies flat in town and meets the hills properly. Your saved worlds are moved onto the fixed ground when you load them, with everything you dug kept as deep as it was.\n" +
+                "• The blue trench marker follows the ground along its length (on a slope it used to float level over the low end), and the job is measured the same way: dig that deep below the ground at each point.\n" },
             new Post { date = "Update 17  ·  Nov 19, 2026", title = "Trailer decks move right away for everyone",
                 body =
                 "• When a friend tilts a trailer's deck or works its ramps, it starts moving on your screen straight away (it used to wait for the trailer's next update, up to half a second plus the lag).\n" +
@@ -192,11 +196,14 @@ namespace FPSBase.Core
                 "• Dozer berms build up properly in front of the blade." },
         };
 
-        public const string TestListVersion = "2026-11-19l";
+        public const string TestListVersion = "2026-11-19m";
 
         /// <summary>What's new in this build to try out.</summary>
         public static readonly string[] TestList =
         {
+            "Town: walk along East Ave and the north edge of town: no deep pit, the yards are flat and meet the hills",
+            "Trench job on a slope: the blue box follows the ground, dig it and get paid",
+            "Load an old save: what you dug in town is still there, at the same depth",
             "Multiplayer: your friend tilts a trailer deck: it moves on your screen right away. Then tilt one hitched to their truck yourself",
             "Main menu > Options: change the volumes, graphics and a key binding before loading in, then check they stuck in the game",
             "Excavator: hold stick in + curl + swing together (try the number pad 8/5/4/6 for boom and bucket): the panel shows all of them moving",

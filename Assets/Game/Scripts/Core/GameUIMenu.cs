@@ -118,6 +118,30 @@ namespace FPSBase.Core
                     for (int i = 0; i < 60; i++) yield return null;
                     yield return Shot("town_trench.png");
                 }
+                // the north-east corner of town (Cedar Ave / East Ave): the ground there, and a height survey in the log
+                {
+                    var tsite = FPSBase.Mining.DigSite.At(new Vector3(556f, 0f, 40f));
+                    var sb = new System.Text.StringBuilder("[Ground] Cedar/East corner, original / now (x across, z down):\n");
+                    for (float z = 80f; z >= 20f; z -= 6f)
+                    {
+                        sb.Append($"z{z,4:0}:");
+                        for (float x = 530f; x <= 600f; x += 7f)
+                        {
+                            var p = new Vector3(x, 0f, z);
+                            bool rc = Physics.Raycast(p + Vector3.up * 60f, Vector3.down, out var hit, 120f, ~0, QueryTriggerInteraction.Ignore);
+                            string o = tsite != null && tsite.Contains(p) ? $"{tsite.OriginalY(p):0.0}" : "  -";
+                            sb.Append($" {o,4}/{(rc ? hit.point.y : -99f),5:0.0}");
+                        }
+                        sb.Append('\n');
+                    }
+                    Debug.Log(sb.ToString());
+                    player.PlaceAt(new Vector3(552f, 0.3f, 30f), 20f);
+                    for (int i = 0; i < 90; i++) yield return null;
+                    yield return Shot("town_ne_corner.png");
+                    player.PlaceAt(new Vector3(540f, 0.3f, 80f), 120f);
+                    for (int i = 0; i < 90; i++) yield return null;
+                    yield return Shot("town_ne_corner2.png");
+                }
                 // the road into town: the welcome board with the turns for your jobs, and a street of different houses
                 player.PlaceAt(new Vector3(350f, 0.3f, 6f), 80f);
                 for (int i = 0; i < 90; i++) yield return null;

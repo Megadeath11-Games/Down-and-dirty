@@ -43,6 +43,42 @@ namespace FPSBase.Mining
             w.Write((byte)((trampled[z, x] ? 1 : 0) | (UnityEngine.Mathf.RoundToInt(UnityEngine.Mathf.Clamp01(packed[z, x]) * 127f) << 1)));
         }
 
+        /// <summary>
+        /// A save from before the town ground was fixed: its dug cells hold heights on the old, wrong ground (the
+        /// hills squeezed toward one corner, the east and north strips 8 m down). Work out that old ground and move
+        /// each saved cell onto the new one, keeping how deep it was dug or how high it was filled.
+        /// </summary>
+        public void RebaseOldTownGround()
+        {
+            if (primary || orig == null || res != 513) return;
+            UnityEngine.Terrain hills = null;
+            foreach (var t in UnityEngine.Terrain.activeTerrains)
+                if (t != null && t.GetComponent<DigSite>() == null && t.terrainData.size.x > 500f &&
+                    t.transform.position.x > 250f && t.transform.position.x < 350f) hills = t;
+            if (hills == null) return;
+            const int oldRes = 449; const float oldCell = 0.5f;
+            int moved = 0;
+            foreach (int i in new List<int>(everChanged)) // (a copy: MarkHeights adds to the set)
+            {
+                int x = i % res, z = i / res;
+                float old;
+                if (x >= oldRes || z >= oldRes) old = origin.y; // never filled in: the bottom of the ground
+                else
+                {
+                    var w = origin + new UnityEngine.Vector3(x * oldCell, 0f, z * oldCell);
+                    old = hills.SampleHeight(w) + hills.transform.position.y;
+                    bool edge = x == 0 || z == 0 || x == oldRes - 1 || z == oldRes - 1;
+                    if (!edge) old += (UnityEngine.Mathf.PerlinNoise(w.x * 0.4f + 5f, w.z * 0.4f + 2f) - 0.5f) * 0.05f;
+                }
+                float shift = orig[z, x] - old;
+                if (UnityEngine.Mathf.Abs(shift) < 0.005f) continue;
+                native[z, x] += shift;
+                MarkHeights(x, z);
+                moved++;
+            }
+            UnityEngine.Debug.Log($"[Save] moved {moved} of {everChanged.Count} dug town cells onto the fixed town ground");
+        }
+
         /// <summary>Read `count` cells written by WriteCell on another player's game and put them in this ground.</summary>
         public void ReadCells(BinaryReader r, int count)
         {

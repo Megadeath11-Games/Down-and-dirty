@@ -25,11 +25,12 @@ namespace FPSBase.Core
             public string path, name;
             public Mode mode;
             public DateTime saved;
+            public int version;
             public float money;
         }
 
         const int Magic = 0x44445356; // "DDSV"
-        const int Version = 1;
+        const int Version = 2; // 2: the town ground fixed (older saves' dug town cells are moved onto it)
 
         public static string Folder => Path.Combine(Application.persistentDataPath, "Saves");
         /// <summary>The world being played (loaded or last saved): saving again overwrites it.</summary>
@@ -65,7 +66,7 @@ namespace FPSBase.Core
             if (r.ReadInt32() != Magic) return null;
             int ver = r.ReadInt32();
             if (ver > Version) return null;
-            return new Info { path = path, mode = (Mode)r.ReadByte(), name = r.ReadString(), saved = new DateTime(r.ReadInt64()), money = r.ReadSingle() };
+            return new Info { path = path, version = ver, mode = (Mode)r.ReadByte(), name = r.ReadString(), saved = new DateTime(r.ReadInt64()), money = r.ReadSingle() };
         }
 
         public static void Delete(Info i) { try { File.Delete(i.path); } catch (Exception e) { Debug.LogWarning(e.Message); } }
@@ -208,14 +209,19 @@ namespace FPSBase.Core
             w.Write((int)ms.Length); w.Write(ms.GetBuffer(), 0, (int)ms.Length);
         }
 
-        static void ReadTown(BinaryReader r)
+        static void ReadTown(BinaryReader r, int version)
         {
             if (r.BaseStream.Length - r.BaseStream.Position < 8) return;
             long at = r.BaseStream.Position;
             if (r.ReadInt32() != TownTag) { r.BaseStream.Position = at; return; }
             var sites = DigSite.Ordered();
             int n = r.ReadInt32();
-            for (int i = 1; i <= n; i++) ReadGround(r, i < sites.Count ? sites[i] : null);
+            for (int i = 1; i <= n; i++)
+            {
+                var s = i < sites.Count ? sites[i] : null;
+                ReadGround(r, s);
+                if (version < 2 && s != null) s.RebaseOldTownGround();
+            }
             var bytes = r.ReadBytes(r.ReadInt32());
             if (bytes.Length > 0) FPSBase.City.Jobs.Instance?.Read(new BinaryReader(new MemoryStream(bytes)));
         }
@@ -350,7 +356,7 @@ namespace FPSBase.Core
                 int np = r.ReadInt32();
                 for (int k = 0; k < np; k++) { Vector3 p = RV3(r); var l = NetIO.ReadLoad(r); DirtPile.DropAt(p, l); }
                 ReadPlants(r);
-                ReadTown(r);
+                ReadTown(r, info.version);
             }
             catch (Exception e) { error = "The save is damaged: " + e.Message; }
 

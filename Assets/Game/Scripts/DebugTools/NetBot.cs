@@ -308,6 +308,30 @@ namespace FPSBase.DebugTools
             }
             yield return Sync("bought");
 
+            // ---------------- the friend buys the mining dozer (a heavy machine: it goes to the heavy-equipment yard)
+            {
+                int bigL = Listing(dealer, "Mining Dozer");
+                if (!host)
+                {
+                    Info($"buying the mining dozer (listing {bigL})");
+                    float t0 = Time.realtimeSinceStartup;
+                    dealer.DevDeliver(bigL);
+                    Info($"bought it in {(Time.realtimeSinceStartup - t0) * 1000f:0} ms");
+                    yield return Frames(30);
+                    var bd = Newest(typeof(Bulldozer));
+                    Check(bd != null && bd.displayName.StartsWith("Mining Dozer"), "you buy the mining dozer and it's delivered");
+                    Share("bigdozer", bd != null ? bd.NetId.ToString() : "0");
+                    yield return Seconds(3f);
+                    Check(bd != null && bd.transform.position.y > -5f, $"and it sits on the ground ({(bd != null ? bd.transform.position.y : 0f):0.0} m)");
+                }
+                else
+                {
+                    yield return Get("bigdozer"); int bid = int.Parse(got ?? "0");
+                    yield return Expect(() => ById(bid) != null && ById(bid).NetRemote, 8f, "the mining dozer your friend bought is on your game");
+                }
+                yield return Sync("bigdozer-done");
+            }
+
             // ---------------- dirt into a machine the other player runs: the host loads the friend's truck
             {
                 int tid = int.Parse(File.ReadAllText(Path.Combine(dir, "join.val.truck")));

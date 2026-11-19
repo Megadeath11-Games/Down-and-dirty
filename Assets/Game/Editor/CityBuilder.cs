@@ -483,11 +483,9 @@ namespace FPSBase.EditorTools
             return mb.Save(name);
         }
 
-        static void BuildCityField(List<Rect> hard)
+        /// <summary>The town ground's heights: the hills under it (`ground` = world height at x, z), with gentle facets.</summary>
+        static float[,] TownFieldHeights(int res, System.Func<float, float, float> ground)
         {
-            var surf = FieldMaterials();
-            const int res = 449; // 0.5 m cells over 224 m
-            var data = new TerrainData { heightmapResolution = res, size = new Vector3(CityFieldSize, FieldHeight, CityFieldSize) };
             float cell = CityFieldSize / (res - 1);
             var o = CityFieldOrigin;
             var hs = new float[res, res];
@@ -495,12 +493,38 @@ namespace FPSBase.EditorTools
                 for (int x = 0; x < res; x++)
                 {
                     var w = o + new Vector3(x * cell, 0f, z * cell);
-                    float y = eastTile.SampleHeight(w) + eastTile.transform.position.y;
+                    float y = ground(w.x, w.z);
                     bool edge = x == 0 || z == 0 || x == res - 1 || z == res - 1;
                     if (!edge) y += (Mathf.PerlinNoise(w.x * 0.4f + 5f, w.z * 0.4f + 2f) - 0.5f) * 0.05f;
                     hs[z, x] = (y - o.y) / FieldHeight;
                 }
-            data.SetHeights(0, 0, hs);
+            return hs;
+        }
+
+        /// <summary>
+        /// Fix the saved town ground in place (keeps the scene as it is): it was made 449 a side, which Unity rounded
+        /// to 513, so the hills were squeezed toward one corner and the east and north strips were left 8 m down.
+        /// </summary>
+        public static void RepairTownField()
+        {
+            var east = AssetDatabase.LoadAssetAtPath<TerrainData>($"{Gen}/TerrainDataEast.asset");
+            var town = AssetDatabase.LoadAssetAtPath<TerrainData>($"{Gen}/TownFieldData.asset");
+            Vector3 ep = new Vector3(300f, -2f, -300f);
+            float Ground(float x, float z) => east.GetInterpolatedHeight((x - ep.x) / east.size.x, (z - ep.z) / east.size.z) + ep.y;
+            town.SetHeights(0, 0, TownFieldHeights(town.heightmapResolution, Ground));
+            EditorUtility.SetDirty(town);
+            AssetDatabase.SaveAssets();
+            Debug.Log($"[Repair] town ground rebuilt: {town.heightmapResolution} a side over {town.size.x} m");
+        }
+
+        static void BuildCityField(List<Rect> hard)
+        {
+            var surf = FieldMaterials();
+            // (a heightmap is 2^n + 1 samples a side: ask for anything else and Unity rounds it up, so read back
+            // what it really is: 513 over 224 m, 0.44 m cells)
+            var data = new TerrainData { heightmapResolution = 513, size = new Vector3(CityFieldSize, FieldHeight, CityFieldSize) };
+            var o = CityFieldOrigin;
+            data.SetHeights(0, 0, TownFieldHeights(data.heightmapResolution, (x, z) => eastTile.SampleHeight(new Vector3(x, 0f, z)) + eastTile.transform.position.y));
             AssetDatabase.CreateAsset(data, $"{Gen}/TownFieldData.asset");
             var go = Terrain.CreateTerrainGameObject(data);
             go.name = "Town Ground (diggable yards)";

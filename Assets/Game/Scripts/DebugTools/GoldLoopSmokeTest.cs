@@ -812,6 +812,41 @@ namespace FPSBase.DebugTools
             Check(DigSite.At(new Vector3(h0.driveway.center.x, 0f, h0.driveway.center.y)) == town && DigSite.At(new Vector3(70f, 0f, -12f)) == main, "each place uses the ground it's on (town yards / the mine)");
             Check(DigSite.Ordered()[0] == main && DigSite.Ordered().Count == 2, "the grounds are numbered the same on every game");
 
+            // the town's ground lies on the hills round it everywhere (no squeezed hills in the yards, no 8 m pit by East Ave)
+            {
+                Terrain hills = null;
+                foreach (var t in Terrain.activeTerrains) if (t.GetComponent<DigSite>() == null && t.transform.position.x > 250f && t.transform.position.x < 350f) hills = t;
+                float worst = 0f; Vector3 worstAt = Vector3.zero;
+                if (hills != null)
+                    for (float x = 360f; x <= 580f; x += 4f)
+                        for (float z = -100f; z <= 120f; z += 4f)
+                        {
+                            var p = new Vector3(x, 0f, z);
+                            if (!town.Contains(p)) continue;
+                            float d = Mathf.Abs(town.OriginalY(p) - (hills.SampleHeight(p) + hills.transform.position.y));
+                            if (d > worst) { worst = d; worstAt = p; }
+                        }
+                Check(hills != null && worst < 0.3f, $"the town's ground meets the hills everywhere (worst {worst:0.00} m off at {worstAt.x:0}, {worstAt.z:0})");
+            }
+            // an old save's dug town cells move onto the fixed ground, as deep as they were dug
+            {
+                var nat = (float[,])typeof(DigSite).GetField("native", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance).GetValue(town);
+                var ever = (System.Collections.Generic.HashSet<int>)typeof(DigSite).GetField("everChanged", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance).GetValue(town);
+                var o = town.transform.position; int res = nat.GetLength(0); float c = 224f / (res - 1);
+                Vector3 pit = new Vector3(575f, 0f, 30f), mid = new Vector3(470f, 0f, 30f); // (the old pit by East Ave; the middle of town, flat both times)
+                int Idx(Vector3 p) => Mathf.RoundToInt((p.z - o.z) / c) * res + Mathf.RoundToInt((p.x - o.x) / c);
+                int ip = Idx(pit), im = Idx(mid);
+                float keepP = nat[ip / res, ip % res], keepM = nat[im / res, im % res];
+                nat[ip / res, ip % res] = o.y - 0.3f;                    // dug 0.3 m into the old pit's floor
+                nat[im / res, im % res] = town.OriginalY(mid) - 0.4f;      // dug 0.4 m
+                ever.Add(ip); ever.Add(im);
+                town.RebaseOldTownGround();
+                Check(Mathf.Abs(town.CutDepth(pit) - 0.3f) < 0.06f && Mathf.Abs(town.CutDepth(mid) - 0.4f) < 0.06f,
+                    $"an old save's dug town ground moves onto the fixed ground ({town.CutDepth(pit):0.00} m and {town.CutDepth(mid):0.00} m deep, were 0.30 and 0.40)");
+                nat[ip / res, ip % res] = keepP; nat[im / res, im % res] = keepM;
+                town.Flush(9999);
+            }
+
             // a driveway job
             int texts0 = jobs.texts.Count;
             var j = jobs.NewRequest(h0, FPSBase.City.JobKind.Driveway);
@@ -852,6 +887,32 @@ namespace FPSBase.DebugTools
             Vector3 A = dj.a, B = dj.b;
             log.AppendLine($"INFO  trench at {h1.Address}: {FPSBase.City.Job.Places[dj.place]}, {dj.Length:0.0} m long, {dj.depth:0.0#} m deep, {dj.width * 100f:0} cm wide, ${dj.pay:N0}");
             Check(GameObject.Find($"Job stakes: {h1.Address}")?.transform.Find("Trench Box") != null, "the trench is marked with a see-through box its size");
+            {
+                // the box follows the ground: every piece's bottom is the trench's depth below the ground under it
+                float worst = 0f; int pieces = 0;
+                foreach (Transform t in GameObject.Find($"Job stakes: {h1.Address}").transform)
+                {
+                    if (t.name != "Trench Box") continue;
+                    pieces++;
+                    float bottom = t.position.y - t.up.y * t.localScale.y / 2f;
+                    worst = Mathf.Max(worst, Mathf.Abs(town.OriginalY(t.position) - dj.depth - bottom));
+                }
+                Check(pieces >= Mathf.CeilToInt(dj.Length) && worst < 0.08f, $"the blue box follows the ground ({pieces} pieces, bottom at most {worst * 100f:0} cm off the depth)");
+            }
+            {
+                // and on a slope too: a trench up the hill at the town's south-east corner
+                var slopeJob = jobs.NewRequest(houses[6], FPSBase.City.JobKind.Ditch);
+                slopeJob.a = new Vector3(552f, 0f, -96f); slopeJob.b = new Vector3(566f, 0f, -96f); slopeJob.depth = 0.6f; slopeJob.width = 0.8f;
+                jobs.Accept(slopeJob);
+                var root = GameObject.Find($"Job stakes: {houses[6].Address}");
+                float worst = 0f, rise = town.OriginalY(slopeJob.b) - town.OriginalY(slopeJob.a);
+                if (root != null)
+                    foreach (Transform t in root.transform)
+                        if (t.name == "Trench Box")
+                            worst = Mathf.Max(worst, Mathf.Abs(town.OriginalY(t.position) - slopeJob.depth - (t.position.y - t.up.y * t.localScale.y / 2f)));
+                Check(root != null && rise > 1f && worst < 0.1f, $"on a slope ({rise:0.0} m rise) the box still follows the ground ({worst * 100f:0} cm off)");
+                jobs.Cancel(slopeJob);
+            }
             DigTrench(town, dj);
             jobs.Check(dj);
             log.AppendLine($"INFO  ditch dug: {dj.status}");

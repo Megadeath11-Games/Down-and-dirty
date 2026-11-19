@@ -565,16 +565,30 @@ namespace FPSBase.City
                 Vector3 dir = b - a; dir.y = 0f;
                 float len = dir.magnitude;
                 var rot = Quaternion.LookRotation(dir / len);
-                // the trench: a see-through light blue box, as wide and as deep as it has to be dug
-                Vector3 mid = (a + b) / 2f; float g = Mathf.Max(G(a), G(b), G(mid));
+                // the trench: a see-through light blue box, as wide and as deep as it has to be dug. It follows the
+                // ground (as the digging is measured: that deep below the ground at each point), in short pieces
+                // that tilt with the slope, so on a hillside it isn't left floating over the low end.
                 const float above = 0.35f; // stands up out of the grass so you see it before you dig
-                Box(root.transform, new Vector3(mid.x, g + (above - j.depth) / 2f, mid.z), rot, new Vector3(j.width, j.depth + above, len), TrenchMat).name = "Trench Box";
-                // its outline on the ground, and a flag at each end
                 Vector3 side = rot * Vector3.right * (j.width / 2f);
-                foreach (float sgn in new[] { -1f, 1f })
-                    Box(root.transform, new Vector3(mid.x, g + 0.04f, mid.z) + side * sgn, rot, new Vector3(0.05f, 0.05f, len), stakeMat);
+                float Ground(Vector3 p) => G(p);
+                int pieces = Mathf.Max(1, Mathf.CeilToInt(len / 1.0f));
+                Vector3 fwd = dir / len;
+                for (int k = 0; k < pieces; k++)
+                {
+                    Vector3 p0 = a + fwd * (len * k / pieces), p1 = a + fwd * (len * (k + 1) / pieces);
+                    p0.y = Ground(p0); p1.y = Ground(p1);
+                    Vector3 seg = p1 - p0, c = (p0 + p1) / 2f;
+                    var r = Quaternion.LookRotation(seg.normalized, Vector3.up);
+                    float sl = seg.magnitude + (k < pieces - 1 ? 0.02f : 0f); // (a hair of overlap: no seams)
+                    var bx = Box(root.transform, c + Vector3.up * ((above - j.depth) / 2f), r, new Vector3(j.width, j.depth + above, sl), TrenchMat);
+                    bx.name = "Trench Box";
+                    // its outline on the ground
+                    foreach (float sgn in new[] { -1f, 1f })
+                        Box(root.transform, c + Vector3.up * 0.04f + side * sgn, r, new Vector3(0.05f, 0.05f, sl), stakeMat);
+                }
+                // and across each end
                 foreach (var e in new[] { a, b })
-                    Box(root.transform, new Vector3(e.x, g + 0.04f, e.z), rot, new Vector3(j.width + 0.05f, 0.05f, 0.05f), stakeMat);
+                    Box(root.transform, new Vector3(e.x, Ground(e) + 0.04f, e.z), rot, new Vector3(j.width + 0.05f, 0.05f, 0.05f), stakeMat);
                 Post(a - rot * Vector3.forward * 0.3f + side * 1.6f); Post(b + rot * Vector3.forward * 0.3f + side * 1.6f);
             }
             // a beacon over the house you can see from the edge of town

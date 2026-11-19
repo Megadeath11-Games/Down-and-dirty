@@ -13,6 +13,11 @@ namespace FPSBase.Core
         /// <summary>Newest first.</summary>
         public static readonly Post[] Blog =
         {
+            new Post { date = "Update 15  ·  Nov 19, 2026", title = "Down and Dirty, and every excavator function at once",
+                body =
+                "<b>New</b>\n" +
+                "• The game is called Down and Dirty everywhere now: the window, the exe (Down and Dirty.exe) and the download. Your saved worlds come over from the old name by themselves the first time it starts.\n" +
+                "• Excavator: the machine panel shows what's moving right now (\"stick in + curl + swing left\"). Stick, swing, boom and bucket have always worked all at once in the game; if a combination doesn't take, it's the keyboard: many can't register some three- or four-key combinations, especially I/J/K/L held with W/A/S/D. The number pad works the right hand too (8/5 boom down/up, 4/6 curl/open), and is usually wired apart, so all four go together. A controller does all four at once as well.\n" },
             new Post { date = "Update 14  ·  Nov 19, 2026", title = "Solid multiplayer, a working main menu, lofi beats and real machine sounds",
                 body =
                 "<b>Multiplayer</b>\n" +
@@ -180,11 +185,13 @@ namespace FPSBase.Core
                 "• Dozer berms build up properly in front of the blade." },
         };
 
-        public const string TestListVersion = "2026-11-19i";
+        public const string TestListVersion = "2026-11-19j";
 
         /// <summary>What's new in this build to try out.</summary>
         public static readonly string[] TestList =
         {
+            "Excavator: hold stick in + curl + swing together (try the number pad 8/5/4/6 for boom and bucket): the panel shows all of them moving",
+            "The game starts as Down and Dirty, and your saved worlds are still there",
             "Main menu: an excavator loads dump trucks behind the menu while a dozer pushes dirt to it",
             "Music: lofi plays in the menu and in the game; Esc > Audio: music volume, Next song, music while playing",
             "Excavator: the hydraulics whine as the arm moves, groan when you dig hard, and the dirt scrapes and pours",

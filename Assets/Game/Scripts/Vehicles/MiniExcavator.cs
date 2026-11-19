@@ -441,7 +441,8 @@ namespace FPSBase.Vehicles
             $"Fuel {fuel:0.0} / {fuelCapacity:0} L\n" +
             $"Bucket: {bucketLoad.Describe()} · {bucketLoad.Grade:0.0} g/m³\n" +
             $"Bucket tip in: {TipGround} · Under bucket: {underBucket}\n" +
-            $"Controls: {(GameSettings.ExcavatorControls == ExcavatorControlMode.Realistic ? "Realistic" : "Simplified")} (change in Esc menu)" +
+            $"Controls: {(GameSettings.ExcavatorControls == ExcavatorControlMode.Realistic ? "Realistic" : "Simplified")} (change in Esc menu)\n" +
+            $"Moving now: {MovingNow()}" +
             (blade != null ? $"\nFront blade {(bladeAngle < -1f ? "down (pushes when you drive forward)" : bladeAngle > 6f ? "up" : "at ground")} - {N(GameAction.ExBladeUp)}/{N(GameAction.ExBladeDown)} blade up/down" : "");
 
         public override float HudBar => bucketLoad.volume / bucketCapacity;
@@ -454,10 +455,24 @@ namespace FPSBase.Vehicles
         public override string HudControls => GameSettings.ExcavatorControls == ExcavatorControlMode.Realistic
             ? $"Tracks: {N(GameAction.TracksForward)}/{N(GameAction.TracksBack)}/{N(GameAction.TracksLeft)}/{N(GameAction.TracksRight)}\n" +
               $"{N(GameAction.StickOut)}/{N(GameAction.StickIn)} stick out/in · {N(GameAction.SwingLeft)}/{N(GameAction.SwingRight)} swing\n" +
-              $"{N(GameAction.BoomDown)}/{N(GameAction.BoomUp)} boom down/up · {N(GameAction.ExBucketCurl)}/{N(GameAction.ExBucketDump)} bucket curl/dump\n" +
+              $"{N(GameAction.BoomDown)}/{N(GameAction.BoomUp)} boom down/up · {N(GameAction.ExBucketCurl)}/{N(GameAction.ExBucketDump)} bucket curl/dump (or numpad 8/5, 4/6)\n" +
               $"Dig: tip in the ground + curl or pull stick in · Dump: open bucket\n{N(GameAction.CabView)} cab view · {N(GameAction.Interact)} get out"
             : $"{N(GameAction.DriveForward)}{N(GameAction.SteerLeft)}{N(GameAction.DriveBack)}{N(GameAction.SteerRight)}: drive tracks\nMouse X swing · Mouse Y boom · Scroll stick\nHold LMB curl/dig · Hold RMB dump\n{N(GameAction.CabView)} cab view · {N(GameAction.Interact)} get out";
 
         static string N(GameAction a) => Controls.N(a);
+
+        /// <summary>Which functions the controls are working this moment (all of them can move together).</summary>
+        string MovingNow()
+        {
+            var i = LastInputs;
+            var l = new System.Collections.Generic.List<string>();
+            if (Mathf.Abs(i.boom) > 0.05f) l.Add(i.boom > 0f ? "boom up" : "boom down");
+            if (Mathf.Abs(i.stick) > 0.05f) l.Add(i.stick > 0f ? "stick out" : "stick in");
+            if (Mathf.Abs(i.bucket) > 0.05f) l.Add(i.bucket < 0f ? "curl" : "open");
+            if (Mathf.Abs(i.swing) > 0.05f) l.Add(i.swing > 0f ? "swing right" : "swing left");
+            if (Mathf.Abs(i.tracks) > 0.05f || Mathf.Abs(i.turn) > 0.05f) l.Add("tracks");
+            if (Mathf.Abs(i.blade) > 0.05f) l.Add("blade");
+            return l.Count == 0 ? "-" : string.Join(" + ", l);
+        }
     }
 }

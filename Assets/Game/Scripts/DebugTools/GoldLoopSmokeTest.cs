@@ -35,6 +35,7 @@ namespace FPSBase.DebugTools
                     switch (part.Trim())
                     {
                         case "dig": yield return DigCycleTests(); break;
+                        case "multi": yield return MultiControlTests(); break;
                         case "fleet2": yield return Fleet2Tests(); break;
                         case "net": yield return NetSyncTests(); yield return NetMirrorTests(); break;
                         case "update3": yield return Update3Tests(); break;
@@ -273,6 +274,7 @@ namespace FPSBase.DebugTools
             yield return PlayerTests(site, truck);
 
             yield return DigCycleTests();
+            yield return MultiControlTests();
             yield return SaveTests();
             yield return DozerBladeTests();
             yield return PickupHillTests();
@@ -2701,6 +2703,31 @@ namespace FPSBase.DebugTools
                     v.Exit();
                     for (int i = 0; i < 5; i++) yield return null;
                 }
+        }
+
+        /// <summary>Holding stick in, swing, curl and boom up together (through the real key reading): all four move.</summary>
+        IEnumerator MultiControlTests()
+        {
+            MiniExcavator ex = null;
+            foreach (var v in VehicleBase.All) if (v is MiniExcavator m && (ex == null || m.displayName.Contains("20"))) ex = m;
+            var pi = FindFirstObjectByType<PlayerInteractor>();
+            if (ex == null || pi == null) { Check(false, "an excavator to test the controls on"); yield break; }
+            ex.SetPose(15f, -90f, -40f, 0f);
+            Quaternion u0 = ex.upper.localRotation, b0 = ex.boomPivot.localRotation, s0 = ex.stickPivot.localRotation, k0 = ex.bucketPivot.localRotation;
+            ex.Interact(pi);
+            for (int i = 0; i < 5; i++) yield return null;
+            Controls.TestHeld[GameAction.StickIn] = 1f; Controls.TestHeld[GameAction.SwingLeft] = 1f;
+            Controls.TestHeld[GameAction.ExBucketCurl] = 1f; Controls.TestHeld[GameAction.BoomUp] = 1f;
+            for (float t = 0f; t < 0.6f; t += Time.deltaTime) yield return null;
+            var inp = ex.LastInputs;
+            Controls.TestHeld.Clear();
+            float du = Quaternion.Angle(u0, ex.upper.localRotation), db = Quaternion.Angle(b0, ex.boomPivot.localRotation);
+            float ds = Quaternion.Angle(s0, ex.stickPivot.localRotation), dk = Quaternion.Angle(k0, ex.bucketPivot.localRotation);
+            log.AppendLine($"INFO  four at once: inputs boom {inp.boom:0.0} stick {inp.stick:0.0} bucket {inp.bucket:0.0} swing {inp.swing:0.0}; moved swing {du:0.0} boom {db:0.0} stick {ds:0.0} bucket {dk:0.0} deg");
+            Check(inp.boom > 0.5f && inp.stick < -0.5f && inp.bucket < -0.5f && inp.swing < -0.5f, "excavator: four controls held at once all register");
+            Check(du > 2f && db > 2f && ds > 2f && dk > 2f, "excavator: swing, boom, stick and bucket all move at the same time");
+            ex.Exit();
+            for (int i = 0; i < 5; i++) yield return null;
         }
 
         IEnumerator DigCycleTests()

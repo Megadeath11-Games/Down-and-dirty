@@ -249,6 +249,24 @@ namespace FPSBase.Core
             PlayerPrefs.Save();
         }
 
+        /// <summary>
+        /// Second keys for the excavator's right hand: the number pad (8/5 boom down/up, 4/6 bucket curl/open).
+        /// Many keyboards can't register some three- or four-key combinations (I/J/K/L held together with W/A/S/D
+        /// is a common one); the number pad is usually wired apart, so stick, swing, boom and bucket all work at once.
+        /// </summary>
+        static readonly Dictionary<GameAction, Key> Alt = new()
+        {
+            [GameAction.BoomDown] = Key.Numpad8, [GameAction.BoomUp] = Key.Numpad5,
+            [GameAction.ExBucketCurl] = Key.Numpad4, [GameAction.ExBucketDump] = Key.Numpad6,
+        };
+        public static string AltName(GameAction a) => Alt.TryGetValue(a, out var k) ? KeyName(k) : null;
+        static bool Down(GameAction a)
+        {
+            if (Ctl(a)?.isPressed ?? false) return true;
+            var kb = Keyboard.current;
+            return kb != null && Alt.TryGetValue(a, out var k) && Get(a) != k && kb[k].isPressed;
+        }
+
         static KeyControl Ctl(GameAction a)
         {
             var kb = Keyboard.current;
@@ -257,7 +275,7 @@ namespace FPSBase.Core
             return kb[k];
         }
 
-        public static bool Held(GameAction a) => (Ctl(a)?.isPressed ?? false) || PadValue(a) > 0.5f;
+        public static bool Held(GameAction a) => Down(a) || PadValue(a) > 0.5f;
         public static bool Pressed(GameAction a)
         {
             if (Ctl(a)?.wasPressedThisFrame ?? false) return true;
@@ -273,7 +291,7 @@ namespace FPSBase.Core
         public static float Axis(GameAction positive, GameAction negative)
         {
             if (TestHeld.Count > 0) return Mathf.Clamp(TestValue(positive) - TestValue(negative), -1f, 1f);
-            float k = ((Ctl(positive)?.isPressed ?? false) ? 1f : 0f) - ((Ctl(negative)?.isPressed ?? false) ? 1f : 0f);
+            float k = (Down(positive) ? 1f : 0f) - (Down(negative) ? 1f : 0f);
             return Mathf.Clamp(k + PadValue(positive) - PadValue(negative), -1f, 1f);
         }
 

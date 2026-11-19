@@ -60,6 +60,8 @@ namespace FPSBase.Vehicles
         public void SetTilt(float deg) { tilt = Mathf.Clamp(deg, 0f, maxTilt); if (bedPivot != null) bedPivot.localRotation = Quaternion.Euler(-tilt, 0f, 0f); }
 
         public MaterialLoad load;
+        [Tooltip("Low gears: how many times the engine's pull at a crawl (fading to 1x by about a third of top speed). Big trucks climb ramps on this.")]
+        public float lowGearBoost = 1f;
         float tilt;
         Rigidbody rb;
 
@@ -85,7 +87,10 @@ namespace FPSBase.Vehicles
         public override void NetRead(System.IO.BinaryReader r)
         {
             base.NetRead(r);
-            netTilt = r.ReadSingle(); netGate = r.ReadSingle(); gateSetting = r.ReadInt32(); load = NetIO.ReadLoad(r);
+            netTilt = r.ReadSingle(); netGate = r.ReadSingle(); gateSetting = r.ReadInt32();
+            var was = load; load = NetIO.ReadLoad(r);
+            // their box tipped and the load went down: draw it pouring out of the tailgate here too
+            if (was.volume - load.volume > 1e-4f && netTilt > pourStartTilt * 0.8f) { netSpill += was.volume - load.volume; netSpillMix = was; }
             bool goose = r.ReadBoolean();
             if (gooseneckBall != null && goose != gooseneckFitted) { gooseneckFitted = goose; gooseneckBall.SetActive(goose); }
         }
@@ -97,7 +102,15 @@ namespace FPSBase.Vehicles
             if (tailgate != null) tailgate.localRotation = Quaternion.Euler(gateSwing, 0f, 0f); // swings out the back
             UpdateContents();
             NetWheels();
+            if (netSpill > 1e-5f && tailgatePour != null)
+            {
+                float give = Mathf.Min(netSpill, Mathf.Max(0.004f, netSpill * Mathf.Clamp01(dt * 6f)));
+                netSpill -= give;
+                Vector3 across = (bedPivot != null ? bedPivot.right : transform.right) * (Random.Range(-1f, 1f) * bedInnerSize.x * 0.45f);
+                FPSBase.Mining.DirtGrains.PourVisual(tailgatePour.position + across, netSpillMix.Scaled(give / Mathf.Max(1e-4f, netSpillMix.volume)), transform);
+            }
         }
+        float netSpill; MaterialLoad netSpillMix;
 
         // another player drives it: its wheel physics is off here, so roll the wheels by how far it moves on screen
         float[] netSpin; Vector3 netLastPos; bool netHasPos;
@@ -323,6 +336,7 @@ namespace FPSBase.Vehicles
             bool low = mode == DriveMode.FourLow;
             float top = low ? lowRangeTopKmh : topSpeedKmh;
             float total = (!braking && kmh < top) ? throttle * motorTorque * 4f * (low ? lowRange : 1f) : 0f;
+            total *= Mathf.Lerp(lowGearBoost, 1f, kmh / Mathf.Max(1f, top * 0.35f)); // low gears at a crawl
             float front = mode == DriveMode.TwoHigh ? 0f : total * 0.5f, rear = total - front;
             AxleTorque(0, 1, front, false);      // the front diff is always open
             // the rear drive is shared over every rear axle (the 25 t hauler's tandem gets half each)

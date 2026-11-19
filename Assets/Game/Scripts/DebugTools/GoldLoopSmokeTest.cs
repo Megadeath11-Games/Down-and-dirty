@@ -48,6 +48,7 @@ namespace FPSBase.DebugTools
                         case "heavy": yield return HeavyTests(); break;
                         case "skidcarry": yield return SkidCarryTests(); break;
                         case "equip": yield return EquipTrailerTests(); break;
+                        case "update8": yield return Update8Tests(); break;
                         case "slosh": yield return SloshTests(DigSite.Instance, FindFirstObjectByType<DumpPickup>()); break;
                         case "materials": yield return MaterialsTests(DigSite.Instance, Economy.Instance, FindFirstObjectByType<WashPlant>(), FindFirstObjectByType<DumpPickup>()); break;
                         default: log.AppendLine($"INFO  unknown quick test '{part}'"); break;
@@ -780,6 +781,186 @@ namespace FPSBase.DebugTools
             saved.Position = 0; plant.NetRead(new System.IO.BinaryReader(saved));
         }
 
+        /// <summary>
+        /// Update 8: a controller's sticks and triggers work the controls; the 25 t haul truck climbs a 13 deg ramp
+        /// forwards and backing up; the excavator's load lands where the dump marker shows (not under the teeth);
+        /// a friend's dump shows dirt falling on your screen; a machine gets chained on a trailer a friend runs.
+        /// </summary>
+        IEnumerator Update8Tests()
+        {
+            var dealer = FindFirstObjectByType<VehicleDealer>();
+            // --- controller
+            {
+                var ins = UnityEngine.InputSystem.InputSystem.settings;
+                var bg0 = ins.backgroundBehavior; var ed0 = ins.editorInputBehaviorInPlayMode;
+                ins.backgroundBehavior = UnityEngine.InputSystem.InputSettings.BackgroundBehavior.IgnoreFocus;
+                ins.editorInputBehaviorInPlayMode = UnityEngine.InputSystem.InputSettings.EditorInputBehaviorInPlayMode.AllDeviceInputAlwaysGoesToGameView;
+                var gp = UnityEngine.InputSystem.InputSystem.AddDevice<UnityEngine.InputSystem.Gamepad>();
+                gp.MakeCurrent();
+                yield return null;
+                void PadState(UnityEngine.InputSystem.LowLevel.GamepadState st) { UnityEngine.InputSystem.InputSystem.QueueStateEvent(gp, st); UnityEngine.InputSystem.InputSystem.Update(); }
+                PadState(new UnityEngine.InputSystem.LowLevel.GamepadState { rightTrigger = 1f, leftStick = new Vector2(-0.6f, 0f) });
+                log.AppendLine($"INFO  virtual pad: current {(UnityEngine.InputSystem.Gamepad.current == gp)}, enabled {gp.enabled}, RT {gp.rightTrigger.ReadValue():0.00}, L-stick {gp.leftStick.ReadValue()}");
+                float thr = Controls.Axis(GameAction.DriveForward, GameAction.DriveBack), st = Controls.Axis(GameAction.SteerRight, GameAction.SteerLeft);
+                Check(thr > 0.95f && st < -0.3f && st > -0.9f, $"controller: RT is the gas ({thr:0.00}), the left stick steers in proportion ({st:0.00} for 60% left)");
+                PadState(new UnityEngine.InputSystem.LowLevel.GamepadState().WithButton(UnityEngine.InputSystem.LowLevel.GamepadButton.Y));
+                Check(Controls.Pressed(GameAction.Tailgate), "controller: Y works the tailgate");
+                PadState(new UnityEngine.InputSystem.LowLevel.GamepadState { rightStick = new Vector2(0f, -1f) });
+                float boom = Controls.Axis(GameAction.BoomUp, GameAction.BoomDown);
+                Controls.PadLooking();
+                float boomLooking = Controls.Axis(GameAction.BoomUp, GameAction.BoomDown);
+                Check(boom > 0.9f && Mathf.Abs(boomLooking) < 0.01f, $"controller: right stick back raises the boom ({boom:0.00}), not while L3 looks around with it ({boomLooking:0.00})");
+                PadState(new UnityEngine.InputSystem.LowLevel.GamepadState());
+                yield return null; yield return null;
+                Check(Mathf.Abs(Controls.Axis(GameAction.DriveForward, GameAction.DriveBack)) < 0.01f, "controller: let go, nothing pushed");
+                UnityEngine.InputSystem.InputSystem.RemoveDevice(gp);
+                ins.backgroundBehavior = bg0; ins.editorInputBehaviorInPlayMode = ed0;
+            }
+
+            // --- the 25 t haul truck: back it up the wash plant's loading ramp (12.7 deg, 8 m), then steeper test ramps
+            {
+                var hp = Prefab0(dealer, "Haul Truck");
+                Transform rampT = null;
+                foreach (var tr in FindObjectsByType<Transform>(FindObjectsSortMode.None)) if (tr.name == "Ramp" && tr.parent != null && tr.parent.name == "WashPlant Loading Ramp") rampT = tr;
+                Check(rampT != null, "found the wash plant's loading ramp");
+                IEnumerator Run(Vector3 start, Quaternion rot, float throttle, bool old, float seconds, System.Action<float> got)
+                {
+                    var t = Instantiate(hp, start + Vector3.up * 1.2f, rot).GetComponent<DumpPickup>();
+                    if (old) { t.lowGearBoost = 1f; t.rearLocked = false; }
+                    t.load = new MaterialLoad(t.capacity, 0f);
+                    for (int i = 0; i < 75; i++) yield return new WaitForFixedUpdate();
+                    float y0 = t.wheels[t.wheels.Length - 1].transform.position.y;
+                    t.TestDrive(throttle);
+                    float best = 0f;
+                    for (int i = 0; i < 50 * seconds; i++)
+                    {
+                        yield return new WaitForFixedUpdate();
+                        // how high the last axle got (backing up: it leads the way up)
+                        best = Mathf.Max(best, (throttle < 0f ? t.wheels[t.wheels.Length - 1] : t.wheels[0]).transform.position.y - y0);
+                    }
+                    t.TestDrive(0f);
+                    got(best);
+                    Destroy(t.gameObject);
+                    for (int i = 0; i < 10; i++) yield return new WaitForFixedUpdate();
+                }
+                if (rampT != null)
+                {
+                    // up the slope = the ramp's +x; back up it: nose pointing down the slope, the rear axles going up first
+                    Vector3 up = Vector3.ProjectOnPlane(rampT.right, Vector3.up).normalized;
+                    float slant = rampT.localScale.x;
+                    Vector3 bottom = rampT.position - rampT.right * slant * 0.5f;
+                    Vector3 start = VehicleDealer.GroundAt(bottom - up * 7.5f);
+                    Quaternion back = Quaternion.LookRotation(-up);
+                    float hOld = 0f, hNew = 0f;
+                    yield return Run(start, back, -1f, true, 14, h => hOld = h);
+                    yield return Run(start, back, -1f, false, 14, h => hNew = h);
+                    log.AppendLine($"INFO  backing the full haul truck up the wash plant ramp: its back axle got {hOld:0.00} m up before the fix, {hNew:0.00} m now (the deck is 1.8 m up)");
+                    Check(hNew > 1.5f, $"the 25 t haul truck, full, backs up the wash plant ramp ({hNew:0.00} m up)");
+                }
+                foreach (float ang in new[] { 18f, 22f })
+                {
+                    Vector3 padAt = new Vector3(300f, 400f, ang * 20f);
+                    var pad = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                    pad.transform.position = padAt + Vector3.down * 0.5f; pad.transform.localScale = new Vector3(80f, 1f, 120f);
+                    const float len = 18f;
+                    float rise = len * Mathf.Sin(ang * Mathf.Deg2Rad), runL = len * Mathf.Cos(ang * Mathf.Deg2Rad);
+                    var ramp = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                    ramp.transform.rotation = Quaternion.Euler(-ang, 0f, 0f);
+                    ramp.transform.localScale = new Vector3(6f, 0.5f, len);
+                    ramp.transform.position = padAt + new Vector3(0f, rise * 0.5f, runL * 0.5f) - ramp.transform.up * 0.25f;
+                    var top = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                    top.transform.localScale = new Vector3(6f, rise, 16f);
+                    top.transform.position = padAt + new Vector3(0f, rise * 0.5f, runL + 8f);
+                    Physics.SyncTransforms();
+                    float hOld = 0f, hF = 0f, hB = 0f;
+                    yield return Run(padAt + new Vector3(0f, 0f, -8f), Quaternion.identity, 1f, true, 18, h => hOld = h);
+                    yield return Run(padAt + new Vector3(0f, 0f, -8f), Quaternion.identity, 1f, false, 18, h => hF = h);
+                    yield return Run(padAt + new Vector3(0f, 0f, -8f), Quaternion.Euler(0f, 180f, 0f), -1f, false, 18, h => hB = h);
+                    log.AppendLine($"INFO  full haul truck on a {ang:0} deg slope ({rise:0.0} m up): before the fix {hOld:0.0} m; now forwards {hF:0.0} m, backing {hB:0.0} m");
+                    if (ang < 20f)
+                    {
+                        Check(hF > rise - 0.6f, $"the full haul truck drives up an {ang:0} deg hill ({hF:0.0} of {rise:0.0} m)");
+                        Check(hB > rise - 0.6f, $"and backs up it ({hB:0.0} of {rise:0.0} m)");
+                    }
+                    Destroy(pad); Destroy(ramp); Destroy(top);
+                    yield return null;
+                }
+            }
+
+            // --- the excavator's load lands where the marker points (where the open bucket's mouth will be)
+            {
+                Vector3 padAt = new Vector3(420f, 400f, 0f);
+                var pad = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                pad.transform.position = padAt + Vector3.down * 0.5f; pad.transform.localScale = new Vector3(60f, 1f, 60f);
+                Physics.SyncTransforms();
+                var ex = Instantiate(Prefab0(dealer, "Excavator 20 t"), padAt + Vector3.up * 0.4f, Quaternion.identity).GetComponent<MiniExcavator>();
+                for (int i = 0; i < 50; i++) yield return new WaitForFixedUpdate();
+                ex.SetPose(35f, -80f, -130f, 0f); // carrying: boom up, bucket curled in
+                yield return null;
+                float aim = Mathf.Lerp(ex.dumpAngle, ex.bucketRange.y, 0.5f);
+                Vector3 P = ex.DumpPoint(aim), teeth = ex.bucketTip.position;
+                Vector2 Flat(Vector3 v) => new Vector2(v.x, v.z);
+                log.AppendLine($"INFO  bucket curled: the teeth are {Vector2.Distance(Flat(teeth), Flat(P)):0.00} m (across the ground) from where the load will come out");
+                var tk = Instantiate(Prefab0(dealer, "Single-Axle Dump Truck"), padAt + new Vector3(0f, 1f, 9f), Quaternion.Euler(0f, 90f, 0f)).GetComponent<DumpPickup>();
+                yield return null;
+                Transform bedV = null; foreach (var tr in tk.GetComponentsInChildren<Transform>()) if (tr.name == "BedVolume") bedV = tr;
+                Vector3 bc = bedV != null ? bedV.position : tk.transform.position;
+                tk.transform.position += new Vector3(P.x - bc.x, 0f, P.z - bc.z); tk.GetComponent<Rigidbody>().position = tk.transform.position;
+                Physics.SyncTransforms();
+                for (int i = 0; i < 50 * 2; i++) yield return new WaitForFixedUpdate();
+                float load = ex.bucketCapacity;
+                ex.bucketLoad = new MaterialLoad(load, 0f);
+                yield return null;
+                ex.SetPose(35f, -80f, aim, 0f); // open it to dump
+                for (int i = 0; i < 50 * 6; i++) yield return new WaitForFixedUpdate();
+                DirtGrains.FastForward();
+                yield return null;
+                Check(tk.load.volume > load * 0.8f, $"lined up on the marker, the excavator's dump lands in the truck ({tk.load.volume:0.00} of {load:0.00} m³ in the bed)");
+                Destroy(ex.gameObject); Destroy(tk.gameObject); Destroy(pad);
+                yield return null;
+            }
+
+            // --- a friend tips their dump truck: you see the dirt falling (just for show: no dirt lands twice)
+            {
+                Vector3 at = new Vector3(470f, 400f, 0f);
+                var pad = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                pad.transform.position = at + Vector3.down * 0.5f; pad.transform.localScale = new Vector3(30f, 1f, 30f);
+                Physics.SyncTransforms();
+                var b = Instantiate(Prefab0(dealer, "Single-Axle Dump Truck"), at + Vector3.up * 0.8f, Quaternion.identity).GetComponent<DumpPickup>();
+                yield return null;
+                b.load = new MaterialLoad(b.capacity, 0f); b.SetTilt(50f);
+                var m1 = new System.IO.MemoryStream(); b.NetWrite(new System.IO.BinaryWriter(m1));
+                b.load = new MaterialLoad(b.capacity * 0.8f, 0f);
+                var m2 = new System.IO.MemoryStream(); b.NetWrite(new System.IO.BinaryWriter(m2));
+                b.SetNetRemote(true);
+                m1.Position = 0; b.NetRead(new System.IO.BinaryReader(m1));
+                int g0 = DirtGrains.Live; float poured0 = b.Poured;
+                m2.Position = 0; b.NetRead(new System.IO.BinaryReader(m2));
+                int most = 0;
+                for (int i = 0; i < 40; i++) { yield return null; most = Mathf.Max(most, DirtGrains.Live - g0); }
+                Check(most > 10 && b.Poured == poured0, $"a friend tipping their truck: dirt falls out of the tailgate on your screen ({most} clods; this copy poured {b.Poured - poured0:0.00} m³ itself)");
+                Destroy(b.gameObject); Destroy(pad);
+                yield return null;
+            }
+
+            // --- a friend sits in the truck: the trailer is theirs, but your machine still gets chained on it
+            {
+                Vector3 at = new Vector3(520f, 400f, 0f);
+                var pad = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                pad.transform.position = at + Vector3.down * 0.5f; pad.transform.localScale = new Vector3(40f, 1f, 40f);
+                Physics.SyncTransforms();
+                var t = Instantiate(Prefab0(dealer, "Tilt-Deck Equipment Trailer"), at + Vector3.up * 1f, Quaternion.identity).GetComponent<Trailer>();
+                for (int i = 0; i < 50 * 2; i++) yield return new WaitForFixedUpdate();
+                t.NetSetRemote(true);
+                var m = Instantiate(Prefab0(dealer, "Compact Track Loader"), t.deckArea.position + Vector3.up * 0.8f, t.transform.rotation).GetComponent<VehicleBase>();
+                for (int i = 0; i < 50 * 4 && !t.Carries(m); i++) yield return new WaitForFixedUpdate();
+                Check(t.NetRemote && t.Carries(m), $"on a trailer a friend's game runs (they're sitting in the truck), your parked machine is chained down (remote {t.NetRemote}, chained {t.Carries(m)})");
+                Trailer.ReleaseCargo(m);
+                Destroy(m.gameObject); Destroy(t.gameObject); Destroy(pad);
+                yield return null;
+            }
+        }
+
         static GameObject Prefab0(VehicleDealer dealer, string n) { foreach (var l in dealer.listings) if (l.name.Contains(n)) return l.prefab; return null; }
 
         IEnumerator SkidCarryTests()
@@ -1195,7 +1376,6 @@ namespace FPSBase.DebugTools
                 bw.transform.rotation = Quaternion.AngleAxis(60f, bw.transform.forward) * bw.transform.rotation;
                 bwrb.rotation = bw.transform.rotation;
                 Physics.SyncTransforms();
-                for (int i = 0; i < 50; i++) yield return new WaitForFixedUpdate();
                 var up = FindOption(bw, "Set it back upright");
                 Check(up != null, $"a hitched bowser leaning on its side offers \"Set it back upright\" (up {bw.transform.up.y:0.00})");
                 up?.run(pi);
@@ -1207,7 +1387,6 @@ namespace FPSBase.DebugTools
                 bw.transform.rotation = Quaternion.AngleAxis(88f, bw.transform.forward) * bw.transform.rotation;
                 bwrb.rotation = bw.transform.rotation;
                 Physics.SyncTransforms();
-                for (int i = 0; i < 50 * 2; i++) yield return new WaitForFixedUpdate();
                 up = FindOption(bw, "Set it back upright");
                 up?.run(pi);
                 for (int i = 0; i < 50 * 2; i++) yield return new WaitForFixedUpdate();
@@ -1435,8 +1614,76 @@ namespace FPSBase.DebugTools
             Check(!low.Carries(ctl) && !crb.isKinematic && ctl.transform.parent == null && !ctl.RidingTrailer, "getting in (or towing) the machine takes the chains off");
 
             Destroy(ctl.gameObject);
+            // the big excavators fit their lowboys: drive the 50 t onto the 55 t, the 90 t onto the 95 t
+            if (semis.Count == 3)
+            {
+                semi.gameObject.SetActive(false); low.gameObject.SetActive(false);
+                yield return WideLoad(semis[1], "Heavy Excavator 50", pi);
+                semis[1].gameObject.SetActive(false); if (semis[1].Towing != null) semis[1].Towing.gameObject.SetActive(false);
+                yield return WideLoad(semis[2], "Mining Excavator 90", pi);
+            }
             foreach (var s in semis) { if (s.Towing != null) Destroy(s.Towing.gameObject); Destroy(s.gameObject); }
             yield return null;
+        }
+
+        /// <summary>Drop the lowboy's neck, drive the machine on over the front: both tracks stay on the deck and it's chained down.</summary>
+        IEnumerator WideLoad(SemiTruck s, string machine, PlayerInteractor pi)
+        {
+            var dealer = FindFirstObjectByType<VehicleDealer>();
+            GameObject pf = null; foreach (var l in dealer.listings) if (l.name.Contains(machine)) pf = l.prefab;
+            Check(pf != null, $"dealer sells the {machine} t");
+            if (pf == null) yield break;
+            s.gameObject.SetActive(true);
+            var low = s.Towing;
+            if (low == null) { Check(false, $"{s.displayName} has its lowboy"); yield break; }
+            low.gameObject.SetActive(true);
+            for (int i = 0; i < 50; i++) yield return new WaitForFixedUpdate();
+            FindOption(low, "Detach the gooseneck")?.run(pi);
+            for (int i = 0; i < 50 * 2; i++) yield return new WaitForFixedUpdate();
+            var srb = s.GetComponent<Rigidbody>();
+            s.TestDrive(0.4f);
+            for (int i = 0; i < 50 * 7; i++) yield return new WaitForFixedUpdate();
+            s.TestDrive(0f);
+            for (int i = 0; i < 50 * 6 && (i < 50 || srb.linearVelocity.magnitude > 0.2f); i++) yield return new WaitForFixedUpdate();
+            Check(!low.NeckOn && Vector3.Distance(low.neckSocket.position, low.deckSocket.position) > 8f, $"{low.displayName}: gooseneck off, deck down, the tractor pulled clear ({Vector3.Distance(low.neckSocket.position, low.deckSocket.position):0.0} m)");
+
+            var m = Instantiate(pf, Vector3.down * 400f, Quaternion.identity).GetComponent<VehicleBase>();
+            var mex = m as MiniExcavator; var mem = m as EarthmoverBase;
+            void Go(float t) { if (mex != null) mex.TestControl(t == 0f ? (MiniExcavator.Inputs?)null : new MiniExcavator.Inputs { tracks = t }); else mem?.TestDrive(t); }
+            var tb = m.GetComponent<BoxCollider>(); // the track frame: gauge plus a shoe across, track length long
+            Vector3 front = low.deckSocket.position + low.transform.forward * ((tb != null ? tb.size.z * 0.5f : 3f) + 0.8f);
+            m.transform.SetPositionAndRotation(VehicleDealer.GroundAt(front) + Vector3.up * 0.3f, Quaternion.LookRotation(-low.transform.forward));
+            var mrb = m.GetComponent<Rigidbody>(); mrb.isKinematic = false; mrb.position = m.transform.position; mrb.rotation = m.transform.rotation;
+            Physics.SyncTransforms();
+            if (mex != null)
+            {
+                // boom up a bit so the bucket rides clear of the deck
+                mex.TestControl(new MiniExcavator.Inputs { boom = 1f });
+                for (int i = 0; i < 50; i++) yield return new WaitForFixedUpdate();
+            }
+            for (int i = 0; i < 50; i++) yield return new WaitForFixedUpdate();
+            Go(0.7f);
+            float worstX = 0f; Vector3 deck0 = low.transform.position;
+            for (int i = 0; i < 50 * 25; i++)
+            {
+                yield return new WaitForFixedUpdate();
+                Vector3 l = low.deckArea.InverseTransformPoint(m.transform.position);
+                if (i % 50 == 0) log.AppendLine($"INFO    t {i / 50}: deck-local ({l.x:0.00}, {l.y:0.00}, {l.z:0.00}) yaw {Vector3.SignedAngle(low.deckArea.forward, m.transform.forward, low.deckArea.up):0} pitch {Vector3.Angle(m.transform.up, low.deckArea.up):0.0} deck up {low.transform.up.y:0.000} deck moved {Vector3.Distance(low.transform.position, deck0):0.00} touching {(m is EarthmoverBase eb ? eb.Suspension.Touching : (m is MiniExcavator mx ? mx.suspension.Touching : -1))}");
+                if (l.z < low.deckSize.y * 0.5f) worstX = Mathf.Max(worstX, Mathf.Abs(l.x));
+                if (Mathf.Abs(l.z) < 0.6f) break;
+            }
+            Go(0f);
+            for (int i = 0; i < 50 * 3; i++) yield return new WaitForFixedUpdate();
+            Vector3 on = low.deckArea.InverseTransformPoint(m.transform.position);
+            // the outside of the tracks, across the machine (its bounds without the boom: the track frame is the widest low part)
+            float trackHalf = tb != null ? tb.size.x * 0.5f : 0f;
+            float edge = Mathf.Abs(on.x) + trackHalf;
+            log.AppendLine($"INFO  carried {low.Carries(m)}, deck-local z {on.z:0.00} y {on.y:0.00}");
+            log.AppendLine($"INFO  {m.displayName} on the {low.displayName}: deck {low.deckSize.x:0.00} m wide, tracks {trackHalf * 2f:0.00} m across, off-centre {on.x:0.00} m (worst {worstX:0.00} m), tilt {Vector3.Angle(m.transform.up, low.transform.up):0.0} deg");
+            Check(low.Carries(m) && Mathf.Abs(on.y) < 0.4f && edge < low.deckSize.x * 0.5f + 0.02f && Vector3.Angle(m.transform.up, low.transform.up) < 4f,
+                $"the {m.displayName} drives onto the {low.displayName} and is chained, both tracks on the deck (outer edge {edge:0.00} m of {low.deckSize.x * 0.5f:0.00} m half-width)");
+            Trailer.ReleaseCargo(m);
+            Destroy(m.gameObject);
         }
 
         static bool ContainsTank(FuelTank t) { foreach (var x in FuelTank.All) if (x == t) return true; return false; }

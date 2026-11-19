@@ -53,7 +53,25 @@ namespace FPSBase.Vehicles
                 yawOffset += d.x;
                 pitchOffset = Mathf.Clamp(pitchOffset - d.y, cabView ? -60f : -10f, cabView ? 60f : 60f);
             }
-            if (!AllowMouse) { yawOffset = Mathf.MoveTowards(yawOffset, 0f, 90f * Time.deltaTime); pitchOffset = Mathf.MoveTowards(pitchOffset, 0f, 60f * Time.deltaTime); }
+            // controller: the right stick looks around. Trucks don't use it for anything else; on a machine it runs
+            // the blade / arms / boom, so hold L3 (left stick click) to look with it instead
+            var gp = Gamepad.current;
+            bool padLook = false;
+            if (!blocked && gp != null)
+            {
+                var vb = target.GetComponentInParent<VehicleBase>();
+                bool free = vb is DumpPickup || vb is SemiTruck;
+                if (!free && gp.leftStickButton.isPressed) { Controls.PadLooking(); free = true; }
+                Vector2 st = gp.rightStick.ReadValue();
+                if (free && st.sqrMagnitude > 0.01f)
+                {
+                    padLook = true;
+                    if (GameSettings.InvertY) st.y = -st.y;
+                    yawOffset += st.x * 140f * Time.deltaTime;
+                    pitchOffset = Mathf.Clamp(pitchOffset - st.y * 90f * Time.deltaTime, cabView ? -60f : -10f, 60f);
+                }
+            }
+            if (!AllowMouse && !padLook) { yawOffset = Mathf.MoveTowards(yawOffset, 0f, 90f * Time.deltaTime); pitchOffset = Mathf.MoveTowards(pitchOffset, 0f, 60f * Time.deltaTime); }
 
             float baseYaw = followTargetYaw ? target.eulerAngles.y : 0f;
             if (cabView)

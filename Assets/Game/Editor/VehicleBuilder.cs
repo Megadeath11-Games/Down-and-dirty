@@ -461,7 +461,10 @@ namespace FPSBase.EditorTools
             pk.fuelCapacity = s.fuel; pk.fuel = s.fuel * 0.6f; pk.idleBurn = s.workBurn * 0.12f; pk.workBurn = s.workBurn;
             pk.capacity = s.capacity; pk.topSpeedKmh = s.topSpeed;
             pk.motorTorque = s.mass * 0.35f; pk.brakeTorque = s.mass * 1.35f;
-            pk.transferCase = false; pk.rearLocked = false; // rear drive, as before (the diff lock key still works)
+            pk.transferCase = false;
+            // rear drive; the tandem hauler's diffs come locked (both rear axles pull together; the diff lock key still works)
+            pk.rearLocked = s.axles.Length > 2;
+            pk.lowGearBoost = 2.8f; // low gears: enough to climb the wash plant ramp (13 deg) loaded, forwards or backing up
             pk.bedPivot = bedPivot; pk.bedContents = contents.transform; pk.bedMound = mound.transform; pk.bedVolume = vol;
             pk.bedInnerSize = new Vector3(bw * 0.94f, bh, bl * 0.95f);
             pk.tailgatePour = Marker(bedPivot, "PourPoint", new Vector3(0f, 0.25f, -0.25f));

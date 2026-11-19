@@ -92,6 +92,16 @@ namespace FPSBase.Mining
             Instance.Spawn(from, load, ignore, velocity, Mathf.Clamp(Mathf.Pow(load.volume, 1f / 3f) * 0.35f, 0.08f, 0.6f));
         }
 
+        /// <summary>
+        /// A pour that's only for show: another player's game poured the real load (and sends the ground it made),
+        /// this screen just draws it falling. The clods vanish a moment after they land.
+        /// </summary>
+        public static void PourVisual(Vector3 from, MaterialLoad load, Transform ignore, Vector3 velocity = default)
+        {
+            if (load.IsEmpty) return;
+            Instance.Spawn(from, load, ignore, velocity, Mathf.Clamp(Mathf.Pow(load.volume, 1f / 3f) * 0.35f, 0.08f, 0.6f), true);
+        }
+
         /// <summary>Dirt falling off something (a wall that caved in): starts at `from` with `velocity`.</summary>
         public static void Fall(Vector3 from, MaterialLoad load, Vector3 velocity, float spread = 0.25f)
         {
@@ -112,10 +122,11 @@ namespace FPSBase.Mining
             };
         }
 
-        void Spawn(Vector3 from, MaterialLoad load, Transform ignore, Vector3 vel, float spread)
+        void Spawn(Vector3 from, MaterialLoad load, Transform ignore, Vector3 vel, float spread, bool visual = false)
         {
             Traits(load, out float gv, out float mu, out float bounce, out float settle, out byte cat, out bool clod);
             int n = Mathf.Clamp(Mathf.CeilToInt(load.volume / gv), 1, MaxPerPour);
+            if (visual && count + n > MaxGrains - 200) return; // busy: skip the show
             if (count + n > MaxGrains)
             {
                 // too much in the air already: this bit lands straight away (old behaviour)
@@ -133,7 +144,7 @@ namespace FPSBase.Mining
                     v = vel + new Vector3(Random.Range(-0.35f, 0.35f), Random.Range(-0.6f, 0f), Random.Range(-0.35f, 0.35f)),
                     rot = Random.rotation, spinAxis = Random.onUnitSphere, spin = Random.Range(60f, 400f),
                     r = r * Random.Range(0.85f, 1.15f), mu = mu, bounce = bounce, settleTime = settle,
-                    load = each, ignore = ignore, cat = PickCategory(load), clod = clod && each.volume > 0.006f,
+                    load = each, ignore = ignore, cat = PickCategory(load), clod = clod && each.volume > 0.006f && !visual, visual = visual,
                 };
             }
         }

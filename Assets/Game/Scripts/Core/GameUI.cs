@@ -77,7 +77,7 @@ namespace FPSBase.Core
             if (menuOpen)
             {
                 MenuUpdate();
-                if (menuOpen && kb != null && kb.escapeKey.wasPressedThisFrame && screen != MenuScreen.Main) { screen = MenuScreen.Main; menuMessage = null; }
+                if (menuOpen && Controls.MenuBack(true) && screen != MenuScreen.Main) { screen = MenuScreen.Main; menuMessage = null; }
                 if (menuOpen) Time.timeScale = FPSBase.Net.NetSession.InSession ? 1f : 0f;
                 Cursor.lockState = CursorLockMode.None;
                 Cursor.visible = true;
@@ -111,7 +111,7 @@ namespace FPSBase.Core
             {
                 if (panelTitle == "Multiplayer" && panelDraw != null) ClosePanel(); else OpenMultiplayer();
             }
-            else if (kb != null && kb.escapeKey.wasPressedThisFrame)
+            else if (Controls.MenuBack(Cursor.visible && Cursor.lockState != CursorLockMode.Locked))
             {
                 if (controlsOpen) controlsOpen = false;
                 else if (panelDraw != null) ClosePanel();
@@ -457,6 +457,11 @@ namespace FPSBase.Core
             P("2. Dig the PAY GRAVEL underneath (richest just above bedrock) and load it in a truck.");
             P("3. Tip it into the wash plant hopper. Clean up the sluice, then sell the gold at the assay office in the Outpost.");
             P($"Use {K(GameAction.Interact)} on buildings, pumps and machines. Esc pauses (settings, key bindings, unlimited-money test mode).");
+            H("Controller");
+            P("On foot: left stick walks, right stick looks, A jump, B crouch, L3 sprint, X use, LB / RB pick a menu option. D-pad up: metal detector, RT digs with the hand shovel.");
+            P("Driving: RT gas, LT brake / reverse, left stick steers, A handbrake, X get out, R3 cab view, D-pad down: flip / unstick. Trucks: right stick looks around; RB / LB dump box up / down, Y tailgate, D-pad up 4x4, D-pad right diff lock.");
+            P("Machines: right stick works the blade / arms (pull back to raise, sideways to tilt or curl / dump); hold L3 to look around with it instead. Dozer: LB / RB swivel the blade, Y / B ripper. Excavator: left stick swings and runs the stick, right stick boom and bucket, RT / LT tracks, D-pad left / right turns, RB / LB front blade.");
+            P("Menus and shops: left stick moves the pointer, A clicks, right stick scrolls, B goes back, Menu (Start) pauses. View opens the map.");
             H("Ground layers");
             P("Topsoil — top ~1.2 m. Easy digging, almost no gold.");
             P("Clay — sticky band under the topsoil (thicker in places). Digs SLOW, little gold, and clay in the wash plant rolls gold away in clay balls. Upgrade the Clay scrubber, or sell clay at the sand & gravel yard.");

@@ -45,6 +45,10 @@ namespace FPSBase.Core
                 MenuActive = true;
                 var mouse = Mouse.current;
                 float wheel = mouse != null ? mouse.scroll.ReadValue().y : 0f;
+                // controller: the bumpers pick an option
+                var gp = Gamepad.current;
+                if (gp != null && gp.rightShoulder.wasPressedThisFrame) wheel = -1f;
+                else if (gp != null && gp.leftShoulder.wasPressedThisFrame) wheel = 1f;
                 if (wheel < -0.01f) Selected = (Selected + 1) % Options.Count;
                 else if (wheel > 0.01f) Selected = (Selected + Options.Count - 1) % Options.Count;
             }

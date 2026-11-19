@@ -79,12 +79,25 @@ namespace FPSBase.Vehicles
 
         float netArm = float.NaN, netTilt;
         public override void NetWrite(System.IO.BinaryWriter w) { base.NetWrite(w); w.Write(arm); w.Write(tilt); NetIO.Write(w, bucketLoad); }
-        public override void NetRead(System.IO.BinaryReader r) { base.NetRead(r); netArm = r.ReadSingle(); netTilt = r.ReadSingle(); bucketLoad = NetIO.ReadLoad(r); }
+        public override void NetRead(System.IO.BinaryReader r)
+        {
+            base.NetRead(r); netArm = r.ReadSingle(); netTilt = r.ReadSingle();
+            var was = bucketLoad; bucketLoad = NetIO.ReadLoad(r);
+            // their bucket is tipped and emptying: draw it pouring here too
+            if (was.volume - bucketLoad.volume > 1e-4f && netTilt > dumpAngle) { netSpill += was.volume - bucketLoad.volume; netSpillMix = was; }
+        }
+        float netSpill; MaterialLoad netSpillMix;
         protected override void NetShow(float dt)
         {
             if (float.IsNaN(netArm)) return;
             arm = NetIO.Ease(arm, netArm, dt); tilt = NetIO.Ease(tilt, netTilt, dt);
             ApplyPose(); UpdateLoadVisual();
+            if (netSpill > 1e-5f && bucketTip != null)
+            {
+                float give = Mathf.Min(netSpill, Mathf.Max(0.004f, netSpill * Mathf.Clamp01(dt * 6f)));
+                netSpill -= give;
+                FPSBase.Mining.DirtGrains.PourVisual(bucketTip.position + transform.forward * 0.15f, netSpillMix.Scaled(give / Mathf.Max(1e-4f, netSpillMix.volume)), transform);
+            }
         }
 
         public void SetPose(float armDeg, float tiltDeg)

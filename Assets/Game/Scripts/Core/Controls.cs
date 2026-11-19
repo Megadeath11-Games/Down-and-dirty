@@ -38,6 +38,9 @@ namespace FPSBase.Core
         TransferCase, DiffLock,
     }
 
+    /// <summary>Controller inputs (Xbox names; a PlayStation pad is the same places: A = Cross, B = Circle, X = Square, Y = Triangle).</summary>
+    public enum Pad { None, A, B, X, Y, LB, RB, LT, RT, L3, R3, Start, Select, DUp, DDown, DLeft, DRight, LUp, LDown, LLeft, LRight, RUp, RDown, RLeft, RRight }
+
     /// <summary>Rebindable keyboard controls, saved between sessions. Esc is always the menu key.</summary>
     public static class Controls
     {
@@ -131,6 +134,80 @@ namespace FPSBase.Core
             new(GameAction.Invite, General, "Multiplayer: host / invite a Steam friend", Key.F2),
         };
 
+        /// <summary>
+        /// The controller layout. Like the keys, the same button does different things in different groups
+        /// (on foot / driving / each machine), and analog sticks and triggers give a proportional push.
+        /// </summary>
+        public static readonly Dictionary<GameAction, Pad> PadMap = new()
+        {
+            [GameAction.Interact] = Pad.X, [GameAction.CabView] = Pad.R3, [GameAction.Map] = Pad.Select, [GameAction.Recover] = Pad.DDown,
+            // on foot (right stick looks)
+            [GameAction.MoveForward] = Pad.LUp, [GameAction.MoveBack] = Pad.LDown, [GameAction.MoveLeft] = Pad.LLeft, [GameAction.MoveRight] = Pad.LRight,
+            [GameAction.Jump] = Pad.A, [GameAction.Crouch] = Pad.B, [GameAction.Sprint] = Pad.L3,
+            [GameAction.DetectorToggle] = Pad.DUp, [GameAction.HandDig] = Pad.RT, [GameAction.DetectorDiscriminate] = Pad.DRight,
+            // driving: triggers for gas / brake-reverse, left stick steers
+            [GameAction.DriveForward] = Pad.RT, [GameAction.DriveBack] = Pad.LT, [GameAction.SteerLeft] = Pad.LLeft, [GameAction.SteerRight] = Pad.LRight,
+            [GameAction.Handbrake] = Pad.A,
+            [GameAction.BoxUp] = Pad.RB, [GameAction.BoxDown] = Pad.LB, [GameAction.Tailgate] = Pad.Y, [GameAction.TransferCase] = Pad.DUp, [GameAction.DiffLock] = Pad.DRight,
+            // dozer: right stick = blade (pull back raises, sideways tilts), bumpers swivel, Y / B ripper
+            [GameAction.BladeUp] = Pad.RDown, [GameAction.BladeDown] = Pad.RUp, [GameAction.BladeTiltLeft] = Pad.RLeft, [GameAction.BladeTiltRight] = Pad.RRight,
+            [GameAction.BladeAngleLeft] = Pad.LB, [GameAction.BladeAngleRight] = Pad.RB, [GameAction.RipperUp] = Pad.Y, [GameAction.RipperDown] = Pad.B,
+            // loader / skid steer: right stick = arms (pull back raises) and bucket (left curls, right dumps)
+            [GameAction.ArmsUp] = Pad.RDown, [GameAction.ArmsDown] = Pad.RUp, [GameAction.BucketCurl] = Pad.RLeft, [GameAction.BucketDump] = Pad.RRight,
+            // excavator (ISO): left stick = swing + stick, right stick = boom + bucket; triggers drive, D-pad turns
+            [GameAction.SwingLeft] = Pad.LLeft, [GameAction.SwingRight] = Pad.LRight, [GameAction.StickOut] = Pad.LUp, [GameAction.StickIn] = Pad.LDown,
+            [GameAction.BoomUp] = Pad.RDown, [GameAction.BoomDown] = Pad.RUp, [GameAction.ExBucketCurl] = Pad.RLeft, [GameAction.ExBucketDump] = Pad.RRight,
+            [GameAction.TracksForward] = Pad.RT, [GameAction.TracksBack] = Pad.LT, [GameAction.TracksLeft] = Pad.DLeft, [GameAction.TracksRight] = Pad.DRight,
+            [GameAction.ExBladeUp] = Pad.RB, [GameAction.ExBladeDown] = Pad.LB,
+            // grader: right stick = blade lift and cross slope, bumpers turn the circle, D-pad side-shifts / pitches
+            [GameAction.GraderBladeUp] = Pad.RDown, [GameAction.GraderBladeDown] = Pad.RUp, [GameAction.GraderTiltLeft] = Pad.RLeft, [GameAction.GraderTiltRight] = Pad.RRight,
+            [GameAction.GraderCircleLeft] = Pad.LB, [GameAction.GraderCircleRight] = Pad.RB, [GameAction.GraderShiftLeft] = Pad.DLeft, [GameAction.GraderShiftRight] = Pad.DRight,
+            [GameAction.GraderPitchForward] = Pad.DUp, [GameAction.GraderPitchBack] = Pad.Y, [GameAction.GraderRipperDown] = Pad.B,
+        };
+
+        public static Pad PadOf(GameAction a) => PadMap.TryGetValue(a, out var p) ? p : Pad.None;
+
+        static ButtonControl PadCtl(Pad p)
+        {
+            var gp = Gamepad.current;
+            if (gp == null) return null;
+            return p switch
+            {
+                Pad.A => gp.buttonSouth, Pad.B => gp.buttonEast, Pad.X => gp.buttonWest, Pad.Y => gp.buttonNorth,
+                Pad.LB => gp.leftShoulder, Pad.RB => gp.rightShoulder, Pad.LT => gp.leftTrigger, Pad.RT => gp.rightTrigger,
+                Pad.L3 => gp.leftStickButton, Pad.R3 => gp.rightStickButton, Pad.Start => gp.startButton, Pad.Select => gp.selectButton,
+                Pad.DUp => gp.dpad.up, Pad.DDown => gp.dpad.down, Pad.DLeft => gp.dpad.left, Pad.DRight => gp.dpad.right,
+                Pad.LUp => gp.leftStick.up, Pad.LDown => gp.leftStick.down, Pad.LLeft => gp.leftStick.left, Pad.LRight => gp.leftStick.right,
+                Pad.RUp => gp.rightStick.up, Pad.RDown => gp.rightStick.down, Pad.RLeft => gp.rightStick.left, Pad.RRight => gp.rightStick.right,
+                _ => null,
+            };
+        }
+
+        /// <summary>A machine's camera is using the right stick to look around (L3 held): the machine ignores it meanwhile.</summary>
+        public static void PadLooking() => padLookFrame = Time.frameCount;
+        static int padLookFrame = -10;
+        static bool RightStickTaken(Pad p) => p >= Pad.RUp && Time.frameCount - padLookFrame <= 1;
+
+        static float PadValue(GameAction a)
+        {
+            var p = PadOf(a);
+            var c = PadCtl(p);
+            if (c == null || RightStickTaken(p)) return 0f;
+            return Mathf.Clamp01(c.ReadValue());
+        }
+
+        /// <summary>A controller is plugged in.</summary>
+        public static bool HasPad => Gamepad.current != null;
+
+        /// <summary>Esc, or on a controller Start (anywhere) / B (on a menu with the pointer showing): back out / pause.</summary>
+        public static bool MenuBack(bool pointerShowing)
+        {
+            if (Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame) return true;
+            var gp = Gamepad.current;
+            if (gp == null) return false;
+            return gp.startButton.wasPressedThisFrame || (pointerShowing && gp.buttonEast.wasPressedThisFrame);
+        }
+
         static Dictionary<GameAction, Key> map;
         static Dictionary<GameAction, Binding> defs;
 
@@ -171,9 +248,31 @@ namespace FPSBase.Core
             return kb[k];
         }
 
-        public static bool Held(GameAction a) => Ctl(a)?.isPressed ?? false;
-        public static bool Pressed(GameAction a) => Ctl(a)?.wasPressedThisFrame ?? false;
-        public static float Axis(GameAction positive, GameAction negative) => (Held(positive) ? 1f : 0f) - (Held(negative) ? 1f : 0f);
+        public static bool Held(GameAction a) => (Ctl(a)?.isPressed ?? false) || PadValue(a) > 0.5f;
+        public static bool Pressed(GameAction a)
+        {
+            if (Ctl(a)?.wasPressedThisFrame ?? false) return true;
+            var p = PadOf(a);
+            var c = PadCtl(p);
+            return c != null && !RightStickTaken(p) && c.wasPressedThisFrame;
+        }
+        /// <summary>-1..1: keys are all-or-nothing, a stick or trigger pushes in proportion.</summary>
+        public static float Axis(GameAction positive, GameAction negative)
+        {
+            float k = ((Ctl(positive)?.isPressed ?? false) ? 1f : 0f) - ((Ctl(negative)?.isPressed ?? false) ? 1f : 0f);
+            return Mathf.Clamp(k + PadValue(positive) - PadValue(negative), -1f, 1f);
+        }
+
+        /// <summary>Controller button name for an action ("RT", "Left stick up"...), or null if it has none.</summary>
+        public static string PadName(GameAction a) => PadOf(a) switch
+        {
+            Pad.None => null,
+            Pad.LUp => "L-stick up", Pad.LDown => "L-stick down", Pad.LLeft => "L-stick left", Pad.LRight => "L-stick right",
+            Pad.RUp => "R-stick up", Pad.RDown => "R-stick down", Pad.RLeft => "R-stick left", Pad.RRight => "R-stick right",
+            Pad.DUp => "D-pad up", Pad.DDown => "D-pad down", Pad.DLeft => "D-pad left", Pad.DRight => "D-pad right",
+            Pad.Select => "View", Pad.Start => "Menu",
+            var p => p.ToString(),
+        };
 
         /// <summary>Short display name of the key bound to an action, e.g. "F", "Space", "L-Shift".</summary>
         public static string N(GameAction a) => KeyName(Get(a));

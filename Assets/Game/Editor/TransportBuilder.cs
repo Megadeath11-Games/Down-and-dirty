@@ -24,11 +24,11 @@ namespace FPSBase.EditorTools
         static readonly SemiCfg[] SemiFleet =
         {
             new SemiCfg { name = "Semi Truck 25 t + RGN Lowboy", id = "Semi25", paint = 0xf8fafc, accent = 0x0f172a, driveAxles = 2, trailerAxles = 2,
-                cabL = 3.15f, cabW = 2.50f, cabH = 2.25f, deckL = 6.4f, deckW = 2.60f, mass = 16400f, payload = 25f, fuel = 600f, burn = 42f, speed = 22f, accel = 1.8f },
+                cabL = 3.15f, cabW = 2.50f, cabH = 2.25f, deckL = 6.4f, deckW = 3.40f, mass = 16400f, payload = 25f, fuel = 600f, burn = 42f, speed = 22f, accel = 1.8f },
             new SemiCfg { name = "Semi Truck 55 t + RGN Lowboy", id = "Semi55", paint = 0xdc2626, accent = 0x111827, driveAxles = 3, trailerAxles = 3,
-                cabL = 3.35f, cabW = 2.54f, cabH = 2.35f, deckL = 7.4f, deckW = 2.75f, mass = 23800f, payload = 55f, fuel = 900f, burn = 58f, speed = 20f, accel = 1.4f },
+                cabL = 3.35f, cabW = 2.54f, cabH = 2.35f, deckL = 7.4f, deckW = 4.30f, mass = 23800f, payload = 55f, fuel = 900f, burn = 58f, speed = 20f, accel = 1.4f },
             new SemiCfg { name = "Semi Truck 95 t + RGN Lowboy", id = "Semi95", paint = 0xf59e0b, accent = 0x0f172a, driveAxles = 4, trailerAxles = 3, booster = true,
-                cabL = 3.45f, cabW = 2.58f, cabH = 2.40f, deckL = 8.2f, deckW = 3.10f, mass = 34500f, payload = 95f, fuel = 1200f, burn = 80f, speed = 18f, accel = 1.1f },
+                cabL = 3.45f, cabW = 2.58f, cabH = 2.40f, deckL = 8.2f, deckW = 5.20f, mass = 34500f, payload = 95f, fuel = 1200f, burn = 80f, speed = 18f, accel = 1.1f },
         };
 
         class TransportMats { public Material wood, head, tail, screen, tint, trim, fabric; }

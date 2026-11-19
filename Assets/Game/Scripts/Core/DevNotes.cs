@@ -13,6 +13,16 @@ namespace FPSBase.Core
         /// <summary>Newest first.</summary>
         public static readonly Post[] Blog =
         {
+            new Post { date = "Update 8  ·  Nov 19, 2026", title = "Controller support, wide lowboys, dump marker",
+                body =
+                "<b>New</b>\n" +
+                "• Controller support (Xbox / PlayStation pads). Triggers for gas and brake, sticks for steering and the machine controls, with proportional control. On menus and in shops the left stick moves the pointer and A clicks. The whole layout is under Help (F1).\n" +
+                "<b>Changed / fixed</b>\n" +
+                "• RGN lowboys are wider (25 t: 3.4 m, 55 t: 4.3 m, 95 t: 5.2 m), so the 50 t, 70 t and 90 t excavators' tracks sit on the deck instead of slipping off the edge.\n" +
+                "• Excavator dump marker: the green ring now shows where the load lands once the bucket opens, not under the teeth (they were up to 1.7 m off with the bucket curled).\n" +
+                "• Multiplayer: you see the dirt falling out of a friend's dump truck, bucket or loader when they dump.\n" +
+                "• Multiplayer: a machine gets chained on a trailer even while your friend sits in the truck.\n" +
+                "• Haul Truck 25t (and the single-axle truck): low gears pull hard at a crawl, and the tandem's diffs come locked. Loaded, it climbs an 18° hill forwards or backing up (it used to stall halfway).\n" },
             new Post { date = "Update 7  ·  Nov 19, 2026", title = "Multiplayer: trailers, wheels, wash plant",
                 body =
                 "<b>Multiplayer fixes</b>\n" +
@@ -102,40 +112,19 @@ namespace FPSBase.Core
                 "• Dozer berms build up properly in front of the blade." },
         };
 
-        public const string TestListVersion = "2026-11-19b";
+        public const string TestListVersion = "2026-11-19c";
 
         /// <summary>What's new in this build to try out.</summary>
         public static readonly string[] TestList =
         {
-            "Multiplayer: a friend tows a trailer, it stays on their hitch on your screen",
-            "Multiplayer: a friend tilts a deck / lowers ramps: you see it",
-            "Multiplayer: hitch a trailer your friend parked, tow it: they see it follow",
-            "Multiplayer: a friend buys a trailer: it appears for you",
-            "Multiplayer: a friend's pickup drives by: its wheels roll",
-            "Multiplayer: a friend dumps into the wash plant: you see it in the hopper",
-            "Multiplayer (not host): clean up the sluice, you get the gold",
-            "Haul Truck 25t: all three axles show and it drives",
-            "Tip the fuel bowser over: its menu sets it back upright (hitched or not)",
-            "Roll the pickup with the bowser on, reposition: both come back upright",
-            "Tilt deck: tilt it down with a machine chained on, it rides down with the deck",
-            "Gooseneck: both ramps are there and fold down",
-            "Dump box: the tailgate swings out the back as it tips",
-            "Pickup: let off the gas, it coasts (no hard braking)",
-            "Pull the tilt trailer with the 5 t excavator on flat ground in 2WD",
-            "Tow over bumps and round corners: the trailer doesn't drag its brakes",
-            "Tip the bowser over: it stays put (no gliding)",
-            "Reposition the pickup with a trailer on: the trailer comes back upright",
-            "Sell gold: 0.01 g pays $75",
-            "Pickup cab: no feet, pedals or seat showing under the truck",
-            "Driving in 3rd person, press V: first person looks straight ahead",
-            "Driving in 3rd person, scroll to zoom in and out",
-            "Dozer parked sideways on a slope: it doesn't slide",
-            "Tilted blade: clears a windrow without most of it rolling off",
-            "Skid steer: push into a pile with the bucket flat, it fills",
-            "Turn sharply with the bowser on: it hits the truck, not through it",
-            "Park a dozer on a steep pile: it stays put",
-            "Multiplayer: host a new world, a friend joins",
-            "Multiplayer: save as host, then host the saved world again",
+            "Controller: drive a truck (RT / LT / left stick), the right stick looks around",
+            "Controller: dig with an excavator (both sticks), hold L3 to look around",
+            "Controller: open the pause menu (Menu) and a shop: the left stick moves the pointer, A clicks, B backs out",
+            "Drive the 50 t or 90 t excavator onto its lowboy: the tracks stay on the deck",
+            "Excavator: line the green ring up on a truck bed, dump: it lands in the bed",
+            "Multiplayer: a friend dumps their truck / bucket: you see the dirt fall",
+            "Multiplayer: your friend sits in the semi, you drive a machine onto the lowboy and get out: it chains down",
+            "Haul Truck 25t: back it up the wash plant ramp loaded, and up a hill",
             "Drive a machine onto the lowboy and park: it gets chained down",
             "Hook the gooseneck back on and haul: the load's tyres / tracks stay still",
             "Get in the carried machine: the chains come off",

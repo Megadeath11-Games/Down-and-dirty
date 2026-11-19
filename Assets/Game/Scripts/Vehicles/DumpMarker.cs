@@ -11,6 +11,7 @@ namespace FPSBase.Vehicles
     public class DumpMarker : MonoBehaviour
     {
         public Transform source;     // the bucket's pour point (cutting edge)
+        public System.Func<Vector3> sourceAt; // or: where the load will leave from (overrides source)
         public Transform ignore;     // the machine itself
         public float ringRadius = 0.6f;
         public bool Visible => drop != null && drop.enabled;
@@ -67,8 +68,8 @@ namespace FPSBase.Vehicles
         void LateUpdate()
         {
             var v = GetComponent<VehicleBase>();
-            if (source == null || v == null || !v.Occupied || v.NetRemote) { Show(false); return; }
-            Vector3 from = source.position;
+            if ((source == null && sourceAt == null) || v == null || !v.Occupied || v.NetRemote) { Show(false); return; }
+            Vector3 from = sourceAt != null ? sourceAt() : source.position;
             // find what's under the bucket (the first solid thing, or a truck bed / hopper that takes the load)
             int n = Physics.RaycastNonAlloc(from + Vector3.up * 0.5f, Vector3.down, hits, 60f, ~0, QueryTriggerInteraction.Collide);
             float best = float.MaxValue; Vector3 point = from + Vector3.down * 60f; bool receiver = false, any = false;

@@ -90,7 +90,8 @@ namespace FPSBase.Vehicles
                     () => bucketLoad, () => bucketTip != null ? bucketTip.position : (Vector3?)null, () => bucketTip != null ? bucketTip.position : transform.position,
                     bucketLoadVisual.GetComponentsInChildren<Renderer>(true));
                 cc.takeOut = v => bucketLoad.Take(v);
-                DumpMarker.Attach(gameObject, bucketTip, Mathf.Max(0.35f, digRadius * 1.3f));
+                // the marker shows where the load lands once the bucket opens, not where the teeth are now
+                DumpMarker.Attach(gameObject, bucketTip, Mathf.Max(0.35f, digRadius * 1.3f)).sourceAt = () => DumpPoint(AimAngle);
                 // the builder knows which way the bucket opens; otherwise find it from the bucket's shape
                 if (bucketMouth.sqrMagnitude > 0.01f) cc.SetMouth(bucketMouth.normalized);
                 else cc.AutoMouth(bucketLoadVisual.GetComponentsInChildren<Renderer>(true));
@@ -229,7 +230,7 @@ namespace FPSBase.Vehicles
             UpdateBucketVisual();
 
             // What would the bucket dump into right now?
-            var rec = MaterialTransfer.FindReceiverBelow(bucketTip.position, transform, out _);
+            var rec = MaterialTransfer.FindReceiverBelow(DumpPoint(AimAngle), transform, out _);
             underBucket = rec switch
             {
                 DumpPickup t => $"{t.displayName}: {t.load.volume:0.00} / {t.capacity:0.0} m³",
@@ -252,6 +253,22 @@ namespace FPSBase.Vehicles
             DumpStep(dt); UpdateBucketVisual();
         }
 
+        /// <summary>The bucket angle the load comes out at: now if it's open, else a typical dump (part way open).</summary>
+        float AimAngle => bucket > dumpAngle ? bucket : Mathf.Lerp(dumpAngle, bucketRange.y, 0.5f);
+
+        /// <summary>
+        /// Where the load leaves the bucket opened to `angle`: across its mouth, between the hinge and the teeth.
+        /// (Curled in, the teeth point up and back: the dirt doesn't come out there.)
+        /// </summary>
+        public Vector3 DumpPoint(float angle)
+        {
+            if (bucketTip == null) return transform.position;
+            if (bucketPivot == null || bucketPivot.parent == null) return bucketTip.position;
+            Vector3 tipLocal = Vector3.Scale(bucketPivot.localScale, bucketPivot.InverseTransformPoint(bucketTip.position));
+            Vector3 tip = bucketPivot.parent.TransformPoint(bucketPivot.localPosition + Quaternion.Euler(-angle, 0f, 0f) * tipLocal);
+            return Vector3.Lerp(bucketPivot.position, tip, 0.6f);
+        }
+
         /// <summary>Dump: bucket opened past the dump angle pours its load out (driven or not).</summary>
         void DumpStep(float dt)
         {
@@ -259,7 +276,7 @@ namespace FPSBase.Vehicles
             {
                 float open = Mathf.InverseLerp(dumpAngle, bucketRange.y, bucket);
                 var pour = bucketLoad.Take(dumpRate * (0.3f + open) * dt);
-                MaterialTransfer.Pour(bucketTip.position, pour, transform);
+                MaterialTransfer.Pour(DumpPoint(bucket), pour, transform);
             }
         }
 
@@ -344,14 +361,23 @@ namespace FPSBase.Vehicles
             base.NetRead(r);
             netPose ??= new float[5];
             for (int i = 0; i < 5; i++) netPose[i] = r.ReadSingle();
-            bucketLoad = NetIO.ReadLoad(r);
+            var was = bucketLoad; bucketLoad = NetIO.ReadLoad(r);
+            // their bucket is open and emptying: draw it pouring here too
+            if (was.volume - bucketLoad.volume > 1e-4f && netPose[2] > dumpAngle) { netSpill += was.volume - bucketLoad.volume; netSpillMix = was; }
         }
+        float netSpill; MaterialLoad netSpillMix;
         protected override void NetShow(float dt)
         {
             if (netPose == null) return;
             boom = NetIO.Ease(boom, netPose[0], dt); stick = NetIO.Ease(stick, netPose[1], dt); bucket = NetIO.Ease(bucket, netPose[2], dt);
             swing = Mathf.LerpAngle(swing, netPose[3], 1f - Mathf.Exp(-14f * dt)); bladeAngle = NetIO.Ease(bladeAngle, netPose[4], dt);
             ApplyPose(); UpdateBucketVisual();
+            if (netSpill > 1e-5f)
+            {
+                float give = Mathf.Min(netSpill, Mathf.Max(0.004f, netSpill * Mathf.Clamp01(dt * 6f)));
+                netSpill -= give;
+                FPSBase.Mining.DirtGrains.PourVisual(DumpPoint(bucket), netSpillMix.Scaled(give / Mathf.Max(1e-4f, netSpillMix.volume)), transform);
+            }
         }
 
         public void SetPose(float boomDeg, float stickDeg, float bucketDeg, float swingDeg)

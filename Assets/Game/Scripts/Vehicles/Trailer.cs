@@ -613,7 +613,7 @@ namespace FPSBase.Vehicles
         static readonly Collider[] hits = new Collider[64];
         void ScanDeck()
         {
-            if (NetRemote) return;
+            // every game chains the machines it runs itself, whoever runs the trailer (a friend sitting in the truck)
             if (tilt > 0.5f) return; // machines get chained once the deck is level
             Vector3 half = new Vector3(deckSize.x * 0.5f, 1.4f, deckSize.y * 0.5f);
             int n = Physics.OverlapBoxNonAlloc(deckArea.position + deckArea.up * 1.45f, half, hits, deckArea.rotation, ~0, QueryTriggerInteraction.Ignore);

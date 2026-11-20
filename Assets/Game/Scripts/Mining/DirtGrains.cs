@@ -188,33 +188,36 @@ namespace FPSBase.Mining
         // ------------------------------------------------------------------ clods resting on clods
 
         const int TableSize = 8192; // (cells are hashed into this many slots; a shared slot only costs a few extra checks)
-        readonly int[] slotHead = new int[TableSize];
-        readonly int[] slotStamp = new int[TableSize];
-        int stamp;
-        readonly int[] nextInCell = new int[MaxGrains];
-        readonly int[] cellX = new int[MaxGrains], cellY = new int[MaxGrains], cellZ = new int[MaxGrains];
-        readonly Vector3[] cp = new Vector3[MaxGrains];
-        readonly float[] cr = new float[MaxGrains];
+        readonly int[] slotStart = new int[TableSize + 1];
+        // the clods in a heap, sorted by their slot (each slot's clods side by side, for a quick look through them)
+        readonly int[] sIdx = new int[MaxGrains], sX = new int[MaxGrains], sY = new int[MaxGrains], sZ = new int[MaxGrains];
+        readonly float[] sPx = new float[MaxGrains], sPy = new float[MaxGrains], sPz = new float[MaxGrains], sR = new float[MaxGrains];
+        readonly long[] sK = new long[MaxGrains];
+        readonly int[] gSlot = new int[MaxGrains], bigList = new int[MaxGrains];
+        readonly float[] bigKey = new float[MaxGrains];
+        // the 13 cells "ahead" of a cell: two small clods in neighbouring cells are looked at once, from the one behind
+        static readonly int[] fwdX = { 1, -1, 0, 1, -1, 0, 1, -1, 0, 1, 1, 0, -1 }, fwdY = { 0, 1, 1, 1, -1, -1, -1, 0, 0, 0, 1, 1, 1 }, fwdZ = { 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1 };
 
+        static long Key(int x, int y, int z) => ((long)(x & 0x1FFFFF) << 42) | ((long)(y & 0x1FFFFF) << 21) | (long)(z & 0x1FFFFF);
         static int Slot(int x, int y, int z) => (int)(((uint)(x * 73856093) ^ (uint)(y * 19349663) ^ (uint)(z * 83492791)) & (TableSize - 1));
 
         /// <summary>
         /// Clods in a heap push each other apart, so they pile up (instead of all sharing one spot on the ground) and
         /// roll off each other at the sides. A clod sitting on others counts as resting, so a heap left alone settles.
         /// The grid is sized to the clods about (a dense heap of small ones has small cells, so each looks at few);
-        /// the odd big lump looks further out for what it touches.
+        /// the odd big lump looks further out for what it touches. The clods are sorted by cell first, so each cell's
+        /// are side by side, and each pair is looked at once.
         /// </summary>
         void CollideClods()
         {
-            stamp++;
             int live = 0;
             float sumR = 0f, maxR = 0f;
             for (int i = 0; i < count; i++)
             {
                 ref Grain q = ref g[i];
                 q.onClod = false;
-                if (!q.pushed && q.age < 0.25f) { nextInCell[i] = -2; continue; } // still falling out of a bucket
-                nextInCell[i] = -1;
+                if (!q.pushed && q.age < 0.25f) { gSlot[i] = -1; continue; } // still falling out of a bucket
+                gSlot[i] = 0;
                 live++; sumR += q.r;
                 if (q.r > maxR) maxR = q.r;
             }
@@ -222,67 +225,124 @@ namespace FPSBase.Mining
             float small = Mathf.Clamp(sumR / live * 1.6f, 0.05f, 0.3f); // clods up to this size are "small" (nearly all)
             float H = 1.64f * small;                                     // two small ones touching are within one cell
             float inv = 1f / H;
+            // sort them by slot (count each slot's, then put each one in its place)
+            System.Array.Clear(slotStart, 0, TableSize + 1);
             for (int i = 0; i < count; i++)
             {
-                if (nextInCell[i] == -2) continue;
-                ref Grain q = ref g[i];
-                cp[i] = q.p; cr[i] = q.r;
-                int x = Mathf.FloorToInt(q.p.x * inv), y = Mathf.FloorToInt(q.p.y * inv), z = Mathf.FloorToInt(q.p.z * inv);
-                cellX[i] = x; cellY[i] = y; cellZ[i] = z;
-                int sl = Slot(x, y, z);
-                nextInCell[i] = slotStamp[sl] == stamp ? slotHead[sl] : -1;
-                slotStamp[sl] = stamp; slotHead[sl] = i;
+                if (gSlot[i] < 0) continue;
+                Vector3 p = g[i].p;
+                int sl = Slot(Mathf.FloorToInt(p.x * inv), Mathf.FloorToInt(p.y * inv), Mathf.FloorToInt(p.z * inv));
+                gSlot[i] = sl;
+                slotStart[sl + 1]++;
             }
+            for (int s = 0; s < TableSize; s++) slotStart[s + 1] += slotStart[s];
             for (int i = 0; i < count; i++)
             {
-                if (nextInCell[i] == -2) continue;
-                ref Grain a = ref g[i];
-                bool aBig = a.r > small;
-                // small: the 27 cells round it, for other small ones (a big one finds it from its own side)
-                // big: as far as it can reach, for everything (other big ones only once, from the lower number)
-                int k = aBig ? Mathf.Min(4, Mathf.CeilToInt((a.r + maxR) * 0.82f * inv)) : 1;
-                int cx = cellX[i], cy = cellY[i], cz = cellZ[i];
-                for (int oz = -k; oz <= k; oz++)
-                    for (int oy = -k; oy <= k; oy++)
-                        for (int ox = -k; ox <= k; ox++)
+                int sl = gSlot[i];
+                if (sl < 0) continue;
+                int at = slotStart[sl]++;
+                Vector3 p = g[i].p;
+                sIdx[at] = i; sPx[at] = p.x; sPy[at] = p.y; sPz[at] = p.z; sR[at] = g[i].r;
+                int x = Mathf.FloorToInt(p.x * inv), y = Mathf.FloorToInt(p.y * inv), z = Mathf.FloorToInt(p.z * inv);
+                sX[at] = x; sY[at] = y; sZ[at] = z; sK[at] = Key(x, y, z);
+            }
+            // (each start was moved on to its end: shift them back)
+            for (int s = TableSize; s > 0; s--) slotStart[s] = slotStart[s - 1];
+            slotStart[0] = 0;
+
+            int bigs = 0;
+            for (int a = 0; a < live; a++)
+            {
+                float ar = sR[a];
+                int cx = sX[a], cy = sY[a], cz = sZ[a];
+                if (ar <= small)
+                {
+                    // small: the other small ones later in its own cell, and in the 13 cells ahead of it
+                    // (a big one finds it from its own side)
+                    for (int c = -1; c < 13; c++)
+                    {
+                        int tx = cx, ty = cy, tz = cz;
+                        if (c >= 0) { tx += fwdX[c]; ty += fwdY[c]; tz += fwdZ[c]; }
+                        int sl = Slot(tx, ty, tz);
+                        long key = Key(tx, ty, tz);
+                        int e = slotStart[sl + 1];
+                        for (int b = c < 0 ? a + 1 : slotStart[sl]; b < e; b++)
                         {
-                            int tx = cx + ox, ty = cy + oy, tz = cz + oz;
-                            int sl = Slot(tx, ty, tz);
-                            if (slotStamp[sl] != stamp) continue;
-                            for (int j = slotHead[sl]; j >= 0; j = nextInCell[j])
-                            {
-                                if (j == i || cellX[j] != tx || cellY[j] != ty || cellZ[j] != tz) continue;
-                                float rb = cr[j];
-                                bool bBig = rb > small;
-                                if (aBig ? (bBig && j < i) : (bBig || j < i)) continue;
-                                // (a quick look from the packed copy first: most pairs aren't touching)
-                                float rr = (a.r + rb) * 0.82f;
-                                Vector3 dd = a.p - cp[j];
-                                if (dd.x * dd.x + dd.y * dd.y + dd.z * dd.z >= rr * rr) continue;
-                                Bump(ref a, ref g[j]);
-                                cp[j] = g[j].p;
-                            }
+                            if (sK[b] != key) continue;
+                            float rb = sR[b];
+                            if (rb > small) continue;
+                            // (a quick look first: most aren't touching)
+                            float rr = (ar + rb) * 0.82f, dx = sPx[a] - sPx[b], dy = sPy[a] - sPy[b], dz = sPz[a] - sPz[b];
+                            if (dx * dx + dy * dy + dz * dz >= rr * rr) continue;
+                            Touch(a, b, ar + rb);
                         }
+                    }
+                }
+                else
+                {
+                    // big: as far as it can reach, for the small ones (other big ones are below)
+                    bigKey[bigs] = sPx[a]; bigList[bigs++] = a;
+                    int k = Mathf.Min(4, Mathf.CeilToInt((ar + small) * 0.82f * inv));
+                    for (int oz = -k; oz <= k; oz++)
+                        for (int oy = -k; oy <= k; oy++)
+                            for (int ox = -k; ox <= k; ox++)
+                            {
+                                int tx = cx + ox, ty = cy + oy, tz = cz + oz;
+                                int sl = Slot(tx, ty, tz);
+                                long key = Key(tx, ty, tz);
+                                int e = slotStart[sl + 1];
+                                for (int b = slotStart[sl]; b < e; b++)
+                                {
+                                    if (sK[b] != key) continue;
+                                    float rb = sR[b];
+                                    if (rb > small) continue;
+                                    Touch(a, b, ar + rb);
+                                }
+                            }
+                }
             }
+            // the big ones with each other: sorted across, each looks along to those within reach
+            // (looking through the grid as far as the biggest lump reaches cost up to 729 cells for each one)
+            if (bigs > 1)
+            {
+                System.Array.Sort(bigKey, bigList, 0, bigs);
+                for (int i = 0; i < bigs; i++)
+                {
+                    int a = bigList[i];
+                    float ar = sR[a], reach = (ar + maxR) * 0.82f, x0 = bigKey[i];
+                    for (int j = i + 1; j < bigs && bigKey[j] - x0 < reach; j++) Touch(a, bigList[j], ar + sR[bigList[j]]);
+                }
+            }
+            for (int s = 0; s < live; s++) g[sIdx[s]].p = new Vector3(sPx[s], sPy[s], sPz[s]);
         }
 
-
-        static void Bump(ref Grain a, ref Grain b)
+        /// <summary>Two clods (by their place in the sorted list) pushed apart if they overlap, and their speeds into each other shared.</summary>
+        void Touch(int a, int b, float rsum)
         {
-            Vector3 d = a.p - b.p;
-            float rr = (a.r + b.r) * 0.82f; // (lumpy: they nest into each other a little)
-            float d2 = d.sqrMagnitude;
+            float rr = rsum * 0.82f; // (lumpy: they nest into each other a little)
+            float dx = sPx[a] - sPx[b], dy = sPy[a] - sPy[b], dz = sPz[a] - sPz[b];
+            float d2 = dx * dx + dy * dy + dz * dz;
             if (d2 >= rr * rr || d2 < 1e-10f) return;
-            float dist = Mathf.Sqrt(d2);
-            Vector3 n = d / dist;
+            float dist = Mathf.Sqrt(d2), id = 1f / dist;
+            float nx = dx * id, ny = dy * id, nz = dz * id;
             float push = (rr - dist) * 0.5f;
-            a.p += n * push; b.p -= n * push;
-            Vector3 vr = a.v - b.v;
-            float vn = Vector3.Dot(vr, n);
-            if (vn < 0f) { a.v -= n * (vn * 0.5f); b.v += n * (vn * 0.5f); }
-            Vector3 vt = vr - n * Vector3.Dot(vr, n);
-            a.v -= vt * 0.12f; b.v += vt * 0.12f; // rough: they drag each other along
-            if (n.y > 0.45f) a.onClod = true; else if (n.y < -0.45f) b.onClod = true;
+            sPx[a] += nx * push; sPy[a] += ny * push; sPz[a] += nz * push;
+            sPx[b] -= nx * push; sPy[b] -= ny * push; sPz[b] -= nz * push;
+            ref Grain ga = ref g[sIdx[a]];
+            ref Grain gb = ref g[sIdx[b]];
+            float vx = ga.v.x - gb.v.x, vy = ga.v.y - gb.v.y, vz = ga.v.z - gb.v.z;
+            float vn = vx * nx + vy * ny + vz * nz;
+            if (vn < 0f)
+            {
+                float h = vn * 0.5f;
+                ga.v.x -= nx * h; ga.v.y -= ny * h; ga.v.z -= nz * h;
+                gb.v.x += nx * h; gb.v.y += ny * h; gb.v.z += nz * h;
+            }
+            // rough: they drag each other along
+            float tx = (vx - nx * vn) * 0.12f, ty = (vy - ny * vn) * 0.12f, tz = (vz - nz * vn) * 0.12f;
+            ga.v.x -= tx; ga.v.y -= ty; ga.v.z -= tz;
+            gb.v.x += tx; gb.v.y += ty; gb.v.z += tz;
+            if (ny > 0.45f) ga.onClod = true; else if (ny < -0.45f) gb.onClod = true;
         }
 
         static DirtGrains inst;
@@ -423,7 +483,9 @@ namespace FPSBase.Mining
             {
                 // two half steps when the frame is long: fast clods shouldn't skip through a thin truck side
                 int sub = dt > MaxStepDt ? 2 : 1;
-                for (int s = 0; s < sub; s++) Step(Mathf.Min(dt / sub, MaxStepDt));
+                // (the clods push each other apart once a frame: a slow frame bumping them twice made the next one slower still)
+                for (int s = 0; s < sub; s++) { bumpThisStep = s == sub - 1; Step(Mathf.Min(dt / sub, MaxStepDt)); }
+                bumpThisStep = true;
             }
             long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
             Draw();
@@ -460,6 +522,7 @@ namespace FPSBase.Mining
         }
 
         int stepNo;
+        bool bumpThisStep = true;
 
         void StepCore(float dt)
         {
@@ -575,7 +638,7 @@ namespace FPSBase.Mining
             long t1 = System.Diagnostics.Stopwatch.GetTimestamp();
             if (pushers.Count > 0 || recent.Count > 0) ApplyPushers(dt);
             long t2 = System.Diagnostics.Stopwatch.GetTimestamp();
-            CollideClods();
+            if (bumpThisStep) CollideClods();
             for (int i = 0; i < count; i++)
                 if (g[i].v.y > MaxUp) { MaxUp = g[i].v.y; MaxUpWhat = Describe(g[i]); }
             if (count > MostLive) MostLive = count;

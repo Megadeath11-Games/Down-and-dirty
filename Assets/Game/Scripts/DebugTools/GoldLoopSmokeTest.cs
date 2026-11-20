@@ -47,6 +47,7 @@ namespace FPSBase.DebugTools
                         case "save": yield return SaveTests(); break;
                         case "dozerblade": yield return DozerBladeTests(); break;
                         case "dozercut": yield return DozerCutTests(); break;
+                        case "dozerperf": yield return DozerPerfTests(); break;
                         case "blocks": yield return BlockTests(); break;
                         case "grade": yield return GradeTests(); break;
                         case "fine": yield return FineGroundTests(); break;
@@ -506,6 +507,58 @@ namespace FPSBase.DebugTools
         }
 
         /// <summary>Each dozer drives into fresh topsoil with its blade right down: it gets a real cut, as deep as the blade's set.</summary>
+        /// <summary>
+        /// What dozer pushing costs a frame: each dozer cuts in and pushes a growing berm for 10 s on fresh ground,
+        /// timed part by part (clods, ground redraw, slumping, the blade), with how much dirt it moved.
+        /// </summary>
+        IEnumerator DozerPerfTests()
+        {
+            var site = DigSite.Instance;
+            var dealer = FindFirstObjectByType<VehicleDealer>();
+            int k = 0;
+            foreach (var l in dealer.listings)
+            {
+                if (l.prefab == null || l.prefab.GetComponent<Bulldozer>() == null) continue;
+                var d = Instantiate(l.prefab, new Vector3(0f, -50f, 0f), Quaternion.identity).GetComponent<Bulldozer>();
+                var drb = d.GetComponent<Rigidbody>();
+                drb.isKinematic = true;
+                Vector3 st = new Vector3(30f + k * 25f, 0f, -175f); st.y = site.SurfaceY(st); k++;
+                d.transform.SetPositionAndRotation(st + Vector3.up * 0.3f, Quaternion.identity);
+                d.SetBlade(0.3f);
+                Physics.SyncTransforms();
+                yield return null;
+                drb.isKinematic = false;
+                for (int i = 0; i < 80; i++) yield return new WaitForFixedUpdate();
+                d.fuel = d.fuelCapacity;
+                d.TestDrive(1f);
+                for (float t = 0f; t < 1.5f; t += Time.deltaTime) { d.SetBlade(Mathf.MoveTowards(d.BladeHeight, d.bladeRange.x, 0.5f * Time.deltaTime)); yield return null; }
+                double g0 = DirtGrains.StepMs, gp0 = DirtGrains.PushersMs, gc0 = DirtGrains.CollideMs, gd0 = DirtGrains.DrawMs;
+                double r0 = DigSite.RebuildMs, u0 = DigSite.UploadMs, c0 = DigSite.ColliderMs, x0 = DigSite.RelaxMs, p0 = DigSite.PushMs, dc0 = DigSite.DecorMs;
+                float tStart = Time.realtimeSinceStartup, worst = 0f, moved = 0f; int frames = 0, most = 0, slow = 0;
+                var ft = new System.Collections.Generic.List<float>();
+                for (float t = 0f; t < 10f; t += Time.deltaTime)
+                {
+                    yield return null;
+                    frames++; ft.Add(Time.unscaledDeltaTime * 1000f);
+                    worst = Mathf.Max(worst, Time.unscaledDeltaTime * 1000f);
+                    most = Mathf.Max(most, DirtGrains.Live);
+                    moved = Mathf.Max(moved, d.HeapVolume);
+                    if (Time.unscaledDeltaTime > 0.04f) slow++;
+                }
+                d.TestDrive(0f);
+                ft.Sort();
+                float secs = Time.realtimeSinceStartup - tStart;
+                double pf(double now, double was) => (now - was) / Mathf.Max(1, frames);
+                log.AppendLine($"INFO  dozer perf {d.displayName}: {frames / secs:0} fps, median {ft[ft.Count / 2]:0.0} ms, 95% under {ft[(int)(ft.Count * 0.95f)]:0.0} ms, slowest {worst:0} ms, {slow} frames over 40 ms, up to {most} clods, heap up to {moved:0.0} m³, drove {Vector3.Distance(d.transform.position, st):0.0} m");
+                log.AppendLine($"INFO    per frame: clods {pf(DirtGrains.StepMs, g0):0.00} ms (pushers {pf(DirtGrains.PushersMs, gp0):0.00}, collide {pf(DirtGrains.CollideMs, gc0):0.00}), clod draw {pf(DirtGrains.DrawMs, gd0):0.00}, blade {pf(DigSite.PushMs, p0):0.00}, relax {pf(DigSite.RelaxMs, x0):0.00}, ground redraw {pf(DigSite.RebuildMs, r0):0.00}, upload {pf(DigSite.UploadMs, u0):0.00}, collider {pf(DigSite.ColliderMs, c0):0.00}, decor {pf(DigSite.DecorMs, dc0):0.00}");
+                // (a huge heap on fine ground used to take the slumping half a second a frame, and the clods bumping
+                // each other twice a frame once it was slow made it slower still)
+                Check(worst < 250f && slow < frames / 5, $"{d.displayName}: pushing a big heap doesn't stall the game (slowest frame {worst:0} ms, {slow} of {frames} over 40 ms)");
+                Destroy(d.gameObject);
+                yield return null;
+            }
+        }
+
         IEnumerator DozerCutTests()
         {
             var site = DigSite.Instance;

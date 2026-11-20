@@ -571,15 +571,28 @@ namespace FPSBase.Mining
                 var at = new Vector3(origin.x + (cb.bx * detail + half) * cell, 0f, origin.z + (cb.bz * detail + half) * cell);
                 if (!DirtGrains.Cut(at, cell * detail, bottomY, cb.top, cb.m, null, false, Mathf.Clamp(bladeWidthNow * 0.004f, 0.006f, 0.022f)))
                 {
+                    // (spread over a block of squares as big as the one it was cut from: all in one fine square made
+                    // a spike metres tall that took the slumping half a second a frame to bring down)
                     Vector3 to = edge + right * (cb.lat / cb.n) + forward * (ahead + cb.band / cb.n * Mathf.Max(cell * 1.5f, ahead * 0.6f));
-                    AddLoose(Mathf.RoundToInt((to.x - origin.x) / cell), Mathf.RoundToInt((to.z - origin.z) / cell), cb.m);
+                    int tx = Mathf.RoundToInt((to.x - origin.x) / cell) - detail / 2, tz = Mathf.RoundToInt((to.z - origin.z) / cell) - detail / 2;
+                    var part = cb.m.Scaled(1f / (detail * detail));
+                    for (int dz = 0; dz < detail; dz++) for (int dx = 0; dx < detail; dx++) AddLoose(tx + dx, tz + dz, part);
                 }
             }
             cutBlocks.Clear();
             if (moved > 0f)
             {
                 AfterGroundMoved(edge, reach + 0.5f, edge + forward * ahead);
-                Relax(3000 * detail * detail); // the heap slumps now, before this frame's ground is drawn
+                // the heap slumps now, before this frame's ground is drawn (for at most a few milliseconds a frame in
+                // all: a slow frame runs more physics steps, and slumping a huge heap for each made the next frame
+                // slower still; what's left slumps in this frame's Update, still before the ground is drawn)
+                if (Time.frameCount != bladeRelaxFrame) { bladeRelaxFrame = Time.frameCount; bladeRelaxMs = 0f; }
+                if (bladeRelaxMs < BladeSlumpMs)
+                {
+                    long r0 = System.Diagnostics.Stopwatch.GetTimestamp();
+                    Relax(3000 * detail * detail, BladeSlumpMs - bladeRelaxMs);
+                    bladeRelaxMs += (float)((System.Diagnostics.Stopwatch.GetTimestamp() - r0) * 1000.0 / System.Diagnostics.Stopwatch.Frequency);
+                }
             }
             return moved;
         }
@@ -648,13 +661,27 @@ namespace FPSBase.Mining
         static readonly int[] nx8 = { 1, -1, 0, 0, 1, 1, -1, -1 }, nz8 = { 0, 0, 1, -1, 1, -1, 1, -1 };
         const float Diag = 1.41421356f;
 
+        int bladeRelaxFrame = -1; float bladeRelaxMs;
+        /// <summary>
+        /// Most milliseconds a frame the slumping may take while playing (blades, and the rest of the frame): a huge
+        /// heap of loose dirt on fine ground could take a quarter of a second a frame to settle. Light work never gets
+        /// near it; past it the heap carries on slumping next frame.
+        /// </summary>
+        const float BladeSlumpMs = 3f, FrameSlumpMs = 4f;
+
         /// <summary>Let loose dirt slide off anything steeper than its angle of repose.</summary>
-        public void Relax(int budget)
+        public void Relax(int budget) => Relax(budget, float.MaxValue);
+
+        /// <summary>As above, stopping after about `maxMs` milliseconds.</summary>
+        public void Relax(int budget, float maxMs)
         {
             long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
+            relaxStop = maxMs >= float.MaxValue ? long.MaxValue : t0 + (long)(maxMs * System.Diagnostics.Stopwatch.Frequency / 1000.0);
             try { RelaxCore(budget); }
             finally { RelaxMs += (System.Diagnostics.Stopwatch.GetTimestamp() - t0) * 1000.0 / System.Diagnostics.Stopwatch.Frequency; }
         }
+
+        long relaxStop = long.MaxValue;
 
         void RelaxCore(int budget)
         {
@@ -665,6 +692,7 @@ namespace FPSBase.Mining
                 int processed = 0;
                 for (; processed < active.Count && budget > 0; processed++, budget--)
                 {
+                    if ((budget & 127) == 0 && relaxStop != long.MaxValue && System.Diagnostics.Stopwatch.GetTimestamp() > relaxStop) { budget = 0; break; } // (out of time: the rest waits)
                     int i = active[processed];
                     int x = i % res, z = i / res;
                     CheckWall(x, z);
@@ -750,7 +778,7 @@ namespace FPSBase.Mining
 
         void Update()
         {
-            Relax(slumpBudget);
+            Relax(slumpBudget, FrameSlumpMs);
             ProcessCrumbles(false);
             DrawGrass();
             DrawClumps();

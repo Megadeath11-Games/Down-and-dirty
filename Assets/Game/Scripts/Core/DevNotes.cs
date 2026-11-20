@@ -13,6 +13,11 @@ namespace FPSBase.Core
         /// <summary>Newest first.</summary>
         public static readonly Post[] Blog =
         {
+            new Post { date = "Update 30  ·  Nov 20, 2026", title = "Smoother dozer pushing",
+                body =
+                "• Pushing dirt with a dozer runs a lot smoother. The clods in front of the blade work out what they bump into about twice as fast, so all three dozers hold a higher frame rate while the heap grows.\n" +
+                "• The big mining dozer no longer freezes the game for half a second at a time once its heap gets huge. Dirt it can't turn into clods is spread out instead of stacked into one tall spike, and the heap settling is kept to a few milliseconds a frame.\n" +
+                "• The dirt looks and behaves the same as before: same clods, same heaps, same slopes." },
             new Post { date = "Update 29  ·  Nov 20, 2026", title = "A real dig site behind the main menu",
                 body =
                 "• The main menu now shows the real game: a 20 t excavator digging a trench and loading a haul truck, the truck tipping its load, and a dozer pushing a berm, all with the same dirt as when you play (the bucket cuts and scoops, clods fall and roll, piles slump).\n" +
@@ -271,11 +276,13 @@ namespace FPSBase.Core
                 "• Dozer berms build up properly in front of the blade." },
         };
 
-        public const string TestListVersion = "2026-11-20f";
+        public const string TestListVersion = "2026-11-20g";
 
         /// <summary>What's new in this build to try out.</summary>
         public static readonly string[] TestList =
         {
+            "Dozers: push a long heap with each dozer (small, 22 t, mining): the game stays smooth, the heap rolls and spills off the ends like before",
+            "Mining dozer: keep pushing one huge heap for half a minute: no freezes, and the heap settles into a normal slope (no tall spikes)",
             "Main menu: watch the machines behind it for a minute: the excavator digs and loads the truck, the truck tips, the dozer pushes dirt",
             "Main menu: start a new game and walk over to where the menu machines were working: the ground is untouched",
             "Excavator: hold the boom down with the bucket flat on dug dirt: the machine lifts so you can turn, no lag, the dirt doesn't get shoved about",

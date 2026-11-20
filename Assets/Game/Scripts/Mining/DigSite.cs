@@ -676,7 +676,7 @@ namespace FPSBase.Mining
                     for (int k = 0; k < 8; k++)
                     {
                         int ax = x + nx8[k], az = z + nz8[k];
-                        float d = s - Surf(ax, az) - (k < 4 ? step : step * Diag);
+                        float d = s - Held(ax, az) - (k < 4 ? step : step * Diag);
                         excess[k] = d > 0f ? (k < 4 ? d : d * 0.5f) : 0f; // (a diagonal is further: it takes less)
                         total += excess[k];
                     }
@@ -757,7 +757,7 @@ namespace FPSBase.Mining
         }
 
         // redraw what changed: as many pieces as fit in a few milliseconds (a busy heap stays smooth), nearest first
-        void LateUpdate() { UpdateLods(); Flush(64, 3.5f); CatchUpDecor(); }
+        void LateUpdate() { UpdateLods(); Flush(64, 2.5f); CatchUpDecor(); }
 
         /// <summary>Push height changes to the physics collider and rebuild up to `maxChunks` changed meshes.</summary>
         public void Flush(int maxChunks) => Flush(maxChunks, float.MaxValue);
@@ -920,6 +920,15 @@ namespace FPSBase.Mining
         }
 
         void RebuildChunk(int ci, int cj) => RebuildChunk(ci, cj, Eye());
+
+        /// <summary>For the frame-time experiments: every ground piece casts shadows (true) or none do.</summary>
+        public static void TestShadows(bool on)
+        {
+            foreach (var s in All)
+                if (s != null)
+                    foreach (var mr in s.GetComponentsInChildren<MeshRenderer>(true))
+                        mr.shadowCastingMode = on ? ShadowCastingMode.On : ShadowCastingMode.Off;
+        }
 
         /// <summary>Time spent redrawing ground pieces (for the frame-rate readout).</summary>
         public static double RebuildMs, RelaxMs, PushMs; public static int Rebuilds;

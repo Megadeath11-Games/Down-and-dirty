@@ -73,6 +73,11 @@ namespace FPSBase.EditorTools
                 houseLength = 6.05f, houseWidth = 4.18f, houseHeight = 2.06f, cabLength = 2.12f, cabWidth = 1.24f, cabHeight = 2.14f,
                 boomLength = 8.15f, boomDepth = 0.98f, stickLength = 3.85f, stickDepth = 0.68f, bucketRadius = 1.52f, bucketWidth = 2.55f,
                 dualBoomCylinders = true, catwalks = true, miningShroud = true, capacity = 7.8f, tonnes = 94.5f, fuel = 1300f, workBurn = 72f, drive = 1.2f },
+            new ExcavatorCfg { id = "Exc150", name = "Mining Shovel 150 t", primary = Hex(0xeab308), accent = Hex(0x111827),
+                trackLength = 7.65f, trackGauge = 4.45f, trackHeight = 1.78f, shoeWidth = 1.12f,
+                houseLength = 7.3f, houseWidth = 5.05f, houseHeight = 2.5f, cabLength = 2.3f, cabWidth = 1.38f, cabHeight = 2.25f,
+                boomLength = 9.4f, boomDepth = 1.2f, stickLength = 4.35f, stickDepth = 0.82f, bucketRadius = 1.9f, bucketWidth = 3.15f,
+                dualBoomCylinders = true, catwalks = true, miningShroud = true, capacity = 12.5f, tonnes = 152f, fuel = 2200f, workBurn = 110f, drive = 1.0f },
         };
 
         static readonly DozerCfg[] DozerFleet =

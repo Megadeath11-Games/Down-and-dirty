@@ -83,6 +83,7 @@ namespace FPSBase.Vehicles
             suspension.Setup(rb, GetComponent<BoxCollider>(), false);
             BuildShell();
             tools = ToolColliders.Find(transform);
+            if (GetComponent<BucketChain>() == null) gameObject.AddComponent<BucketChain>();
             if (bucketLoadVisual != null)
             {
                 loadBaseScale = bucketLoadVisual.localScale; loadBasePos = bucketLoadVisual.localPosition;
@@ -727,7 +728,8 @@ namespace FPSBase.Vehicles
             $"Bucket tip in: {TipGround} · Under bucket: {underBucket}\n" +
             $"Controls: {(GameSettings.ExcavatorControls == ExcavatorControlMode.Realistic ? "Realistic" : "Simplified")} (change in Esc menu)\n" +
             $"Moving now: {MovingNow()}" +
-            (blade != null ? $"\nFront blade {(bladeAngle < -1f ? "down (pushes when you drive forward)" : bladeAngle > 6f ? "up" : "at ground")} - {N(GameAction.ExBladeUp)}/{N(GameAction.ExBladeDown)} blade up/down" : "");
+            (blade != null ? $"\nFront blade {(bladeAngle < -1f ? "down (pushes when you drive forward)" : bladeAngle > 6f ? "up" : "at ground")} - {N(GameAction.ExBladeUp)}/{N(GameAction.ExBladeDown)} blade up/down" : "") +
+            ChainLine();
 
         public override float HudBar => bucketLoad.volume / bucketCapacity;
         public override string HudBarLabel => Overload > 0.12f
@@ -744,6 +746,16 @@ namespace FPSBase.Vehicles
             : $"{N(GameAction.DriveForward)}{N(GameAction.SteerLeft)}{N(GameAction.DriveBack)}{N(GameAction.SteerRight)}: drive tracks\nMouse X swing · Mouse Y boom · Scroll stick\nHold LMB curl/dig · Hold RMB dump\n{N(GameAction.CabView)} cab view · {N(GameAction.Interact)} get out";
 
         static string N(GameAction a) => Controls.N(a);
+
+        string ChainLine()
+        {
+            var c = GetComponent<BucketChain>();
+            if (c == null) return "";
+            if (c.Held != null) return $"\nChain: {c.Held.Info.name.ToLower()} ({c.Held.Info.kg:N0} kg) on the hook - {N(GameAction.Hook)} let it go";
+            if (c.Out) return c.Nearest(0.75f) != null ? $"\nChain down: the hook's by a block's loop - {N(GameAction.Hook)} hook it" : $"\nChain down: put the hook by a block's loop ({N(GameAction.Hook)} away from one stows it)";
+            foreach (var b in FPSBase.City.ConcreteBlock.All) if (b != null && (b.transform.position - transform.position).sqrMagnitude < 400f) return $"\nConcrete blocks nearby: {N(GameAction.Hook)} lets the bucket chain down to lift them";
+            return "";
+        }
 
         /// <summary>Which functions the controls are working this moment (all of them can move together).</summary>
         string MovingNow()

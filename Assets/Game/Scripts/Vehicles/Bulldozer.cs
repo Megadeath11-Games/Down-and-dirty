@@ -138,6 +138,7 @@ namespace FPSBase.Vehicles
 
         /// <summary>How hard the ground pushes back on the blade, as a fraction of the machine's weight (for the test).</summary>
         public float BladePushBack { get; private set; }
+        float pushState;
 
         // the blade lowered into unbroken ground further than it's cutting lifts the front, like on pavement
         protected override void GroundPushBack()
@@ -146,7 +147,9 @@ namespace FPSBase.Vehicles
             if (bladeEdge == null) return;
             // (just inside the ends: right at an end half the ground under it is the uncut edge of the cut)
             Vector3 r = (Swivel != null ? Swivel.right : transform.right) * (bladeWidth * 0.45f);
-            BladePushBack = GroundPush.Edge(rb, suspension.gravityScale, bladeEdge.position - r, bladeEdge.position + r, 9, 0.04f, 0.12f, out _);
+            // (felt through the whole blade and eased in over a moment: going by the single deepest point, the push
+            // jumped about from frame to frame as the cut squares changed under the edge, and the machine porpoised)
+            BladePushBack = GroundPush.EdgeSmooth(rb, suspension.gravityScale, bladeEdge.position - r, bladeEdge.position + r, 9, 0.04f, 0.12f, ref pushState);
         }
 
         protected override void FixedUpdate()
@@ -212,7 +215,8 @@ namespace FPSBase.Vehicles
                 // (measured from the unbroken ground ahead, not the top of the heap in front of the blade: that held the
                 // cut up as the heap grew, and the ground then lifted the machine instead of being cut)
                 float deepest = Mathf.Min(bladeHeight, 0f) - 0.08f;
-                edge.y = Mathf.Max(edge.y, site.NativeY(edge + f * 0.4f) + deepest);
+                float limit = site.NativeY(edge + f * 0.4f) + deepest;
+                edge.y = Mathf.Max(edge.y, limit);
                 if (square) moved = site.BladePush(edge, transform.forward, bladeWidth, edge.y, pushAhead, out hard);
                 else
                 {

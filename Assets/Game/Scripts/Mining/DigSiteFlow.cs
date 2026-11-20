@@ -94,7 +94,7 @@ namespace FPSBase.Mining
             float lowest = float.MaxValue; lk = 0;
             for (int k = 0; k < 4; k++)
             {
-                float s = Surf(x + nx[k], z + nz[k]);
+                float s = Held(x + nx[k], z + nz[k]);
                 if (s < lowest) { lowest = s; lk = k; }
             }
             return lowest;

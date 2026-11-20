@@ -54,7 +54,7 @@ namespace FPSBase.EditorTools
                 }
         }
 
-        class VehiclePrefabs { public GameObject mini, pickup, dumpTruck, hauler, dozer, loader, grader, bowser, tilt7, goose10; public GameObject[] excavators, dozers, skids, semis; }
+        class VehiclePrefabs { public GameObject mini, pickup, dumpTruck, hauler, miningHauler, dozer, loader, grader, bowser, tilt7, goose10; public GameObject[] excavators, dozers, skids, semis; }
 
         class ExcavatorSpec
         {
@@ -63,7 +63,7 @@ namespace FPSBase.EditorTools
 
         class TruckSpec
         {
-            public string name;
+            public string name, id; public int paintHex = 0xd4d4d0, accentHex = 0x1e293b; public bool mining;
             public float length, width, wheelR, hood, cab, cabH, bedL, bedW, bedH, capacity, mass, fuel, workBurn, topSpeed;
             public float[] axles;
         }
@@ -71,24 +71,34 @@ namespace FPSBase.EditorTools
         static VehiclePrefabs BuildVehiclePrefabs(VehicleMats vm)
         {
             EnsureFolder(Gen + "/Prefabs");
+            // (the trucks and the loader are built in the heavy fleet's style, so its materials come first)
+            var fm = BuildFleetMats(vm.dirt);
+            var tm = BuildTransportMats();
             var p = new VehiclePrefabs
             {
                 mini = SavePrefab(BuildExcavator(new ExcavatorSpec { name = "Mini Excavator 1.5t", scale = 1f, bucket = 0.08f, digRate = 0.12f, drive = 1.6f, fuel = 22f, workBurn = 3.2f, mass = 1500f }, vm)),
-                dumpTruck = SavePrefab(BuildTruck(new TruckSpec
+                dumpTruck = SavePrefab(BuildFleetTruck(new TruckSpec
                 {
-                    name = "Single-Axle Dump Truck", length = 7.4f, width = 2.45f, wheelR = 0.55f, hood = 1.0f, cab = 1.8f, cabH = 1.6f,
+                    name = "Single-Axle Dump Truck", id = "Dump6", paintHex = 0xe5e5e0, accentHex = 0x1f2937,
+                    length = 7.4f, width = 2.45f, wheelR = 0.55f, hood = 1.0f, cab = 1.8f, cabH = 1.6f,
                     bedL = 3.9f, bedW = 2.4f, bedH = 0.95f, capacity = 6f, mass = 9500f, fuel = 250f, workBurn = 30f, topSpeed = 85f, axles = new[] { 2.55f, -2.05f }
-                }, vm, ColorMat("Paint_TruckWhite", new Color(0.82f, 0.82f, 0.8f), 0f, 0.55f))),
-                hauler = SavePrefab(BuildTruck(new TruckSpec
+                }, fm, tm, vm.dirt)),
+                hauler = SavePrefab(BuildFleetTruck(new TruckSpec
                 {
-                    name = "Haul Truck 25t", length = 10f, width = 2.9f, wheelR = 0.85f, hood = 1.3f, cab = 2.0f, cabH = 1.8f,
+                    name = "Haul Truck 25t", id = "Haul25", paintHex = 0xf59e0b, accentHex = 0x1e293b,
+                    length = 10f, width = 2.9f, wheelR = 0.85f, hood = 1.3f, cab = 2.0f, cabH = 1.8f,
                     bedL = 5.8f, bedW = 2.9f, bedH = 1.25f, capacity = 14f, mass = 24000f, fuel = 400f, workBurn = 45f, topSpeed = 55f, axles = new[] { 3.5f, -1.7f, -3.7f }
-                }, vm, vm.paint)),
+                }, fm, tm, vm.dirt)),
+                miningHauler = SavePrefab(BuildFleetTruck(new TruckSpec
+                {
+                    name = "Mining Haul Truck 60 t", id = "Haul60", paintHex = 0xeab308, accentHex = 0x111827, mining = true,
+                    length = 10.4f, width = 4.6f, wheelR = 1.0f, hood = 0f, cab = 1.7f, cabH = 2.0f,
+                    bedL = 6.7f, bedW = 4.3f, bedH = 1.75f, capacity = 30f, mass = 45000f, fuel = 800f, workBurn = 75f, topSpeed = 50f, axles = new[] { 3.2f, -2.1f }
+                }, fm, tm, vm.dirt)),
                 dozer = SavePrefab(BuildDozer(vm)),
-                loader = SavePrefab(BuildLoader(vm)),
+                loader = SavePrefab(BuildFleetLoader(fm, tm, vm.dirt)),
             };
-            // the heavy fleet (5 t - 90 t excavators, 22 t and 66.5 t dozers)
-            var fm = BuildFleetMats(vm.dirt);
+            // the heavy fleet (5 t - 150 t excavators, 22 t and 66.5 t dozers)
             p.excavators = new GameObject[ExcavatorFleet.Length];
             for (int i = 0; i < ExcavatorFleet.Length; i++) p.excavators[i] = SavePrefab(BuildFleetExcavator(ExcavatorFleet[i], fm));
             p.dozers = new GameObject[DozerFleet.Length];
@@ -98,7 +108,6 @@ namespace FPSBase.EditorTools
             for (int i = 0; i < SkidFleet.Length; i++) p.skids[i] = SavePrefab(BuildSkidSteer(SkidFleet[i], fm));
             p.grader = SavePrefab(BuildGrader(fm));
             // transport + support: the GMT400 starter pickup (dump box + tidy tank), the fuel bowser, the semis with RGN lowboys
-            var tm = BuildTransportMats();
             p.pickup = SavePrefab(BuildGMT400(fm, tm, vm.dirt));
             p.bowser = SavePrefab(BuildBowser(fm, tm));
             p.tilt7 = SavePrefab(BuildEquipTrailer(false, fm, tm));

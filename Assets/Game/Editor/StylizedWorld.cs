@@ -271,7 +271,7 @@ namespace FPSBase.EditorTools
                 go.transform.localScale = Vector3.one * scale;
                 go.AddComponent<MeshFilter>().sharedMesh = mesh;
                 go.AddComponent<MeshRenderer>().sharedMaterials = mats;
-                GameObjectUtility.SetStaticEditorFlags(go, StaticEditorFlags.BatchingStatic);
+                // (not static-batched: NatureBatcher merges them per tile at load, which draws far fewer)
                 return go;
             }
 

@@ -30,7 +30,7 @@ namespace FPSBase.Core
         }
 
         const int Magic = 0x44445356; // "DDSV"
-        const int Version = 2; // 2: the town ground fixed (older saves' dug town cells are moved onto it)
+        const int Version = 3; // 3: concrete blocks.  2: the town ground fixed (older saves' dug town cells are moved onto it)
 
         public static string Folder => Path.Combine(Application.persistentDataPath, "Saves");
         /// <summary>The world being played (loaded or last saved): saving again overwrites it.</summary>
@@ -93,6 +93,7 @@ namespace FPSBase.Core
                     WritePiles(w);
                     WritePlants(w);
                     WriteTown(w);
+                    WriteBlocks(w);
                 }
                 if (File.Exists(path)) File.Delete(path);
                 File.Move(tmp, path);
@@ -210,6 +211,34 @@ namespace FPSBase.Core
             w.Write((int)ms.Length); w.Write(ms.GetBuffer(), 0, (int)ms.Length);
         }
 
+        const int BlockTag = 0x424C4B53; // "BLKS": the concrete blocks (where each is, and whether it's chained down)
+
+        static void WriteBlocks(BinaryWriter w)
+        {
+            var list = new List<FPSBase.City.ConcreteBlock>();
+            foreach (var b in FPSBase.City.ConcreteBlock.All) if (b != null) list.Add(b);
+            w.Write(BlockTag); w.Write(list.Count);
+            foreach (var b in list)
+            {
+                w.Write((byte)b.kind);
+                var t = b.transform;
+                w.Write(t.position.x); w.Write(t.position.y); w.Write(t.position.z);
+                w.Write(t.rotation.x); w.Write(t.rotation.y); w.Write(t.rotation.z); w.Write(t.rotation.w);
+                w.Write(b.ChainedTo != null);
+            }
+        }
+
+        static List<(int kind, Vector3 p, Quaternion q, bool chained)> ReadBlocks(BinaryReader r)
+        {
+            var list = new List<(int, Vector3, Quaternion, bool)>();
+            if (r.BaseStream.Length - r.BaseStream.Position < 8) return list;
+            long at = r.BaseStream.Position;
+            if (r.ReadInt32() != BlockTag) { r.BaseStream.Position = at; return list; }
+            int n = r.ReadInt32();
+            for (int i = 0; i < n; i++) { int k = r.ReadByte(); var p = RV3(r); var q = RQ(r); bool c = r.ReadBoolean(); list.Add((k, p, q, c)); }
+            return list;
+        }
+
         static void ReadTown(BinaryReader r, int version)
         {
             if (r.BaseStream.Length - r.BaseStream.Position < 8) return;
@@ -270,6 +299,7 @@ namespace FPSBase.Core
                 UnityEngine.Object.Destroy(b.gameObject);
             }
             foreach (var p in new List<DirtPile>(DirtPile.All)) if (p != null) UnityEngine.Object.Destroy(p.gameObject);
+            foreach (var b in new List<FPSBase.City.ConcreteBlock>(FPSBase.City.ConcreteBlock.All)) if (b != null) UnityEngine.Object.Destroy(b.gameObject);
             yield return null;
 
             Net.NetSession.AssignSceneIds();
@@ -277,6 +307,7 @@ namespace FPSBase.Core
             var machines = new List<VehicleBase>();
             var lowboys = new List<(SemiTruck semi, byte state, Vector3 p, Quaternion q)>();
             string error = null;
+            List<(int kind, Vector3 p, Quaternion q, bool chained)> blocks = null;
             try
             {
                 int n = r.ReadInt32();
@@ -358,8 +389,32 @@ namespace FPSBase.Core
                 for (int k = 0; k < np; k++) { Vector3 p = RV3(r); var l = NetIO.ReadLoad(r); DirtPile.DropAt(p, l); }
                 ReadPlants(r);
                 ReadTown(r, info.version);
+                blocks = ReadBlocks(r);
             }
             catch (Exception e) { error = "The save is damaged: " + e.Message; }
+
+            // the concrete blocks: put back where they were, still; the ones that were chained down, chained again
+            if (blocks != null && blocks.Count > 0)
+            {
+                var placed = new List<(FPSBase.City.ConcreteBlock b, bool chained)>();
+                foreach (var (kind, p, q, chained) in blocks)
+                {
+                    var b = FPSBase.City.BlockYard.Spawn(kind, p, q);
+                    if (b == null) continue;
+                    b.Body.isKinematic = true;
+                    placed.Add((b, chained));
+                }
+                Physics.SyncTransforms();
+                yield return null;
+                Physics.SyncTransforms();
+                foreach (var (b, chained) in placed)
+                {
+                    if (b == null) continue;
+                    if (chained && b.CarrierBelow(out var deck)) b.ChainTo(deck, true);
+                    else b.Body.isKinematic = false;
+                    b.Claim();
+                }
+            }
 
             var eco = Economy.Instance;
             if (eco != null) eco.SetState(money, gold);

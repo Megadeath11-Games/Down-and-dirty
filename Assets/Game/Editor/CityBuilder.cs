@@ -431,6 +431,7 @@ namespace FPSBase.EditorTools
                 gb.chute = chute;
                 MapMark(bin, "Landscape supply", new Color(0.55f, 0.85f, 0.4f), new Vector3(6f, 0f, -8f));
             }
+            BuildBlockYard(root, supply, hard);
 
             // the yards: a second diggable ground
             BuildCityField(hard);

@@ -53,6 +53,52 @@ namespace FPSBase.Core
             var args = System.Environment.GetCommandLineArgs();
             int a = System.Array.IndexOf(args, "-menushot");
             if (a >= 0 && a + 1 < args.Length) StartCoroutine(MenuShots(args[a + 1]));
+            // dev: "-vehshot <folder> <name part>,<name part>,..." photographs those dealer machines close up, then quits
+            int vs = System.Array.IndexOf(args, "-vehshot");
+            if (vs >= 0 && vs + 2 < args.Length) { menuOpen = false; StartCoroutine(VehicleShots(args[vs + 1], args[vs + 2].Split(','))); }
+        }
+
+        System.Collections.IEnumerator VehicleShots(string folder, string[] names)
+        {
+            System.IO.Directory.CreateDirectory(folder);
+            for (int i = 0; i < 120; i++) yield return null;
+            var dealer = FindFirstObjectByType<FPSBase.Mining.VehicleDealer>();
+            if (dealer == null) { Application.Quit(); yield break; }
+            var camGo = new GameObject("Shot Camera");
+            var cam = camGo.AddComponent<Camera>();
+            camGo.AddComponent<UnityEngine.Rendering.HighDefinition.HDAdditionalCameraData>();
+            cam.depth = 100f; cam.fieldOfView = 45f; cam.nearClipPlane = 0.1f; cam.farClipPlane = 2000f;
+            Vector3 at = dealer.heavyLotSpots != null && dealer.heavyLotSpots.Length > 0 ? dealer.heavyLotSpots[0].position : Vector3.zero;
+            var site = FPSBase.Mining.DigSite.At(at);
+            foreach (var part in names)
+            {
+                int li = System.Array.FindIndex(dealer.listings, l => l.name.Contains(part));
+                if (li < 0 || dealer.listings[li].prefab == null) { Debug.Log($"[VehShot] no listing {part}"); continue; }
+                float y = site != null && site.Contains(at) ? site.SurfaceY(at) : at.y;
+                var go = Instantiate(dealer.listings[li].prefab, new Vector3(at.x, y + 0.05f, at.z), Quaternion.identity);
+                var rb = go.GetComponent<Rigidbody>(); if (rb != null) rb.isKinematic = true;
+                for (int i = 0; i < 10; i++) yield return null;
+                var b = new Bounds(go.transform.position, Vector3.one);
+                foreach (var r in go.GetComponentsInChildren<MeshRenderer>())
+                    if (r.bounds.size.magnitude < 40f && (r.bounds.center - go.transform.position).magnitude < 25f) b.Encapsulate(r.bounds);
+                    else Debug.Log($"[VehShot] {part}: skipped {r.name} {r.bounds}");
+                float d = b.extents.magnitude * 2.4f;
+                string safe = part.Replace(' ', '_');
+                Vector3[] views = { new Vector3(-0.7f, 0.35f, 0.75f), new Vector3(0.75f, 0.3f, -0.7f), new Vector3(-0.25f, 0.12f, 0.35f) };
+                for (int k = 0; k < views.Length; k++)
+                {
+                    Vector3 dir = views[k].normalized;
+                    float dist = k == 2 ? d * 0.45f : d;
+                    cam.transform.position = b.center + dir * dist;
+                    cam.transform.LookAt(b.center + (k == 2 ? Vector3.up * b.extents.y * 0.1f : Vector3.zero));
+                    for (int i = 0; i < 40; i++) yield return null;
+                    ScreenCapture.CaptureScreenshot(System.IO.Path.Combine(folder, $"veh_{safe}_{k}.png"));
+                    for (int i = 0; i < 10; i++) yield return null;
+                }
+                Destroy(go);
+                yield return null;
+            }
+            Application.Quit();
         }
 
         System.Collections.IEnumerator MenuShots(string folder)

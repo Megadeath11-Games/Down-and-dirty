@@ -216,13 +216,54 @@ namespace FPSBase.Vehicles
             return best > 0f ? Push(rb, gravityScale, at, best, travel) : 0f;
         }
 
+        /// <summary>
+        /// As Edge, but by how deep the edge is on average where it's in (weighted to the deepest), eased in and
+        /// out over ~0.12 s (`state` keeps it between steps): a blade dragged through a cut feels it steadily.
+        /// </summary>
+        public static float EdgeSmooth(Rigidbody rb, float gravityScale, Vector3 a, Vector3 b, int n, float allowed, float travel, ref float state)
+        {
+            var site = DigSite.At((a + b) * 0.5f);
+            if (site == null || rb == null || rb.isKinematic) { state = 0f; return 0f; }
+            float best = 0f, sum = 0f, wsum = 0f; Vector3 at = (a + b) * 0.5f;
+            for (int i = 0; i < n; i++)
+            {
+                Vector3 p = Vector3.Lerp(a, b, n > 1 ? i / (n - 1f) : 0.5f);
+                if (!site.Contains(p)) continue;
+                float e = site.NativeY(p) - p.y - allowed;
+                if (e <= 0f) continue;
+                sum += e * e; wsum += e;
+                if (e > best) best = e;
+            }
+            float target = wsum > 0f ? sum / wsum : 0f; // (each point weighted by its own depth)
+            state = Mathf.Lerp(state, target, 1f - Mathf.Exp(-Time.fixedDeltaTime / 0.12f));
+            if (best <= 0f && state < 0.002f) { state = 0f; return 0f; }
+            return state > 0f ? Push(rb, gravityScale, at, state, travel, true) : 0f;
+        }
+
         /// <summary>A stiff, damped spring at `at`, `excess` m deep: up to 90% of the machine's weight.</summary>
-        public static float Push(Rigidbody rb, float gravityScale, Vector3 at, float excess, float travel)
+        public static float Push(Rigidbody rb, float gravityScale, Vector3 at, float excess, float travel, bool byPointMass = false)
         {
             float m = rb.mass, w = m * -Physics.gravity.y * gravityScale;
-            float k = w / Mathf.Max(0.05f, travel);
+            if (!byPointMass)
+            {
+                float k0 = w / Mathf.Max(0.05f, travel);
+                float f0 = Mathf.Clamp(k0 * excess - Mathf.Sqrt(k0 * m) * rb.GetPointVelocity(at).y, 0f, w * 0.9f);
+                rb.AddForceAtPosition(Vector3.up * f0, at, ForceMode.Force);
+                return f0 / Mathf.Max(1e-3f, w);
+            }
+            // How heavy the machine feels at that point when pushed up there. Far out on a blade or a bucket that
+            // is a fraction of its mass: it pitches more than it lifts. The spring and its damping go by that mass,
+            // and are held to what one physics step can take. Too stiff or too damped for the step, the push
+            // overshoots each step and the machine shudders and bounces on its blade.
+            Vector3 rn = Vector3.Cross(at - rb.worldCenterOfMass, Vector3.up);
+            Vector3 l = Quaternion.Inverse(rb.rotation * rb.inertiaTensorRotation) * rn;
+            Vector3 I = rb.inertiaTensor;
+            float inv = 1f / m + l.x * l.x / Mathf.Max(1e-3f, I.x) + l.y * l.y / Mathf.Max(1e-3f, I.y) + l.z * l.z / Mathf.Max(1e-3f, I.z);
+            float me = 1f / inv, dt = Time.fixedDeltaTime;
+            float k = Mathf.Min(w / Mathf.Max(0.05f, travel), 0.2f * me / (dt * dt));
+            float c = Mathf.Min(2f * Mathf.Sqrt(k * me), 0.5f * me / dt);
             float vUp = rb.GetPointVelocity(at).y;
-            float f = Mathf.Clamp(k * excess - Mathf.Sqrt(k * m) * vUp, 0f, w * 0.9f);
+            float f = Mathf.Clamp(k * excess - c * vUp, 0f, w * 0.9f);
             rb.AddForceAtPosition(Vector3.up * f, at, ForceMode.Force);
             return f / Mathf.Max(1e-3f, w);
         }

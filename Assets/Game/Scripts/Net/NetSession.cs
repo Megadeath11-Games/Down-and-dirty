@@ -25,7 +25,7 @@ namespace FPSBase.Net
     ///  * dirt poured into a truck another player runs is added on their game.
     /// Each player keeps their own money.
     /// </summary>
-    public class NetSession : MonoBehaviour
+    public partial class NetSession : MonoBehaviour
     {
         public const uint AppId = 480;
         const string LobbyTag = "fpsbase_goldrush";
@@ -566,6 +566,7 @@ namespace FPSBase.Net
                     for (int i = 0; i < n; i++) { int id = r.ReadInt32(); Vector3 p = ReadV3(r); var l = NetIO.ReadLoad(r); DirtPile.NetApply(id, p, l); }
                     break;
                 }
+                case MsgBlocks: ReadBlocks(from, r); break;
                 case MsgBye: break;
             }
         }
@@ -592,6 +593,7 @@ namespace FPSBase.Net
             TrailerOwnership();
             if ((vehicleTimer -= dt) <= 0f) { vehicleTimer = 1f / 15f; SendVehicles(slow); SendTrailers(slow, null); }
             if ((terrainTimer -= dt) <= 0f) { terrainTimer = 0.12f; SendTerrain(); SendPiles(null, false); }
+            BlocksTick(dt);
             ShowRemotes(Time.deltaTime);
         }
 
@@ -1080,14 +1082,19 @@ namespace FPSBase.Net
 
         // ------------------------------------------------------------------ ground
 
+        /// <summary>For the tests: time spent sending / reading the ground, and how much went.</summary>
+        public static double TerrainSendMs, TerrainReadMs; public static long TerrainSentBytes, TerrainSentCells, TerrainReadCells;
+
         void SendTerrain()
         {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             var sites = DigSite.Ordered();
             for (int k = 0; k < sites.Count; k++)
             {
                 var cells = sites[k].TakeChangedCells(false);
                 if (cells.Count > 0) SendCells(k, cells, null);
             }
+            TerrainSendMs += sw.Elapsed.TotalMilliseconds;
         }
 
         /// <summary>Changed ground cells of ground number `k` (<see cref="DigSite.Ordered"/>).</summary>
@@ -1103,6 +1110,7 @@ namespace FPSBase.Net
                 for (int i = 0; i < n; i++) site.WriteCell(rw, cells[s + i]);
                 var packed = new MemoryStream();
                 using (var z = new DeflateStream(packed, System.IO.Compression.CompressionLevel.Fastest, true)) z.Write(raw.GetBuffer(), 0, (int)raw.Length);
+                TerrainSentBytes += packed.Length; TerrainSentCells += n;
                 var w = Begin(MsgTerrain);
                 w.Write(k); w.Write(n); w.Write((int)packed.Length); w.Write(packed.GetBuffer(), 0, (int)packed.Length);
                 if (to.HasValue) Send(to.Value, w, true); else Send(w, true, null);
@@ -1126,6 +1134,12 @@ namespace FPSBase.Net
 
         void ReadTerrain(BinaryReader r)
         {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            try { ReadTerrainCore(r); } finally { TerrainReadMs += sw.Elapsed.TotalMilliseconds; }
+        }
+
+        void ReadTerrainCore(BinaryReader r)
+        {
             int k = r.ReadInt32();
             int n = r.ReadInt32(), len = r.ReadInt32();
             var packed = new MemoryStream(r.ReadBytes(len));
@@ -1133,6 +1147,7 @@ namespace FPSBase.Net
             using (var z = new DeflateStream(packed, CompressionMode.Decompress)) z.CopyTo(raw);
             raw.Position = 0;
             var sites = DigSite.Ordered();
+            TerrainReadCells += n;
             if (k >= 0 && k < sites.Count) sites[k].ReadCells(new BinaryReader(raw), n);
         }
 
@@ -1218,6 +1233,7 @@ namespace FPSBase.Net
                 Send(to, w, true);
             }
             SendTrailers(true, to); // and the trailers this game runs
+            SendBlocksTo(to); // and the concrete blocks (after the trailers they may be chained to)
         }
 
         // ------------------------------------------------------------------ helpers

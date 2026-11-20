@@ -13,6 +13,18 @@ namespace FPSBase.Core
         /// <summary>Newest first.</summary>
         public static readonly Post[] Blog =
         {
+            new Post { date = "Update 26  ·  Nov 20, 2026", title = "Concrete blocks, a bucket chain and two giant machines",
+                body =
+                "• Concrete wall blocks: the landscape supply now has a block yard next door selling precast blocks in six sizes (half 2×2×2 ft, the 2×2×4 ft lock block, long 2×2×6 ft, big 2.5×2.5×5 ft, cap 1×2×4 ft and the 3×3×6 ft barrier). Back a trailer or a dump truck into the painted bay, buy at the office, and they load them on for you.\n" +
+                "• Chain them down (look at a block, F: one block or the whole load) before you drive off. Loose, they slide about.\n" +
+                "• Every excavator has a lifting chain on the bucket linkage: H lets it down, put the hook by a block's loop and press H again to hook it, lift and swing it over, set it down and H lets it go. Unload them one at a time and stack them.\n" +
+                "• Blocks hold back dirt: stand a row on the ground and pile dirt behind it and it stays behind the wall instead of slumping through. Build retaining walls on a hillside.\n" +
+                "• New: the Mining Shovel 150 t, a massive excavator with a 12.5 m³ bucket, and the Mining Haul Truck 60 t. Both at the dealer.\n" +
+                "• The wheel loader and the dump trucks are rebuilt with the same detailed look as the rest of the fleet.\n" +
+                "• Dozers don't bounce: cutting with the blade down, the ground's push on the blade was jumping about from moment to moment and the machine porpoised along its cut, worst on the mining dozer. It's smooth now.\n" +
+                "• A bit lighter to run: the trees, bushes and rocks round the map were drawn one by one (a third of everything drawn). Now they're drawn in big batches, 40% fewer things to draw. Redrawing the dug ground takes less of each frame while a friend is pushing dirt. (Two-player dozing and digging is still heavy: more to come.)\n" +
+                "• Blocks are saved with your world (chained ones stay chained) and show up for your friends in multiplayer.",
+            },
             new Post { date = "Update 25  ·  Nov 20, 2026", title = "Smooth graded roads and clean cut walls",
                 body =
                 "• The grader cuts real roads: the moldboard spreads the dirt it carries into the low spots behind it and cuts to the machine's height averaged over the last few metres (it hangs between the front wheels and the tandems), so one pass over lumps and holes leaves an even road with a windrow at the side. A shallow skim shows as dirt, not grass, and the fill is packed so your tyres don't rut it.\n" +
@@ -246,11 +258,21 @@ namespace FPSBase.Core
                 "• Dozer berms build up properly in front of the blade." },
         };
 
-        public const string TestListVersion = "2026-11-20b";
+        public const string TestListVersion = "2026-11-20c";
 
         /// <summary>What's new in this build to try out.</summary>
         public static readonly string[] TestList =
         {
+            "Block yard (next to the landscape supply): back a trailer into the painted bay, buy some lock blocks: they're loaded onto the trailer",
+            "Look at a block on the trailer, F: chain down the whole load, then drive off: they ride with the trailer and don't slide",
+            "Excavator: press H to let the chain down, put the hook by a block's loop, H again: it hooks on; lift and swing it, set it down, H lets it go",
+            "Stack blocks into a wall on a slope and pile dirt behind it with the excavator or dozer: the dirt stays behind the wall",
+            "Save with blocks on a trailer and some on the ground, load it: they're all back, the chained ones still chained",
+            "Multiplayer: buy blocks and unload them with the chain: your friend sees them load, ride, swing and land",
+            "Dealer: buy the Mining Shovel 150 t and the Mining Haul Truck 60 t: dig and load the truck",
+            "Look at the wheel loader and the dump trucks: detailed like the rest of the fleet",
+            "Dozers (try the mining dozer): blade down, drive into fresh ground: it cuts smooth, no bouncing or porpoising",
+            "Multiplayer: one of you dozing and one digging: check how smooth it is (tell me the fps if it still lags)",
             "Grader: drop the blade to just touch and drive over rough ground: one pass leaves a smooth, even dirt road with a windrow at the side",
             "Drive a truck over a graded road: it stays smooth, no deep ruts",
             "Dig a deep pit and doze a cut: the walls are clean faces with layers in bands, no saw teeth, no long streaks, no grass at the corners",

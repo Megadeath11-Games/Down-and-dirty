@@ -47,6 +47,7 @@ namespace FPSBase.DebugTools
         {
             Application.runInBackground = true;
             AudioListener.volume = 0f;
+            LoopTimer.Install();
             Directory.CreateDirectory(dir);
             StartCoroutine(Run());
         }
@@ -388,6 +389,133 @@ namespace FPSBase.DebugTools
                     Check(off < 0.01f, $"the ground {(me ? "you" : "your friend")} pushed is the same on both games (on average {off * 100f:0.0} cm apart)");
                     yield return Sync($"push-checked-{pusherRole}");
                 }
+            }
+
+            // ---------------- working together: the host dozes while the friend digs with the excavator (the lag case)
+            {
+                int myDozer = int.Parse(File.ReadAllText(Path.Combine(dir, "host.val.meddozer")));
+                int exId = int.Parse(File.ReadAllText(Path.Combine(dir, "host.val.ex")));
+                var ws = DigSite.Instance;
+                if (host)
+                {
+                    var dz = ById(myDozer) as Bulldozer;
+                    if (dz != null)
+                    {
+                        Vector3 st = new Vector3(100f, 0f, -60f); st.y = ws.SurfaceY(st) + 0.6f;
+                        var rb = dz.GetComponent<Rigidbody>();
+                        rb.isKinematic = true; dz.transform.SetPositionAndRotation(st, Quaternion.identity); rb.position = st; rb.rotation = Quaternion.identity; rb.isKinematic = false;
+                        Physics.SyncTransforms();
+                    }
+                }
+                else
+                {
+                    var ex = ById(exId) as MiniExcavator;
+                    if (ex != null)
+                    {
+                        Vector3 st = new Vector3(80f, 0f, -60f); st.y = ws.SurfaceY(st) + 0.6f;
+                        ex.Interact(Me);
+                        yield return Frames(20);
+                        var rb = ex.GetComponent<Rigidbody>();
+                        rb.isKinematic = true; ex.transform.SetPositionAndRotation(st, Quaternion.identity); rb.position = st; rb.rotation = Quaternion.identity; rb.isKinematic = false;
+                        Physics.SyncTransforms();
+                    }
+                }
+                yield return Seconds(1.5f);
+                yield return Sync("together-ready");
+                var dz2 = host ? ById(myDozer) as Bulldozer : null;
+                var ex2 = !host ? ById(exId) as MiniExcavator : null;
+                if (dz2 != null) { dz2.Interact(Me); yield return Frames(10); dz2.SetBlade(-0.15f); }
+                // timers at the start
+                double r0 = DigSite.RebuildMs, u0 = DigSite.UploadMs, c0 = DigSite.ColliderMs, x0 = DigSite.RelaxMs, p0 = DigSite.PushMs;
+                double g0 = DirtGrains.StepMs, gc0 = DirtGrains.CollideMs, gd0 = DirtGrains.DrawMs, ts0 = FPSBase.Net.NetSession.TerrainSendMs, tr0 = FPSBase.Net.NetSession.TerrainReadMs;
+                long sb0 = FPSBase.Net.NetSession.TerrainSentBytes, sc0 = FPSBase.Net.NetSession.TerrainSentCells, rc0 = FPSBase.Net.NetSession.TerrainReadCells;
+                int frames = 0; float worst = 0f, total = 0f; int slow = 0, mostClods = 0; float tt = 0f;
+                var hist = new List<float>();
+                var loop0 = LoopTimer.Snapshot();
+                while (tt < 12f)
+                {
+                    if (dz2 != null) Controls.TestHeld[GameAction.DriveForward] = tt < 9f ? 0.7f : 0f;
+                    if (ex2 != null)
+                    {
+                        float ph = tt % 4f; // dig cycle: boom down, drag in, lift and swing, dump, swing back
+                        MiniExcavator.Inputs inp = ph < 0.8f ? new MiniExcavator.Inputs { boom = -1f }
+                            : ph < 2f ? new MiniExcavator.Inputs { stick = -1f, bucket = -0.7f, boom = -0.2f }
+                            : ph < 2.8f ? new MiniExcavator.Inputs { boom = 1f, swing = 1f }
+                            : ph < 3.3f ? new MiniExcavator.Inputs { bucket = 1f, stick = 1f }
+                            : new MiniExcavator.Inputs { swing = -1f, stick = 1f };
+                        ex2.TestControl(inp);
+                    }
+                    float ms = Time.unscaledDeltaTime * 1000f;
+                    if (tt > 0.5f) { worst = Mathf.Max(worst, ms); if (ms > 25f) slow++; }
+                    hist.Add(ms);
+                    mostClods = Mathf.Max(mostClods, DirtGrains.Live);
+                    frames++; total += ms; tt += Time.deltaTime;
+                    yield return null;
+                }
+                Controls.TestHeld.Clear();
+                if (ex2 != null) ex2.TestControl(null);
+                hist.Sort();
+                float p95 = hist.Count > 0 ? hist[Mathf.Min(hist.Count - 1, (int)(hist.Count * 0.95f))] : 0f;
+                float pf(double a, double b) => (float)((a - b) / Mathf.Max(1, frames));
+                Info($"working together ({(host ? "you doze, friend digs" : "you dig, friend dozes")}): {frames / 12f:0} fps, 95% of frames under {p95:0.0} ms, slowest {worst:0} ms, {slow} frames over 25 ms, up to {mostClods} clods");
+                Info($"  per frame: ground redraw {pf(DigSite.RebuildMs, r0):0.00} ms, upload {pf(DigSite.UploadMs, u0):0.00}, collider {pf(DigSite.ColliderMs, c0):0.00}, relax {pf(DigSite.RelaxMs, x0):0.00}, push {pf(DigSite.PushMs, p0):0.00}, clods {pf(DirtGrains.StepMs, g0):0.00} (collide {pf(DirtGrains.CollideMs, gc0):0.00}, draw {pf(DirtGrains.DrawMs, gd0):0.00}), net send {pf(FPSBase.Net.NetSession.TerrainSendMs, ts0):0.00}, net read {pf(FPSBase.Net.NetSession.TerrainReadMs, tr0):0.00}");
+                Info($"  frame steps: {LoopTimer.Top(loop0, frames, 12)}");
+                Info($"  ground over the net: sent {(FPSBase.Net.NetSession.TerrainSentBytes - sb0) / 12f / 1024f:0.0} KB/s ({(FPSBase.Net.NetSession.TerrainSentCells - sc0) / 12f:0} cells/s), got {(FPSBase.Net.NetSession.TerrainReadCells - rc0) / 12f:0} cells/s");
+                if (FrameTimingManager.IsFeatureEnabled())
+                {
+                    FrameTimingManager.CaptureFrameTimings();
+                    var ft = new FrameTiming[1];
+                    if (FrameTimingManager.GetLatestTimings(1, ft) > 0) Info($"  last frame: main thread {ft[0].cpuMainThreadFrameTime:0.0} ms, render thread {ft[0].cpuRenderThreadFrameTime:0.0} ms, GPU {ft[0].gpuFrameTime:0.0} ms");
+                }
+                Check(frames / 12f > 30f, $"working together stays smooth ({frames / 12f:0} fps)");
+                // what's in the scene
+                {
+                    int rends = 0, subs = 0, casters = 0, cams = 0, shLights = 0;
+                    foreach (var r in FindObjectsByType<MeshRenderer>(FindObjectsSortMode.None))
+                    {
+                        if (!r.enabled || !r.gameObject.activeInHierarchy) continue;
+                        rends++; subs += r.sharedMaterials.Length;
+                        if (r.shadowCastingMode != UnityEngine.Rendering.ShadowCastingMode.Off) casters += r.sharedMaterials.Length;
+                    }
+                    foreach (var c in FindObjectsByType<Camera>(FindObjectsSortMode.None)) if (c.enabled && c.gameObject.activeInHierarchy) cams++;
+                    foreach (var l in FindObjectsByType<Light>(FindObjectsSortMode.None)) if (l.enabled && l.gameObject.activeInHierarchy && l.shadows != LightShadows.None) shLights++;
+                    var gs = new List<string>();
+                    foreach (var c in FindObjectsByType<Camera>(FindObjectsSortMode.None)) if (c.enabled && c.gameObject.activeInHierarchy) gs.Add(c.name);
+                    var byRoot = new Dictionary<string, int>();
+                    foreach (var r in FindObjectsByType<MeshRenderer>(FindObjectsSortMode.None))
+                    {
+                        if (!r.enabled || !r.gameObject.activeInHierarchy) continue;
+                        var t = r.transform; while (t.parent != null && t.parent.parent != null) t = t.parent;
+                        string key = t.name.Length > 24 ? t.name.Substring(0, 24) : t.name;
+                        byRoot[key] = (byRoot.TryGetValue(key, out int cnt) ? cnt : 0) + r.sharedMaterials.Length;
+                    }
+                    var top = new List<KeyValuePair<string, int>>(byRoot); top.Sort((x, y) => y.Value.CompareTo(x.Value));
+                    var tsb = new StringBuilder(); for (int q = 0; q < 10 && q < top.Count; q++) tsb.Append($"{top[q].Key} {top[q].Value}, ");
+                    Info($"  draws by group: {tsb}");
+                    Info($"  GPU resident drawer: {(UnityEngine.Rendering.GraphicsSettings.currentRenderPipeline is UnityEngine.Rendering.HighDefinition.HDRenderPipelineAsset ha ? ha.gpuResidentDrawerMode.ToString() : "?")}");
+                    Info($"  scene: {rends} mesh renderers drawn, {subs} draws ({casters} cast shadows), {cams} cameras on ({string.Join(", ", gs)}), {shLights} lights with shadows");
+                }
+                // A/B: what the render costs with the ground's and the clods' shadows off (the machine keeps working)
+                if (dz2 != null) { dz2.SetBlade(-0.15f); Controls.TestHeld[GameAction.DriveForward] = 0.5f; }
+                string[] phase = { "as is", "no ground shadows", "as is again", "no clod shadows", "neither" };
+                for (int ph = 0; ph < phase.Length; ph++)
+                {
+                    DigSite.TestShadows(ph != 1 && ph != 4);
+                    DirtGrains.TestNoShadows = ph >= 3;
+                    if (ph == 3) DigSite.TestShadows(true);
+                    if (ex2 != null) ex2.TestControl(new MiniExcavator.Inputs { swing = 0.6f });
+                    yield return Frames(5);
+                    var s0 = LoopTimer.Snapshot(); int fr = 0; float t0 = Time.realtimeSinceStartup;
+                    while (Time.realtimeSinceStartup - t0 < 3f) { fr++; yield return null; }
+                    Info($"  {phase[ph]}: {fr / 3f:0} fps; {LoopTimer.Top(s0, fr, 3)}");
+                }
+                DigSite.TestShadows(true); DirtGrains.TestNoShadows = false;
+                Controls.TestHeld.Clear();
+                if (ex2 != null) ex2.TestControl(null);
+                if (dz2 != null) { dz2.SetBlade(0.4f); yield return Seconds(0.5f); dz2.Exit(); yield return Frames(10); }
+                if (ex2 != null) { ex2.Exit(); yield return Frames(10); }
+                yield return Seconds(3f);
+                yield return Sync("together-done");
             }
 
             // ---------------- dirt into a machine the other player runs: the host loads the friend's truck

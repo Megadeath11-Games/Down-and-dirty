@@ -189,6 +189,9 @@ namespace FPSBase.EditorTools
                 L("Transport & fuel", "Semi Truck 25 t + RGN Lowboy", 145000f, prefabs.semis[0], true, "Tandem-drive tractor with a condo sleeper and a 25 t removable-gooseneck lowboy (6.4 m deck). Detach the neck to drop the deck, drive a machine on over the front, hook the neck back on and haul it. 600 L tank."),
                 L("Transport & fuel", "Semi Truck 55 t + RGN Lowboy", 230000f, prefabs.semis[1], true, "Tri-drive heavy hauler with a 55 t RGN lowboy (7.4 m deck, 3 axles). Carries the 20 t and 50 t excavators and the 22 t dozer. 900 L tank."),
                 L("Transport & fuel", "Semi Truck 95 t + RGN Lowboy", 360000f, prefabs.semis[2], true, "Quad-drive mining hauler, 95 t RGN lowboy with a 5.2 m wide deck and a two-axle booster. Moves the 70-90 t excavators and the mining dozer. 1,200 L tank."),
+                // (new machines go on the end: a save keeps a machine by its place in this list)
+                L("Excavators", "Mining Shovel 150 t", 1650000f, e[5], true, "12.5 m³ bucket on a 9.4 m boom: just massive. Two-storey house with catwalks, fills the 60 t mining haul truck in three passes. Too big for any lowboy: it's delivered to the heavy yard and walks from there. 2,200 L tank."),
+                L("Trucks", "Mining Haul Truck 60 t", 780000f, prefabs.miningHauler, true, "30 m³ off-highway rock body, dual rear tyres taller than you, the cab up on the deck with a ladder and handrails. The 50 t excavator fills it in eight passes, the 150 t shovel in three. Off-road only. 800 L tank. " + ex),
             };
         }
     }

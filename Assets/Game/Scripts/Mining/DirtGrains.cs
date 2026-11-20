@@ -733,12 +733,16 @@ namespace FPSBase.Mining
         }
 
         /// <summary>Draw clods of one material category (0 dirt, 1 sand, 2 clay, 3 gravel). Shared with buckets, beds and heaps.</summary>
+        /// <summary>For the frame-time experiments: clods cast no shadows.</summary>
+        public static bool TestNoShadows;
+
         public static void DrawInstanced(int cat, List<Matrix4x4> list, Bounds bounds, bool shadows)
         {
             if (list.Count == 0) return;
             if (mesh == null) mesh = BuildMesh();
             if (mats == null) BuildMaterials();
             if (mats[cat] == null) return;
+            if (TestNoShadows) shadows = false;
             var rp = new RenderParams(mats[cat]) { shadowCastingMode = shadows ? ShadowCastingMode.On : ShadowCastingMode.Off, receiveShadows = true, worldBounds = bounds };
             for (int s = 0; s < list.Count; s += batch.Length)
             {

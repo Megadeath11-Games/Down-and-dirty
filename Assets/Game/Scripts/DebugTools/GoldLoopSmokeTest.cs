@@ -3375,8 +3375,43 @@ namespace FPSBase.DebugTools
                     e.bucketTip.position, $"Screenshots/dig_cycle_{k}.png");
                 e.TestControl(null);
                 e.bucketLoad = default;
+                if (e.displayName.Contains("20")) yield return FullBucketDrag(e, site, at + Vector3.forward * 14f);
             }
             foreach (var go in made) Destroy(go);
+        }
+
+        /// <summary>A full bucket dragged in with the stick keeps going: it cuts and pulls the dirt along in front of it instead of stalling.</summary>
+        IEnumerator FullBucketDrag(MiniExcavator e, DigSite site, Vector3 at)
+        {
+            var rb = e.GetComponent<Rigidbody>();
+            at.y = site.SurfaceY(at);
+            rb.isKinematic = true;
+            e.transform.SetPositionAndRotation(at, Quaternion.identity);
+            e.SetPose(10f, -70f, 0f, 0f);
+            Physics.SyncTransforms();
+            for (int i = 0; i < 5; i++) yield return null;
+            e.bucketLoad = new MaterialLoad(e.bucketCapacity, 0f);
+            for (float t = 0f; t < 6f && !site.IsUnderground(e.bucketTip.position + Vector3.down * 0.25f * e.sizeScale); t += Time.deltaTime)
+            {
+                e.TestControl(new MiniExcavator.Inputs { boom = -1f });
+                e.bucketLoad = new MaterialLoad(e.bucketCapacity, 0f);
+                yield return null;
+            }
+            Vector3 p0 = e.bucketTip.position; int st0 = e.Stalls;
+            Vector3 mid = Vector3.Lerp(p0, e.transform.position, 0.3f);
+            float g0 = site.SurfaceY(mid);
+            for (float t = 0f; t < 2.5f; t += Time.deltaTime)
+            {
+                e.TestControl(new MiniExcavator.Inputs { stick = -1f, boom = -0.1f });
+                yield return null;
+            }
+            e.TestControl(null);
+            Vector3 p1 = e.bucketTip.position;
+            float pulled = Vector3.ProjectOnPlane(p0 - p1, Vector3.up).magnitude, cutDown = g0 - site.SurfaceY(mid);
+            log.AppendLine($"INFO  full bucket drag {e.displayName}: tip pulled {pulled:0.00} m, ground at mid-path {cutDown:+0.00;-0.00} m lower, {e.Stalls - st0} stalls, load {e.bucketLoad.volume:0.00} of {e.bucketCapacity:0.00}");
+            Check(pulled > 1.2f * e.sizeScale, $"{e.displayName}: a full bucket dragged in with the stick keeps moving ({pulled:0.00} m)");
+            Check(cutDown > 0.05f, $"{e.displayName}: a full bucket dragged in still cuts and pulls the dirt along ({cutDown:0.00} m off the ground it went through)");
+            e.bucketLoad = default;
         }
 
         /// <summary>

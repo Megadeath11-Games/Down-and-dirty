@@ -13,6 +13,9 @@ namespace FPSBase.Core
         /// <summary>Newest first.</summary>
         public static readonly Post[] Blog =
         {
+            new Post { date = "Update 27  ·  Nov 20, 2026", title = "A full bucket keeps pulling",
+                body =
+                "• A full excavator bucket no longer stops dead in the dirt like it hit concrete. Drag it in with the stick or curl and it keeps cutting: what it slices off heaps up in front of the mouth and gets pulled (or pushed) along with the bucket, so you can still drag dirt towards you to clean up or back-fill." },
             new Post { date = "Update 26  ·  Nov 20, 2026", title = "Concrete blocks, a bucket chain and two giant machines",
                 body =
                 "• Concrete wall blocks: the landscape supply now has a block yard next door selling precast blocks in six sizes (half 2×2×2 ft, the 2×2×4 ft lock block, long 2×2×6 ft, big 2.5×2.5×5 ft, cap 1×2×4 ft and the 3×3×6 ft barrier). Back a trailer or a dump truck into the painted bay, buy at the office, and they load them on for you.\n" +
@@ -258,11 +261,12 @@ namespace FPSBase.Core
                 "• Dozer berms build up properly in front of the blade." },
         };
 
-        public const string TestListVersion = "2026-11-20c";
+        public const string TestListVersion = "2026-11-20d";
 
         /// <summary>What's new in this build to try out.</summary>
         public static readonly string[] TestList =
         {
+            "Excavator: fill the bucket, keep it in the dirt and pull the stick in: it keeps moving and drags the dirt towards you instead of stopping dead",
             "Block yard (next to the landscape supply): back a trailer into the painted bay, buy some lock blocks: they're loaded onto the trailer",
             "Look at a block on the trailer, F: chain down the whole load, then drive off: they ride with the trailer and don't slide",
             "Excavator: press H to let the chain down, put the hook by a block's loop, H again: it hooks on; lift and swing it, set it down, H lets it go",

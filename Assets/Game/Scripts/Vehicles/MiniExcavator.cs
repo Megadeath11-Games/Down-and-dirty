@@ -330,8 +330,9 @@ namespace FPSBase.Vehicles
             {
                 Vector3 v = shellVel[i]; float sp = v.magnitude;
                 if (sp < 0.01f || sp > 30f) { shellLim[i] = -1f; shellScoop[i] = false; continue; }
-                // (a full bucket can't slice any more off: its teeth only creep in)
-                shellScoop[i] = room && scooping;
+                // (a full bucket still cuts when dragged: what it slices off can't get in, so it heaps up in front of
+                // the mouth and gets pushed or pulled along with the bucket, like a little blade)
+                shellScoop[i] = scooping;
                 shellLim[i] = shellScoop[i] ? 10f : (scooping || teethIn) && shellTooth[i] ? creep : scrape;
             }
             LastScooping = scooping;

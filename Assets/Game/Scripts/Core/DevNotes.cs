@@ -13,6 +13,12 @@ namespace FPSBase.Core
         /// <summary>Newest first.</summary>
         public static readonly Post[] Blog =
         {
+            new Post { date = "Update 24  ·  Nov 20, 2026", title = "Dozers bite in, and a friend's pushing doesn't lag you",
+                body =
+                "• Dozers cut properly: lower the blade and drive in and it takes the topsoil as deep as the blade is set, all the way along. Before, the heap building up in front of the blade held the cut up and the ground lifted the machine instead.\n" +
+                "• Skid steers: tip the bucket down and drive into the dirt and the edge cuts in, keeping the dirt while it's cutting. Lift it out still tipped down and it pours.\n" +
+                "• Fixed: watching a friend push dirt lagged badly. Your game made 16 times as many clods for their blade as for your own (one for every small square of the finer ground); now it's the same as yours.",
+            },
             new Post { date = "Update 23  ·  Nov 19, 2026", title = "You have to scoop: and the ground is twice as fine",
                 body =
                 "• Shoving the bucket straight down as hard as it goes no longer digs a hole or fills it, and no dirt sprays everywhere. The teeth only creep in a little and the ground pushes the machine up.\n" +
@@ -232,11 +238,15 @@ namespace FPSBase.Core
                 "• Dozer berms build up properly in front of the blade." },
         };
 
-        public const string TestListVersion = "2026-11-19r";
+        public const string TestListVersion = "2026-11-20a";
 
         /// <summary>What's new in this build to try out.</summary>
         public static readonly string[] TestList =
         {
+            "Dozer: lower the blade right down and drive into fresh topsoil: it cuts as deep as the blade's set and keeps cutting, the front doesn't ride up out of it",
+            "Mining dozer: push a big heap a long way with the blade down: it keeps cutting, it doesn't climb up onto the ground",
+            "Skid steer: tip the bucket down and drive into the dirt: it cuts in and fills; lift it out still tipped down and it pours",
+            "Multiplayer: watch your friend push a lot of dirt with a dozer: no lag, and you still see their clods roll",
             "Excavator: shove the bucket straight down with the boom as hard as it goes: it barely goes in, the machine lifts, no dirt sprays and the bucket stays empty",
             "Excavator: open the bucket out and drag it in with the stick: it only takes a little dirt; curl it in as you pull and it fills",
             "Excavator: fill the bucket and lift it out curled: nothing falls out. Lift it out opened: it pours",

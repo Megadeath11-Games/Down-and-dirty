@@ -46,6 +46,7 @@ namespace FPSBase.DebugTools
                         case "transport": yield return TransportTests(); break;
                         case "save": yield return SaveTests(); break;
                         case "dozerblade": yield return DozerBladeTests(); break;
+                        case "dozercut": yield return DozerCutTests(); break;
                         case "fine": yield return FineGroundTests(); break;
                         case "dirtphys": yield return DirtPhysicsTests(DigSite.Instance, FindFirstObjectByType<DumpPickup>()); break;
                         case "hill": yield return PickupHillTests(); break;
@@ -426,6 +427,74 @@ namespace FPSBase.DebugTools
         }
 
         /// <summary>Dozer blades tilt (one end down) and swivel (angle): an angled blade rolls its dirt off to that side.</summary>
+        /// <summary>Each dozer drives into fresh topsoil with its blade right down: it gets a real cut, as deep as the blade's set.</summary>
+        IEnumerator DozerCutTests()
+        {
+            var site = DigSite.Instance;
+            var dealer = FindFirstObjectByType<VehicleDealer>();
+            int k = 0;
+            foreach (var l in dealer.listings)
+            {
+                if (l.prefab == null || l.prefab.GetComponent<Bulldozer>() == null) continue;
+                var d = Instantiate(l.prefab, new Vector3(0f, -50f, 0f), Quaternion.identity).GetComponent<Bulldozer>();
+                var drb = d.GetComponent<Rigidbody>();
+                drb.isKinematic = true;
+                Vector3 st = new Vector3(30f + k * 25f, 0f, -175f); st.y = site.SurfaceY(st); k++;
+                // (the flattest strip near there: a slope tips the machine and lifts a long blade off the ground)
+                float bestSlope = float.MaxValue; Vector3 bestSt = st;
+                for (float ox = -10f; ox <= 10f; ox += 5f)
+                    for (float oz = -20f; oz <= 20f; oz += 5f)
+                    {
+                        Vector3 c = st + new Vector3(ox, 0f, oz);
+                        if (!site.Contains(c) || !site.Contains(c + Vector3.forward * 16f)) continue;
+                        float sl = 0f, y0 = site.OriginalY(c);
+                        for (float a = 2f; a <= 16f; a += 2f) sl = Mathf.Max(sl, Mathf.Abs(site.OriginalY(c + Vector3.forward * a) - y0));
+                        if (sl < bestSlope) { bestSlope = sl; bestSt = c; }
+                    }
+                st = bestSt; st.y = site.SurfaceY(st);
+                log.AppendLine($"INFO  dozer cut test at {st}: ground rises or falls {bestSlope:0.00} m over the 16 m ahead");
+                if (!site.Contains(st)) log.AppendLine($"INFO  dozer cut test spot {st} is off the dig site");
+                d.transform.SetPositionAndRotation(st + Vector3.up * 0.3f, Quaternion.identity);
+                d.SetBlade(0.3f);
+                Physics.SyncTransforms();
+                yield return null;
+                drb.isKinematic = false;
+                for (int i = 0; i < 80; i++) yield return new WaitForFixedUpdate();
+                d.fuel = d.fuelCapacity;
+                // drive off and drop the blade right down on the way (like a driver starting a cut)
+                d.TestDrive(1f);
+                float want = -d.bladeRange.x, maxPush = 0f;
+                for (float t = 0f; t < 8f; t += Time.deltaTime)
+                {
+                    d.SetBlade(Mathf.MoveTowards(d.BladeHeight, d.bladeRange.x, 0.5f * Time.deltaTime));
+                    maxPush = Mathf.Max(maxPush, d.BladePushBack);
+                    if ((int)(t * 2f) != (int)((t + Time.deltaTime) * 2f))
+                    {
+                        Vector3 ed = d.bladeEdge.position;
+                        log.AppendLine($"INFO    {t:0.0} s: blade {d.BladeHeight:0.00}, edge {ed.y - site.NativeY(ed):+0.00;-0.00} vs the ground under it, {ed.y - site.NativeY(ed + d.transform.forward * 0.4f):+0.00;-0.00} vs ahead, {ed.y - site.OriginalY(ed):+0.00;-0.00} vs before, pitch {Vector3.SignedAngle(Vector3.up, d.transform.up, d.transform.right):0.0}, push {d.BladePushBack * 100f:0}%, speed {Vector3.Dot(drb.linearVelocity, d.transform.forward):0.0}, edge {Vector3.Dot(ed - d.transform.position, d.transform.forward):0.0} m ahead of the middle");
+                    }
+                    yield return null;
+                }
+                d.TestDrive(0f);
+                Vector3 fw = d.transform.forward;
+                float went = Vector3.Dot(d.transform.position - st, fw);
+                // how deep it cut along the second half of the run (after the blade was down)
+                float sum = 0f, deepest = 0f; int n = 0;
+                Vector3 edge0 = st + fw * (went * 0.4f);
+                for (float a = 0f; a < went * 0.35f; a += 0.25f)
+                {
+                    Vector3 p = edge0 + fw * a;
+                    float c = site.OriginalY(p) - site.NativeY(p);
+                    sum += c; n++; deepest = Mathf.Max(deepest, c);
+                }
+                float avg = n > 0 ? sum / n : 0f;
+                log.AppendLine($"INFO  {d.displayName}: blade down to {want:0.00} m, drove {went:0.0} m in 8 s, cut {avg:0.00} m deep on average ({deepest:0.00} deepest), ground pushing back up to {maxPush * 100f:0}% of its weight, heap {d.HeapVolume:0.0} m3");
+                Check(avg > want * 0.6f && went > 3f, $"{d.displayName}: driving in with the blade down cuts the topsoil ({avg * 100f:0} cm of {want * 100f:0} cm set, {went:0.0} m)");
+                Destroy(d.gameObject);
+                yield return null;
+            }
+        }
+
         IEnumerator DozerBladeTests()
         {
             var site = DigSite.Instance;
@@ -1588,6 +1657,23 @@ namespace FPSBase.DebugTools
                 for (int i = 0; i < 100 && !site.IsUnderground(fl.bucketTip.position + Vector3.up * 0.12f); i++) { fl.transform.position += Vector3.forward * 0.03f; Physics.SyncTransforms(); }
                 for (int i = 0; i < 150; i++) fl.Work(0.6f, 0f, dt); // what the drive passes in when the throttle's on and the pile has stopped it
                 Check(fl.bucketLoad.volume > fl.bucketCapacity * 0.5f, $"{fl.displayName}: bucket at 16° shoved into a pile fills ({fl.bucketLoad.volume:0.00} of {fl.bucketCapacity:0.00} m³)");
+
+                // tipped down (past the dump angle) and driven into unbroken ground: the edge cuts in and the dirt
+                // stays in the bucket while it's cutting; lifted out still tipped, it pours
+                fl.bucketLoad = default;
+                fl.SetPose(fl.armRange.x, fl.dumpAngle + 10f);
+                Vector3 fresh = new Vector3(70f, 0f, -170f);
+                Vector3 tipOff = fl.bucketTip.position - fl.transform.position;
+                Vector3 fp = fresh - tipOff; fp.y = site.SurfaceY(fp); // (standing on the ground, arms right down)
+                fl.transform.position = fp; Physics.SyncTransforms();
+                float tipDepth = site.SurfaceY(fl.bucketTip.position) - fl.bucketTip.position.y;
+                for (int i = 0; i < 300; i++) { fl.transform.position += Vector3.forward * 0.01f; Physics.SyncTransforms(); fl.Work(0.5f, 0f, dt); }
+                log.AppendLine($"INFO  {fl.displayName}: tipped down to {fl.Tilt:0}° with the arms down, the edge is {tipDepth * 100f:0} cm into the ground");
+                float cut = fl.bucketLoad.volume;
+                Check(cut > fl.bucketCapacity * 0.25f, $"{fl.displayName}: bucket tipped down ({fl.Tilt:0}°) and driven into the ground cuts in and keeps the dirt ({cut:0.00} of {fl.bucketCapacity:0.00} m³)");
+                fl.transform.position += Vector3.up * 1.5f; Physics.SyncTransforms();
+                for (int i = 0; i < 90; i++) { fl.Work(0f, 0f, Time.deltaTime); yield return null; }
+                Check(fl.bucketLoad.volume < cut * 0.7f, $"{fl.displayName}: lifted out still tipped down, it pours ({cut:0.00} to {fl.bucketLoad.volume:0.00} m³)");
                 Destroy(fl.gameObject);
                 yield return null;
             }

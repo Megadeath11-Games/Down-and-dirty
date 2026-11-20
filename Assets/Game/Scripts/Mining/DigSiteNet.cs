@@ -14,6 +14,8 @@ namespace FPSBase.Mining
         readonly HashSet<int> netChanged = new();   // changed since the last send
         readonly HashSet<int> everChanged = new();  // changed since the game started (sent to a player who joins)
         bool applyingNet;
+        struct NetCutBlock { public int bx, bz; public float bottom, top, vol; }
+        readonly Dictionary<int, NetCutBlock> netCut = new();
 
         void NetMark(int x, int z)
         {
@@ -169,17 +171,27 @@ namespace FPSBase.Mining
                     trampled[z, x] = tr; packed[z, x] = pk;
                     // a friend's blade cut this away: show it as clods rolling in front of their blade (only for show:
                     // the dirt itself arrives as ground from their game when their clods come to rest)
+                    // (gathered into blocks of the map's squares first, like your own blade does: on fine ground one clod
+                    // per small square was 16 times as many clods as your own pushing makes)
                     float now = Surf(x, z);
                     if (was - now > 0.02f && PushClods)
                     {
-                        var cp = CellPos(x, z);
-                        if (DirtGrains.NearBlade(cp, 1.2f)) DirtGrains.Cut(cp, cell, now, was, new MaterialLoad((was - now) * cellArea, 0f), null, true, DirtGrains.NearBladeClod(cp));
+                        int key = (z / detail) * 65536 + (x / detail);
+                        if (netCut.TryGetValue(key, out var b)) { b.bottom = Mathf.Min(b.bottom, now); b.top = Mathf.Max(b.top, was); b.vol += (was - now) * cellArea; netCut[key] = b; }
+                        else netCut[key] = new NetCutBlock { bx = x / detail, bz = z / detail, bottom = now, top = was, vol = (was - now) * cellArea };
                     }
                     everChanged.Add(i);
                     MarkHeights(x, z);
                 }
+                foreach (var b in netCut.Values)
+                {
+                    float half = (detail - 1) * 0.5f;
+                    var cp = new UnityEngine.Vector3(origin.x + (b.bx * detail + half) * cell, 0f, origin.z + (b.bz * detail + half) * cell);
+                    if (DirtGrains.NearBlade(cp, 1.2f + cell * detail * 0.5f))
+                        DirtGrains.Cut(cp, cell * detail, b.bottom, b.top, new MaterialLoad(b.vol, 0f), null, true, DirtGrains.NearBladeClod(cp));
+                }
             }
-            finally { applyingNet = false; }
+            finally { applyingNet = false; netCut.Clear(); }
         }
     }
 }

@@ -370,9 +370,9 @@ namespace FPSBase.DebugTools
                     else
                     {
                         int most = 0;
-                        int frames = 0;
-                        for (float t = 0f; t < 9f; t += Time.deltaTime) { most = Mathf.Max(most, DirtGrains.LivePushedVisual); frames++; yield return null; }
-                        Info($"watching {pusherRole} push: up to {most} of their clods on this screen, {frames / 9f:0} fps");
+                        int frames = 0; float worstMs = 0f; double g0 = DirtGrains.StepMs;
+                        for (float t = 0f; t < 9f; t += Time.deltaTime) { most = Mathf.Max(most, DirtGrains.LivePushedVisual); frames++; if (t > 0.5f) worstMs = Mathf.Max(worstMs, Time.unscaledDeltaTime * 1000f); yield return null; }
+                        Info($"watching {pusherRole} push: up to {most} of their clods on this screen, {frames / 9f:0} fps, slowest frame {worstMs:0} ms, clods {(DirtGrains.StepMs - g0) / Mathf.Max(1, frames):0.0} ms a frame");
                         Check(most > 25, $"your friend's dozer pushes dirt: you see it rolling in front of their blade as clods (up to {most})");
                     }
                     yield return Seconds(7f); // everything settles, and the ground goes out

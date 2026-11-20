@@ -144,7 +144,8 @@ namespace FPSBase.Vehicles
         {
             BladePushBack = 0f;
             if (bladeEdge == null) return;
-            Vector3 r = (Swivel != null ? Swivel.right : transform.right) * (bladeWidth * 0.5f);
+            // (just inside the ends: right at an end half the ground under it is the uncut edge of the cut)
+            Vector3 r = (Swivel != null ? Swivel.right : transform.right) * (bladeWidth * 0.45f);
             BladePushBack = GroundPush.Edge(rb, suspension.gravityScale, bladeEdge.position - r, bladeEdge.position + r, 9, 0.04f, 0.12f, out _);
         }
 
@@ -208,8 +209,10 @@ namespace FPSBase.Vehicles
             {
                 // the blade cuts as deep as it's set below the tracks, not deeper: when the nose dips into the cut the
                 // blade would go lower still and dig itself in (a driver eases it up; this keeps the cut even)
+                // (measured from the unbroken ground ahead, not the top of the heap in front of the blade: that held the
+                // cut up as the heap grew, and the ground then lifted the machine instead of being cut)
                 float deepest = Mathf.Min(bladeHeight, 0f) - 0.08f;
-                edge.y = Mathf.Max(edge.y, site.SurfaceY(edge + f * 0.4f) + deepest);
+                edge.y = Mathf.Max(edge.y, site.NativeY(edge + f * 0.4f) + deepest);
                 if (square) moved = site.BladePush(edge, transform.forward, bladeWidth, edge.y, pushAhead, out hard);
                 else
                 {
@@ -220,7 +223,7 @@ namespace FPSBase.Vehicles
                     {
                         Vector3 p = bladeEdge.position + bladeRight * ((i + 0.5f) / segs - 0.5f) * bladeWidth;
                         if (!site.Contains(p)) continue;
-                        p.y = Mathf.Max(p.y, site.SurfaceY(p + f * 0.4f) + deepest + Mathf.Min(0f, p.y - bladeEdge.position.y)); // (a tilted blade's low end still goes deeper)
+                        p.y = Mathf.Max(p.y, site.NativeY(p + f * 0.4f) + deepest + Mathf.Min(0f, p.y - bladeEdge.position.y)); // (a tilted blade's low end still goes deeper)
                         moved += site.BladePush(p, f, w + 0.04f, p.y, pushAhead, out float h);
                         hard += h;
                     }

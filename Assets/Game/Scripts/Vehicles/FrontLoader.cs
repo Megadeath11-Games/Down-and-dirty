@@ -131,11 +131,21 @@ namespace FPSBase.Vehicles
         // nobody in the seat: a bucket left tipped keeps emptying
         protected override void IdleUpdate(float dt) { if (bucketTip != null) DumpStep(dt); UpdateLoadVisual(); }
 
+        float lastCutAt = -10f;
+
+        bool TipInGround()
+        {
+            if (bucketTip == null) return false;
+            var site = DigSite.At(transform.position);
+            return site != null && site.Contains(bucketTip.position) && site.IsUnderground(bucketTip.position + Vector3.up * 0.05f);
+        }
+
         /// <summary>Dump: bucket tipped forward past the dump angle pours its load out. Returns where it pours.</summary>
         Vector3 DumpStep(float dt)
         {
             Vector3 pourAt = bucketTip.position + transform.forward * 0.15f;
-            if (tilt > dumpAngle && !bucketLoad.IsEmpty)
+            // (not while the edge is cutting into the dirt: tipped down and driven in, the dirt is packed in as it's cut)
+            if (tilt > dumpAngle && !bucketLoad.IsEmpty && Time.time - lastCutAt > 0.35f && !TipInGround())
             {
                 float open = Mathf.InverseLerp(dumpAngle, tiltRange.y, tilt);
                 var pour = bucketLoad.Take(dumpRate * (0.3f + open) * dt);
@@ -177,8 +187,9 @@ namespace FPSBase.Vehicles
             if (site != null && bucketLoad.volume >= bucketCapacity * 0.98f && v > 0.05f && tilt < 15f && site.Contains(tip))
                 site.BladePush(tip, transform.forward, 1.9f, tip.y + 0.05f);
 
-            // fill: bucket roughly flat and pushed into dirt, or curled while in the dirt
-            if (inDirt && tilt < dumpAngle && bucketLoad.volume < bucketCapacity)
+            // fill: bucket pushed into dirt (flat, or tipped down so the edge cuts in), or curled while in the dirt
+            bool tippedDown = tilt >= dumpAngle;
+            if (inDirt && bucketLoad.volume < bucketCapacity && (!tippedDown || v > 0.05f))
             {
                 float want = Mathf.Max(v, 0f) * fillRate * dt + Mathf.Max(-tiltIn, 0f) * curlFillRate * dt;
                 want = Mathf.Min(want, bucketCapacity - bucketLoad.volume);
@@ -186,6 +197,7 @@ namespace FPSBase.Vehicles
                 {
                     var got = DigSite.DigAnywhere(tip, 0.7f, want);
                     bucketLoad.Add(got);
+                    if (!got.IsEmpty) lastCutAt = Time.time;
                     var cc = GetComponent<ClumpContainer>();
                     if (cc != null && cc.Scoop(tip, 0.9f, bucketCapacity) is Boulder b) GameUI.Toast($"Scooped up a {b.volume:0.0#} m³ boulder");
                     if (!got.IsEmpty) { strainAmount = Mathf.Clamp01(want / Mathf.Max(1e-4f, fillRate * dt) + 0.3f); scrapeAmount = 0.6f; }

@@ -625,7 +625,10 @@ namespace FPSBase.Mining
         }
 
         static readonly int[] nx = { 1, -1, 0, 0 }, nz = { 0, 0, 1, -1 };
-        readonly float[] excess = new float[4];
+        readonly float[] excess = new float[8];
+        // loose dirt slides to all 8 squares round it (only the 4 beside it made square pyramids with long flat faces)
+        static readonly int[] nx8 = { 1, -1, 0, 0, 1, 1, -1, -1 }, nz8 = { 0, 0, 1, -1, 1, -1, 1, -1 };
+        const float Diag = 1.41421356f;
 
         /// <summary>Let loose dirt slide off anything steeper than its angle of repose.</summary>
         public void Relax(int budget)
@@ -652,11 +655,11 @@ namespace FPSBase.Mining
                     float s = native[z, x] + l;
                     float total = 0f;
                     float step = MaxStepAt(x, z);
-                    for (int k = 0; k < 4; k++)
+                    for (int k = 0; k < 8; k++)
                     {
-                        int ax = x + nx[k], az = z + nz[k];
-                        float d = s - Surf(ax, az) - step;
-                        excess[k] = d > 0f ? d : 0f;
+                        int ax = x + nx8[k], az = z + nz8[k];
+                        float d = s - Surf(ax, az) - (k < 4 ? step : step * Diag);
+                        excess[k] = d > 0f ? (k < 4 ? d : d * 0.5f) : 0f; // (a diagonal is further: it takes less)
                         total += excess[k];
                     }
                     if (total <= 1e-4f) continue;
@@ -672,11 +675,11 @@ namespace FPSBase.Mining
                         int k0 = excess[0] >= excess[1] && excess[0] >= excess[2] && excess[0] >= excess[3] ? 0 : excess[1] >= excess[2] && excess[1] >= excess[3] ? 1 : excess[2] >= excess[3] ? 2 : 3;
                         DirtGrains.Spray(CellPos(x, z) + Vector3.up * 0.05f, new Vector3(nx[k0], -0.3f, nz[k0]) * 1.2f, 0, Random.Range(0.04f, 0.09f));
                     }
-                    for (int k = 0; k < 4; k++)
+                    for (int k = 0; k < 8; k++)
                     {
                         if (excess[k] <= 0f) continue;
                         float f = excess[k] / total;
-                        int ax = x + nx[k], az = z + nz[k];
+                        int ax = x + nx8[k], az = z + nz8[k];
                         float was = loose[az, ax];
                         loose[az, ax] += move * f; looseGold[az, ax] += g * f;
                         packed[az, ax] *= was / loose[az, ax];
@@ -685,6 +688,7 @@ namespace FPSBase.Mining
                         MarkHeights(ax, az);
                     }
                     Queue(x, z); Queue(x - 1, z); Queue(x + 1, z); Queue(x, z - 1); Queue(x, z + 1);
+                    Queue(x - 1, z - 1); Queue(x + 1, z - 1); Queue(x - 1, z + 1); Queue(x + 1, z + 1);
                     MarkHeights(x, z);
                 }
                 // anything we ran out of budget for goes back on the queue
@@ -917,10 +921,13 @@ namespace FPSBase.Mining
                     int x = Mathf.Min(xa + px * st, xb), z = Mathf.Min(za + pz * st, zb);
                     int k = pz * nxp + px;
                     var v = V(x, z);
+                    catBuf[k] = Category(x, z, out scoreBuf[k]);
+                    // dug and dumped dirt is lumpy, not glassy-smooth: a few cm up or down at each point (only how it's
+                    // drawn: what you drive on and dig is unchanged), so every small facet catches the light its own way
+                    if (scoreBuf[k] > 0) v.y += Rough(x, z) * (scoreBuf[k] == 3 ? 0.05f : scoreBuf[k] == 2 ? 0.035f : 0.015f);
                     vBuf[k] = v;
                     if (v.y < minY) minY = v.y;
                     if (v.y > maxY) maxY = v.y;
-                    catBuf[k] = Category(x, z, out scoreBuf[k]);
                     // a coarse piece still shows dug or dumped ground in the squares it skips
                     if (half > 0 && scoreBuf[k] == 0)
                         for (int dz = -half; dz <= half; dz += half)
@@ -1012,6 +1019,23 @@ namespace FPSBase.Mining
         }
 
         Vector3 V(int x, int z) => new Vector3(x * cell, Surf(x, z) - baseY, z * cell);
+
+        /// <summary>How finely the piece of ground under a point is drawn right now (squares per facet), for the test.</summary>
+        public int DrawStepAt(Vector3 p)
+        {
+            if (chunkLod == null) return 0;
+            int i = Mathf.Clamp(Mathf.FloorToInt((p.x - origin.x) / cell / chunkCells), 0, chunksX - 1);
+            int j = Mathf.Clamp(Mathf.FloorToInt((p.z - origin.z) / cell / chunkCells), 0, chunksZ - 1);
+            return chunkLod[j, i];
+        }
+
+        /// <summary>A steady -1..1 for each point (the same every time and on every game).</summary>
+        static float Rough(int x, int z)
+        {
+            uint h = (uint)(x * 73856093) ^ (uint)(z * 19349663) ^ 0x2545F491u;
+            h ^= h >> 13; h *= 0x5bd1e995; h ^= h >> 15;
+            return (h & 1023) / 511.5f - 1f;
+        }
 
         void Tri(Vector3 a, Vector3 b, Vector3 c, int cat)
         {

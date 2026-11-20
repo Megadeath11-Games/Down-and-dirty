@@ -13,6 +13,10 @@ namespace FPSBase.Core
         /// <summary>Newest first.</summary>
         public static readonly Post[] Blog =
         {
+            new Post { date = "Update 21  ·  Nov 19, 2026", title = "Dug dirt you can see the detail in",
+                body =
+                "• Loose dirt now slides off in every direction, diagonals too, so heaps and the sides of holes come out rounded and natural instead of square pyramids with big flat faces.\n" +
+                "• Dug and dumped dirt is drawn lumpy, a few centimetres up and down at each point, so the small 25 cm facets show instead of looking like one smooth plane. (Only the look: what you dig and drive on is the same.)\n" },
             new Post { date = "Update 20  ·  Nov 19, 2026", title = "Finer ground: straight ditches and holes",
                 body =
                 "• The dirt is now in 25 cm squares instead of 50 cm, so a bucket digs ditches and holes with walls that go straight down (1 m deep right next to untouched ground).\n" +
@@ -208,11 +212,12 @@ namespace FPSBase.Core
                 "• Dozer berms build up properly in front of the blade." },
         };
 
-        public const string TestListVersion = "2026-11-19o";
+        public const string TestListVersion = "2026-11-19p";
 
         /// <summary>What's new in this build to try out.</summary>
         public static readonly string[] TestList =
         {
+            "Excavator: dig a pit and dump the dirt beside it: the pit and the heap show lots of small facets and rounded sides, not big flat triangles",
             "Excavator: dig a ditch along a line: the walls go straight down and stay standing",
             "Dig a deep hole in sand: the walls cave in after a moment; in topsoil a 1 m hole keeps its walls",
             "Drive and look around the mine and town: the frame rate feels smoother, far ground fills in with detail as you get close (no gaps)",

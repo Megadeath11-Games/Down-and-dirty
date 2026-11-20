@@ -155,6 +155,27 @@ namespace FPSBase.Core
                             float until2 = Time.unscaledTime + 6f; while (Time.unscaledTime < until2) yield return null;
                             Debug.Log($"[Ditch] after 6 s: 0 m {site.CutDepth(mid):0.00}, 0.5 m {site.CutDepth(mid + Vector3.right * 0.5f):0.00}, 0.75 m {site.CutDepth(mid + Vector3.right * 0.75f):0.00}");
                             yield return Shot("ditch_later.png");
+                            // a pit dug bucket by bucket in the gold claim, seen from above like a player at the controls
+                            Vector3 pc = new Vector3(70f, 0f, -12f);
+                            for (int b = 0; b < 160; b++)
+                            {
+                                Vector3 tip = pc + new Vector3(Random.Range(-1.6f, 1.6f), 0f, Random.Range(-1.6f, 1.6f));
+                                tip.y = site.OriginalY(tip) - Random.Range(0.6f, 1.6f);
+                                site.Dig(tip, 0.45f, 0.25f);
+                                if (b % 8 == 7) site.Deposit(pc + new Vector3(4.5f, 0f, Random.Range(-2f, 2f)), new FPSBase.Mining.MaterialLoad(0.8f, 0f));
+                            }
+                            player.PlaceAt(pc + new Vector3(-3f, 0.3f, -6f), 20f);
+                            for (int i = 0; i < 20; i++) yield return null;
+                            float until3 = Time.unscaledTime + 3f; while (Time.unscaledTime < until3) yield return null;
+                            var pcam = Camera.main;
+                            var looks = new System.Collections.Generic.List<Behaviour>();
+                            if (pcam != null) foreach (var lk in pcam.GetComponentsInParent<FPSBase.Player.PlayerLook>()) { if (lk.enabled) { lk.enabled = false; looks.Add(lk); } }
+                            Vector3 camWas = pcam != null ? pcam.transform.position : Vector3.zero; Quaternion camRot = pcam != null ? pcam.transform.rotation : Quaternion.identity;
+                            for (int i = 0; i < 20; i++) { if (pcam != null) { pcam.transform.position = pc + new Vector3(-2f, 6f, -4.5f); pcam.transform.LookAt(pc + Vector3.down * 0.8f); } yield return null; }
+                            Debug.Log($"[Pit] drawn every {site.DrawStepAt(pc)} square(s) of {site.Cell * 100f:0} cm; camera {(pcam != null ? pcam.name : "none")}");
+                            yield return Shot("pit_above.png");
+                            if (pcam != null) pcam.transform.SetPositionAndRotation(camWas, camRot);
+                            foreach (var lk in looks) lk.enabled = true;
                         }
                     }
                 }

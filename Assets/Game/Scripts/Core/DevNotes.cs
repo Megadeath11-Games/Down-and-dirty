@@ -13,6 +13,12 @@ namespace FPSBase.Core
         /// <summary>Newest first.</summary>
         public static readonly Post[] Blog =
         {
+            new Post { date = "Update 20  ·  Nov 19, 2026", title = "Finer ground: straight ditches and holes",
+                body =
+                "• The dirt is now in 25 cm squares instead of 50 cm, so a bucket digs ditches and holes with walls that go straight down (1 m deep right next to untouched ground).\n" +
+                "• Firm ground holds a straight wall: topsoil up to about 1.5 m, clay higher. Sand and gravel still cave in, and firm ground over a sand seam falls in when the sand runs out from under it.\n" +
+                "• Faster: far-off ground is drawn with fewer facets (and fills in as you get close), the ground near a working blade redraws quicker, and the clods bump into each other far more cheaply. Frame rate is up and the worst hitches are about half as long.\n" +
+                "• Your saved worlds load onto the finer ground with everything you dug kept as deep as it was.\n" },
             new Post { date = "Update 19  ·  Nov 19, 2026", title = "Dirt rolls in clods in front of the blade",
                 body =
                 "• Pushing dirt with a dozer or grader now cuts the ground into small clods that roll and tumble in front of the blade, pile up against each other and spill off the ends, then settle back into the ground where they stop. No more dirt jumping from one square to the next.\n" +
@@ -202,11 +208,15 @@ namespace FPSBase.Core
                 "• Dozer berms build up properly in front of the blade." },
         };
 
-        public const string TestListVersion = "2026-11-19n";
+        public const string TestListVersion = "2026-11-19o";
 
         /// <summary>What's new in this build to try out.</summary>
         public static readonly string[] TestList =
         {
+            "Excavator: dig a ditch along a line: the walls go straight down and stay standing",
+            "Dig a deep hole in sand: the walls cave in after a moment; in topsoil a 1 m hole keeps its walls",
+            "Drive and look around the mine and town: the frame rate feels smoother, far ground fills in with detail as you get close (no gaps)",
+            "Load one of your old saves: everything you dug is still there, as deep as before",
             "Dozer: lower the blade a little and push: the dirt rolls ahead as clods, piles up and spills off the ends, smooth with no jumps",
             "Dozer: push a long way with the blade below the ground: the machine stays level instead of nosing down into the cut",
             "Grader: angle the blade and drive: the clods roll along it and off the trailing end into a row",

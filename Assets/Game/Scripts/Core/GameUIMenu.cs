@@ -113,7 +113,10 @@ namespace FPSBase.Core
                         float ground0 = site.OriginalY(st);
                         for (int s = 0; s < 6; s++)
                         {
-                            float u = Time.unscaledTime + 1f; while (Time.unscaledTime < u) yield return null;
+                            FPSBase.Mining.DigSite.RebuildMs = FPSBase.Mining.DigSite.RelaxMs = FPSBase.Mining.DigSite.PushMs = FPSBase.Mining.DigSite.UploadMs = FPSBase.Mining.DigSite.DecorMs = 0; FPSBase.Mining.DigSite.Rebuilds = 0;
+                            double g0 = FPSBase.Mining.DirtGrains.StepMs, gp0 = FPSBase.Mining.DirtGrains.PushersMs, gc0 = FPSBase.Mining.DirtGrains.CollideMs, gd0 = FPSBase.Mining.DirtGrains.DrawMs;
+                            int fr = 0; float u = Time.unscaledTime + 1f; while (Time.unscaledTime < u) { yield return null; fr++; }
+                            Debug.Log($"[Perf] pushing: {fr} fps; per frame: ground pieces {FPSBase.Mining.DigSite.RebuildMs / fr:0.0} ms (upload {FPSBase.Mining.DigSite.UploadMs / fr:0.0}, grass+clods {FPSBase.Mining.DigSite.DecorMs / fr:0.0}, {FPSBase.Mining.DigSite.Rebuilds / (float)fr:0.0} pieces), slumping {FPSBase.Mining.DigSite.RelaxMs / fr:0.0} ms, blade {FPSBase.Mining.DigSite.PushMs / fr:0.0} ms, clods {(FPSBase.Mining.DirtGrains.StepMs - g0) / fr:0.0} ms (blades {(FPSBase.Mining.DirtGrains.PushersMs - gp0) / fr:0.0}, bumping {(FPSBase.Mining.DirtGrains.CollideMs - gc0) / fr:0.0}, drawing {(FPSBase.Mining.DirtGrains.DrawMs - gd0) / fr:0.0})");
                             Debug.Log($"[Clods] {s + 1} s: pitch {dz.transform.eulerAngles.x:0.0}°, blade edge {dz.bladeEdge.position.y - site.OriginalY(dz.bladeEdge.position):+0.00;-0.00} m vs the ground, heap {dz.HeapVolume:0.0} m³, {FPSBase.Mining.DirtGrains.LivePushed} clods, {dz.transform.position.z - st.z:0.0} m along");
                             if (s == 2) yield return Shot("dozer_push1.png");
                         }
@@ -130,6 +133,29 @@ namespace FPSBase.Core
                         player.PlaceAt(st + new Vector3(-7f, 0.5f, 10f), 120f);
                         for (int i = 0; i < 30; i++) yield return null;
                         yield return Shot("dozer_push_left.png");
+                        // how fast the game runs here, then a ditch dug with a bucket: its walls stand straight up
+                        {
+                            int frames = 0; float t0 = Time.realtimeSinceStartup, worst = 0f, last = t0;
+                            while (Time.realtimeSinceStartup - t0 < 3f) { yield return null; frames++; float now = Time.realtimeSinceStartup; worst = Mathf.Max(worst, now - last); last = now; }
+                            Debug.Log($"[Perf] by the dozer: {frames / (Time.realtimeSinceStartup - t0):0} fps, slowest frame {worst * 1000f:0} ms, ground squares {site.Cell * 100f:0} cm");
+                            Vector3 d0 = st + new Vector3(-10f, 0f, 2f);
+                            for (int pass = 0; pass < 8; pass++)
+                                for (float s = 0f; s <= 6f; s += 0.15f)
+                                {
+                                    Vector3 tip = d0 + new Vector3(0f, 0f, s);
+                                    tip.y = site.OriginalY(tip) - 1.2f;
+                                    site.Dig(tip, 0.35f, 0.08f);
+                                }
+                            site.Flush(9999);
+                            Vector3 mid = d0 + new Vector3(0f, 0f, 3f);
+                            Debug.Log($"[Ditch] depth across: 0 m {site.CutDepth(mid):0.00}, 0.25 m {site.CutDepth(mid + Vector3.right * 0.25f):0.00}, 0.5 m {site.CutDepth(mid + Vector3.right * 0.5f):0.00}, 0.75 m {site.CutDepth(mid + Vector3.right * 0.75f):0.00}");
+                            player.PlaceAt(d0 + new Vector3(2.5f, 0.3f, -2.5f), -30f);
+                            for (int i = 0; i < 30; i++) yield return null;
+                            yield return Shot("ditch.png");
+                            float until2 = Time.unscaledTime + 6f; while (Time.unscaledTime < until2) yield return null;
+                            Debug.Log($"[Ditch] after 6 s: 0 m {site.CutDepth(mid):0.00}, 0.5 m {site.CutDepth(mid + Vector3.right * 0.5f):0.00}, 0.75 m {site.CutDepth(mid + Vector3.right * 0.75f):0.00}");
+                            yield return Shot("ditch_later.png");
+                        }
                     }
                 }
             }

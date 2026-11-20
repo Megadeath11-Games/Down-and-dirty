@@ -121,6 +121,7 @@ namespace FPSBase.Core
         static void WriteGround(BinaryWriter w, DigSite site)
         {
             var cells = site != null ? site.TakeChangedCells(true) : new List<int>();
+            w.Write(-1); w.Write(site != null ? site.Res : 0); // (how many squares a side the cells are on)
             var raw = new MemoryStream(cells.Count * DigSite.NetCellBytes + 16);
             var rw = new BinaryWriter(raw);
             foreach (int i in cells) site.WriteCell(rw, i);
@@ -373,12 +374,16 @@ namespace FPSBase.Core
 
         static void ReadGround(BinaryReader r, DigSite site)
         {
-            int n = r.ReadInt32(), len = r.ReadInt32();
+            int n = r.ReadInt32();
+            // older saves are on the map's own squares (before the ground got finer)
+            int fromRes = site != null ? (site.Res - 1) / site.Detail + 1 : 0;
+            if (n == -1) { fromRes = r.ReadInt32(); n = r.ReadInt32(); }
+            int len = r.ReadInt32();
             var packed = new MemoryStream(r.ReadBytes(len));
             var raw = new MemoryStream();
             using (var z = new DeflateStream(packed, CompressionMode.Decompress)) z.CopyTo(raw);
             raw.Position = 0;
-            site?.ReadCells(new BinaryReader(raw), n);
+            site?.ReadCells(new BinaryReader(raw), n, fromRes);
         }
 
         static void Pose(Transform t, Vector3 p, Quaternion q)

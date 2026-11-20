@@ -79,6 +79,25 @@ namespace FPSBase.Mining
 
         const int GrassA = 0, GrassB = 1, LooseA = 2, LooseB = 3, Topsoil = 4, Paydirt = 5, Deep = 6, Bedrock = 7, SandCat = 8, ClayCat = 9, GravelCat = 10;
 
+        /// <summary>
+        /// How much finer the dirt is than the ground's map: 2 = 25 cm squares on a 0.5 m map, so ditches and holes
+        /// can have near-straight walls. The same on every game (the squares are sent to friends by number).
+        /// </summary>
+        public static int GroundDetail = ArgInt("-grounddetail", 2);
+        static int ArgInt(string name, int def)
+        {
+            var a = System.Environment.GetCommandLineArgs();
+            int i = System.Array.IndexOf(a, name);
+            return i >= 0 && i + 1 < a.Length && int.TryParse(a[i + 1], out int v) ? v : def;
+        }
+        int detail = 1;
+        /// <summary>Squares a side (heightmap points).</summary>
+        public int Res => res;
+        /// <summary>Size of one square (m).</summary>
+        public float Cell => cell;
+        /// <summary>How many of this ground's squares make one of the map's (1 = none finer).</summary>
+        public int Detail => detail;
+
         Terrain terrain;
         TerrainData data;
         int res;
@@ -115,6 +134,36 @@ namespace FPSBase.Mining
             if (col != null) { col.terrainData = data; siteColliders.Add(col); }
             terrain.drawHeightmap = false;            // we draw the faceted mesh ourselves
             terrain.drawTreesAndFoliage = false;
+
+            // a finer grid than the map: fill in the points between the map's ones (straight lines, so the ground
+            // looks just the same until it's dug)
+            int srcRes = data.heightmapResolution;
+            detail = Mathf.Clamp(GroundDetail, 1, 4);
+            while (detail > 1 && (srcRes - 1) * detail + 1 > 4097) detail--;
+            if (!Mathf.IsPowerOfTwo(srcRes - 1)) detail = 1;
+            if (detail > 1)
+            {
+                var src = data.GetHeights(0, 0, srcRes, srcRes);
+                int nr = (srcRes - 1) * detail + 1;
+                var fine = new float[nr, nr];
+                for (int z = 0; z < nr; z++)
+                {
+                    int z0 = z / detail; float tz = (z - z0 * detail) / (float)detail; int z1 = Mathf.Min(z0 + 1, srcRes - 1);
+                    for (int x = 0; x < nr; x++)
+                    {
+                        int x0 = x / detail; float tx = (x - x0 * detail) / (float)detail; int x1 = Mathf.Min(x0 + 1, srcRes - 1);
+                        float a = Mathf.Lerp(src[z0, x0], src[z0, x1], tx), b = Mathf.Lerp(src[z1, x0], src[z1, x1], tx);
+                        fine[z, x] = Mathf.Lerp(a, b, tz);
+                    }
+                }
+                var size = data.size;
+                data.heightmapResolution = nr;
+                data.size = size;
+                if (data.heightmapResolution == nr) data.SetHeights(0, 0, fine);
+                else { detail = 1; data.heightmapResolution = srcRes; data.size = size; data.SetHeights(0, 0, src); }
+            }
+            chunkCells = ArgInt("-chunkcells", chunkCells * detail); // (the same size pieces in metres: more, smaller ones cost more to draw)
+            slumpBudget *= detail;
 
             res = data.heightmapResolution;
             cell = data.size.x / (res - 1);
@@ -341,7 +390,7 @@ namespace FPSBase.Mining
             for (int z = z0; z <= z1; z++)
                 for (int x = x0; x <= x1; x++)
                 {
-                    float w = Weight(x, z, tip, radius);
+                    float w = DigWeight(x, z, tip, radius);
                     if (w <= 0f) continue;
                     float target = Mathf.Max(tip.y, Floor(x, z));
                     float s = Surf(x, z);
@@ -353,7 +402,7 @@ namespace FPSBase.Mining
             for (int z = z0; z <= z1; z++)
                 for (int x = x0; x <= x1; x++)
                 {
-                    float w = Weight(x, z, tip, radius);
+                    float w = DigWeight(x, z, tip, radius);
                     if (w <= 0f) continue;
                     float s = Surf(x, z);
                     float target = Mathf.Max(tip.y, Floor(x, z));
@@ -362,6 +411,13 @@ namespace FPSBase.Mining
                     Touch(x, z);
                 }
             return removed;
+        }
+
+        /// <summary>A bucket takes all the dirt across its width and almost none past its sides (straight walls).</summary>
+        float DigWeight(int x, int z, Vector3 c, float radius)
+        {
+            float ddx = origin.x + x * cell - c.x, ddz = origin.z + z * cell - c.z;
+            return Mathf.Clamp01((1.1f - Mathf.Sqrt(ddx * ddx + ddz * ddz) / radius) * 4f);
         }
 
         float Weight(int x, int z, Vector3 c, float radius)
@@ -402,6 +458,22 @@ namespace FPSBase.Mining
         /// </summary>
         public float BladePush(Vector3 edge, Vector3 forward, float width, float bottomY) => BladePush(edge, forward, width, bottomY, 0.8f, out _);
 
+        struct CutBlock { public int bx, bz; public MaterialLoad m; public float top, lat, band; public int n; }
+        readonly List<CutBlock> cutBlocks = new();
+
+        void AddCutBlock(int bx, int bz, MaterialLoad m, float top, float lat, float band)
+        {
+            for (int k = 0; k < cutBlocks.Count; k++)
+            {
+                var c = cutBlocks[k];
+                if (c.bx != bx || c.bz != bz) continue;
+                c.m.Add(m); c.top = Mathf.Max(c.top, top); c.lat += lat; c.band += band; c.n++;
+                cutBlocks[k] = c;
+                return;
+            }
+            cutBlocks.Add(new CutBlock { bx = bx, bz = bz, m = m, top = top, lat = lat, band = band, n = 1 });
+        }
+
         /// <summary>Blades cut dirt into real clods that they push along (off: it moves straight to the cells ahead).</summary>
         public static bool PushClods = System.Array.IndexOf(System.Environment.GetCommandLineArgs(), "-noclods") < 0;
         /// <summary>The whole blade's width while a machine pushes in pieces (an angled blade: 4 pieces), for the clod size.</summary>
@@ -421,6 +493,13 @@ namespace FPSBase.Mining
             => BladePush(edge, dir, width, bottomY, ahead, Mathf.Max(0f, nativeCut), out _);
 
         float BladePush(Vector3 edge, Vector3 forward, float width, float bottomY, float ahead, float nativeLimit, out float fromNative)
+        {
+            long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
+            try { return BladePushCore(edge, forward, width, bottomY, ahead, nativeLimit, out fromNative); }
+            finally { PushMs += (System.Diagnostics.Stopwatch.GetTimestamp() - t0) * 1000.0 / System.Diagnostics.Stopwatch.Frequency; }
+        }
+
+        float BladePushCore(Vector3 edge, Vector3 forward, float width, float bottomY, float ahead, float nativeLimit, out float fromNative)
         {
             fromNative = 0f;
             forward.y = 0f; forward.Normalize();
@@ -452,22 +531,37 @@ namespace FPSBase.Mining
                     float band = Mathf.InverseLerp(-back, front, lon);
                     // the cut dirt becomes clods right where it was, and the blade face shoves them along (a real
                     // rolling heap); only if there are too many clods about already does it drop ahead the old way
-                    if (!(clods && DirtGrains.Cut(new Vector3(origin.x + x * cell, 0f, origin.z + z * cell), cell, bottomY, s, m, null, false, Mathf.Clamp(bladeWidthNow * 0.004f, 0.006f, 0.022f))))
+                    // (on fine ground the cut is gathered into blocks of the map's squares first: clods as big and as many
+                    // as before, not four times as many little ones)
+                    if (clods && detail > 1) AddCutBlock(x / detail, z / detail, m, s, lat, band);
+                    else if (!(clods && DirtGrains.Cut(new Vector3(origin.x + x * cell, 0f, origin.z + z * cell), cell, bottomY, s, m, null, false, Mathf.Clamp(bladeWidthNow * 0.004f, 0.006f, 0.022f))))
                     {
                         Vector3 to = edge + right * lat + forward * (ahead + band * Mathf.Max(cell * 1.5f, ahead * 0.6f));
                         AddLoose(Mathf.RoundToInt((to.x - origin.x) / cell), Mathf.RoundToInt((to.z - origin.z) / cell), m);
                     }
                     // a few bits fly off the cut
-                    if (Random.value < (clods ? 0.05f : 0.18f))
+                    if (Random.value < (clods ? 0.05f : 0.18f) / (detail * detail))
                         DirtGrains.Spray(new Vector3(origin.x + x * cell, s - 0.05f, origin.z + z * cell),
                             forward * Random.Range(1.2f, 2.6f) + Vector3.up * Random.Range(0.8f, 2.2f) + right * Random.Range(-0.7f, 0.7f),
                             DirtGrains.PickCategory(m), Random.Range(0.06f, 0.13f));
                     moved += m.volume;
                 }
+            for (int k = 0; k < cutBlocks.Count; k++)
+            {
+                var cb = cutBlocks[k];
+                float half = (detail - 1) * 0.5f;
+                var at = new Vector3(origin.x + (cb.bx * detail + half) * cell, 0f, origin.z + (cb.bz * detail + half) * cell);
+                if (!DirtGrains.Cut(at, cell * detail, bottomY, cb.top, cb.m, null, false, Mathf.Clamp(bladeWidthNow * 0.004f, 0.006f, 0.022f)))
+                {
+                    Vector3 to = edge + right * (cb.lat / cb.n) + forward * (ahead + cb.band / cb.n * Mathf.Max(cell * 1.5f, ahead * 0.6f));
+                    AddLoose(Mathf.RoundToInt((to.x - origin.x) / cell), Mathf.RoundToInt((to.z - origin.z) / cell), cb.m);
+                }
+            }
+            cutBlocks.Clear();
             if (moved > 0f)
             {
                 AfterGroundMoved(edge, reach + 0.5f, edge + forward * ahead);
-                Relax(3000); // the heap slumps now, before this frame's ground is drawn
+                Relax(3000 * detail); // the heap slumps now, before this frame's ground is drawn
             }
             return moved;
         }
@@ -536,6 +630,13 @@ namespace FPSBase.Mining
         /// <summary>Let loose dirt slide off anything steeper than its angle of repose.</summary>
         public void Relax(int budget)
         {
+            long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
+            try { RelaxCore(budget); }
+            finally { RelaxMs += (System.Diagnostics.Stopwatch.GetTimestamp() - t0) * 1000.0 / System.Diagnostics.Stopwatch.Frequency; }
+        }
+
+        void RelaxCore(int budget)
+        {
             while (budget > 0 && next.Count > 0)
             {
                 active.Clear(); active.AddRange(next);
@@ -566,7 +667,7 @@ namespace FPSBase.Mining
                     loose[z, x] -= move; looseGold[z, x] -= g;
                     looseSand[z, x] -= sa; looseGravel[z, x] -= gr; looseClay[z, x] -= cl;
                     // a bit of dirt visibly tumbling down the face of a slide
-                    if (move > 0.03f && Random.value < 0.04f)
+                    if (move > 0.03f && Random.value < 0.04f / (detail * detail))
                     {
                         int k0 = excess[0] >= excess[1] && excess[0] >= excess[2] && excess[0] >= excess[3] ? 0 : excess[1] >= excess[2] && excess[1] >= excess[3] ? 1 : excess[2] >= excess[3] ? 2 : 3;
                         DirtGrains.Spray(CellPos(x, z) + Vector3.up * 0.05f, new Vector3(nx[k0], -0.3f, nz[k0]) * 1.2f, 0, Random.Range(0.04f, 0.09f));
@@ -624,7 +725,7 @@ namespace FPSBase.Mining
         }
 
         // redraw what changed: as many pieces as fit in a few milliseconds (a busy heap stays smooth), nearest first
-        void LateUpdate() => Flush(64, 3.5f);
+        void LateUpdate() { UpdateLods(); Flush(64, 3.5f); CatchUpDecor(); }
 
         /// <summary>Push height changes to the physics collider and rebuild up to `maxChunks` changed meshes.</summary>
         public void Flush(int maxChunks) => Flush(maxChunks, float.MaxValue);
@@ -649,6 +750,8 @@ namespace FPSBase.Mining
                 for (int j = 0; j < chunksZ && built < maxChunks; j++)
                     for (int i = 0; i < chunksX && built < maxChunks; i++)
                         if (chunkDirty[j, i]) { RebuildChunk(i, j); built++; }
+                if (chunkDecorStale != null)
+                    for (int j = 0; j < chunksZ; j++) for (int i = 0; i < chunksX; i++) if (chunkDecorStale[j, i]) RebuildDecor(i, j);
                 return;
             }
             // nearest the camera first, and stop when the time's up (at least 4 a frame, so nothing waits forever)
@@ -667,8 +770,25 @@ namespace FPSBase.Mining
                         if (dd < bd) { bd = dd; bi = i; bj = j; }
                     }
                 if (bi < 0) break;
-                RebuildChunk(bi, bj); built++;
+                RebuildChunk(bi, bj, eye); built++;
                 if (built >= 4 && flushWatch.Elapsed.TotalMilliseconds > maxMs) break;
+            }
+            // then one piece the camera got nearer to (or further from), nearest first (two if the frame is quiet)
+            if (chunkLodStale == null) return;
+            int lodBuilt = 0, lodMax = built == 0 ? 2 : 1;
+            while (lodBuilt < lodMax)
+            {
+                int bi = -1, bj = -1; float bd = float.MaxValue;
+                for (int j = 0; j < chunksZ; j++)
+                    for (int i = 0; i < chunksX; i++)
+                    {
+                        if (!chunkLodStale[j, i]) continue;
+                        float cx = origin.x + (i + 0.5f) * chunkCells * cell - eye.x, cz = origin.z + (j + 0.5f) * chunkCells * cell - eye.z;
+                        float dd = cx * cx + cz * cz;
+                        if (dd < bd) { bd = dd; bi = i; bj = j; }
+                    }
+                if (bi < 0) break;
+                RebuildChunk(bi, bj, eye); lodBuilt++;
             }
         }
 
@@ -694,7 +814,7 @@ namespace FPSBase.Mining
                 if (looseClay[z, x] > lv * 0.45f) return ClayCat;
                 if (looseSand[z, x] > lv * 0.5f) return SandCat;
                 if (looseGravel[z, x] > lv * 0.45f) return GravelCat;
-                return ((x * 7 + z * 13) & 3) == 0 ? LooseB : LooseA;
+                return (((x / detail) * 7 + (z / detail) * 13) & 3) == 0 ? LooseB : LooseA;
             }
             float cut = orig[z, x] - native[z, x];
             if (cut > 0.08f)
@@ -713,57 +833,182 @@ namespace FPSBase.Mining
             }
             if (trampled[z, x] || loose[z, x] > 0.005f) { score = 1; return LooseB; }
             score = 0;
-            float n = Mathf.PerlinNoise(x * 0.09f + 3.1f, z * 0.09f + 7.7f) + (((x * 31 + z * 17) % 5) - 2) * 0.06f;
+            int gx = x / detail, gz = z / detail;
+            float n = Mathf.PerlinNoise(gx * 0.09f + 3.1f, gz * 0.09f + 7.7f) + (((gx * 31 + gz * 17) % 5) - 2) * 0.06f;
             return n > 0.55f ? GrassB : GrassA;
         }
 
-        int TriCategory(int ax, int az, int bx, int bz, int cx, int cz)
+        readonly List<Vector3> verts = new(), norms = new();
+        readonly List<int>[] tris = { new(), new(), new(), new(), new(), new(), new(), new(), new(), new(), new() };
+        int[] catBuf = new int[0], scoreBuf = new int[0];
+        Vector3[] vBuf = new Vector3[0];
+        int[,] chunkLod;
+        bool[,] chunkLodStale; // only wants drawing finer or coarser (nothing changed): done with spare time
+        float lodTimer;
+
+        /// <summary>Where the camera is (far off when there's none yet: everything starts coarse and fills in).</summary>
+        Vector3 Eye()
         {
-            int ca = Category(ax, az, out int sa), cb = Category(bx, bz, out int sb), cc = Category(cx, cz, out int sc);
-            if (sa >= sb && sa >= sc) return ca;
-            return sb >= sc ? cb : cc;
+            var cam = TuftRenderer.ActiveCamera();
+            return cam != null ? cam.transform.position : origin + new Vector3(-1e5f, 0f, -1e5f);
         }
 
-        readonly List<Vector3> verts = new();
-        readonly List<int>[] tris = { new(), new(), new(), new(), new(), new(), new(), new(), new(), new(), new() };
-
-        void RebuildChunk(int ci, int cj)
+        /// <summary>
+        /// How fine a piece of ground is drawn: every square close up, every 2nd further off, every 4th far away
+        /// (the map's own squares are kept to the middle distance, so the hills look just as they did).
+        /// </summary>
+        int WantedStep(int ci, int cj, Vector3 eye)
         {
+            if (detail <= 1) return 1;
+            float half = chunkCells * cell * 0.5f;
+            float cx = origin.x + ci * chunkCells * cell + half - eye.x, cz = origin.z + cj * chunkCells * cell + half - eye.z;
+            float dist = Mathf.Max(0f, Mathf.Sqrt(cx * cx + cz * cz) - half * 1.41f);
+            int st = dist < 45f ? 1 : dist < 120f ? detail : detail * 2;
+            return Mathf.Min(st, chunkCells);
+        }
+
+        /// <summary>Pieces that should be drawn finer or coarser now that the camera moved get redrawn.</summary>
+        void UpdateLods()
+        {
+            if (detail <= 1 || chunkLod == null) return;
+            if ((lodTimer -= Time.unscaledDeltaTime) > 0f) return;
+            lodTimer = 0.2f;
+            Vector3 eye = Eye();
+            for (int j = 0; j < chunksZ; j++)
+                for (int i = 0; i < chunksX; i++)
+                    chunkLodStale[j, i] = WantedStep(i, j, eye) != chunkLod[j, i];
+        }
+
+        void RebuildChunk(int ci, int cj) => RebuildChunk(ci, cj, Eye());
+
+        /// <summary>Time spent redrawing ground pieces (for the frame-rate readout).</summary>
+        public static double RebuildMs, RelaxMs, PushMs; public static int Rebuilds;
+        static readonly System.Diagnostics.Stopwatch statWatch = new();
+
+        void RebuildChunk(int ci, int cj, Vector3 eye)
+        {
+            long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
+            try { RebuildChunkCore(ci, cj, eye); }
+            finally { RebuildMs += (System.Diagnostics.Stopwatch.GetTimestamp() - t0) * 1000.0 / System.Diagnostics.Stopwatch.Frequency; Rebuilds++; }
+        }
+
+        void RebuildChunkCore(int ci, int cj, Vector3 eye)
+        {
+            bool changed = chunkDirty[cj, ci] || chunkLod == null || chunkLod[cj, ci] == 0; // (not just drawn finer/coarser)
             chunkDirty[cj, ci] = false;
-            verts.Clear();
+            chunkLod ??= new int[chunksZ, chunksX];
+            chunkLodStale ??= new bool[chunksZ, chunksX];
+            chunkLodStale[cj, ci] = false;
+            int st = WantedStep(ci, cj, eye);
+            chunkLod[cj, ci] = st;
+            verts.Clear(); norms.Clear();
             foreach (var t in tris) t.Clear();
             int xa = ci * chunkCells, xb = Mathf.Min(xa + chunkCells, res - 1);
             int za = cj * chunkCells, zb = Mathf.Min(za + chunkCells, res - 1);
+            // the points this piece uses, each looked at once (not once for every facet it's a corner of)
+            int nxp = (xb - xa + st - 1) / st + 1, nzp = (zb - za + st - 1) / st + 1;
+            int np = nxp * nzp;
+            if (vBuf.Length < np) { vBuf = new Vector3[np]; catBuf = new int[np]; scoreBuf = new int[np]; }
             float minY = float.MaxValue, maxY = float.MinValue;
-            for (int z = za; z < zb; z++)
-                for (int x = xa; x < xb; x++)
+            int half = st / 2;
+            for (int pz = 0; pz < nzp; pz++)
+                for (int px = 0; px < nxp; px++)
                 {
-                    Vector3 a = V(x, z), b = V(x + 1, z), c = V(x, z + 1), d = V(x + 1, z + 1);
-                    minY = Mathf.Min(minY, Mathf.Min(Mathf.Min(a.y, b.y), Mathf.Min(c.y, d.y)));
-                    maxY = Mathf.Max(maxY, Mathf.Max(Mathf.Max(a.y, b.y), Mathf.Max(c.y, d.y)));
-                    if (((x + z) & 1) == 0)
-                    {
-                        Tri(a, c, d, TriCategory(x, z, x, z + 1, x + 1, z + 1));
-                        Tri(a, d, b, TriCategory(x, z, x + 1, z + 1, x + 1, z));
-                    }
-                    else
-                    {
-                        Tri(a, c, b, TriCategory(x, z, x, z + 1, x + 1, z));
-                        Tri(b, c, d, TriCategory(x + 1, z, x, z + 1, x + 1, z + 1));
-                    }
+                    int x = Mathf.Min(xa + px * st, xb), z = Mathf.Min(za + pz * st, zb);
+                    int k = pz * nxp + px;
+                    var v = V(x, z);
+                    vBuf[k] = v;
+                    if (v.y < minY) minY = v.y;
+                    if (v.y > maxY) maxY = v.y;
+                    catBuf[k] = Category(x, z, out scoreBuf[k]);
+                    // a coarse piece still shows dug or dumped ground in the squares it skips
+                    if (half > 0 && scoreBuf[k] == 0)
+                        for (int dz = -half; dz <= half; dz += half)
+                            for (int dx = -half; dx <= half; dx += half)
+                            {
+                                if (dx == 0 && dz == 0) continue;
+                                int qx = Mathf.Clamp(x + dx, 0, res - 1), qz = Mathf.Clamp(z + dz, 0, res - 1);
+                                int c2 = Category(qx, qz, out int s2);
+                                if (s2 > scoreBuf[k]) { scoreBuf[k] = s2; catBuf[k] = c2; }
+                            }
                 }
+            for (int pz = 0; pz < nzp - 1; pz++)
+                for (int px = 0; px < nxp - 1; px++)
+                {
+                    int ka = pz * nxp + px, kb = ka + 1, kc = ka + nxp, kd = kc + 1;
+                    if (((px + pz + (xa + za) / st) & 1) == 0) { TriK(ka, kc, kd); TriK(ka, kd, kb); }
+                    else { TriK(ka, kc, kb); TriK(kb, kc, kd); }
+                }
+            // a coarse piece gets a short skirt round its edge, so no gap shows against a finer neighbour
+            if (st > 1)
+            {
+                for (int px = 0; px < nxp - 1; px++) { Skirt(px, px + 1); Skirt((nzp - 1) * nxp + px + 1, (nzp - 1) * nxp + px); }
+                for (int pz = 0; pz < nzp - 1; pz++) { Skirt((pz + 1) * nxp, pz * nxp); Skirt(pz * nxp + nxp - 1, (pz + 1) * nxp + nxp - 1); }
+                minY -= 0.6f;
+            }
+            long tm = System.Diagnostics.Stopwatch.GetTimestamp();
             var mesh = chunkMesh[cj, ci];
             mesh.Clear();
             mesh.SetVertices(verts);
+            mesh.SetNormals(norms);
             mesh.subMeshCount = tris.Length;
             for (int k = 0; k < tris.Length; k++) mesh.SetTriangles(tris[k], k, false);
-            mesh.RecalculateNormals();   // vertices aren't shared, so every facet gets its own flat normal
-            mesh.RecalculateBounds();
+            var lb = new Bounds();
+            lb.SetMinMax(new Vector3(xa * cell, minY, za * cell), new Vector3(xb * cell, maxY, zb * cell));
+            mesh.bounds = lb;
             chunkBounds[cj, ci] = new Bounds(
                 origin + new Vector3((xa + xb) * 0.5f * cell, (minY + maxY) * 0.5f, (za + zb) * 0.5f * cell),
                 new Vector3((xb - xa) * cell + 1f, maxY - minY + 3f, (zb - za) * cell + 1f));
+            long tt = System.Diagnostics.Stopwatch.GetTimestamp();
+            // grass and the clods on loose dirt: at most every 0.15 s while a piece keeps changing (a blade at work)
+            chunkDecorAt ??= new float[chunksZ, chunksX];
+            chunkDecorStale ??= new bool[chunksZ, chunksX];
+            float now = Time.realtimeSinceStartup;
+            if (!changed) { }
+            else if (!Application.isPlaying || now - chunkDecorAt[cj, ci] > 0.15f) RebuildDecor(ci, cj);
+            else chunkDecorStale[cj, ci] = true;
+            long te = System.Diagnostics.Stopwatch.GetTimestamp();
+            double fq = 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+            UploadMs += (tt - tm) * fq; DecorMs += (te - tt) * fq;
+        }
+
+        public static double UploadMs, DecorMs;
+        float[,] chunkDecorAt;
+        bool[,] chunkDecorStale;
+
+        void RebuildDecor(int ci, int cj)
+        {
+            int xa = ci * chunkCells, xb = Mathf.Min(xa + chunkCells, res - 1);
+            int za = cj * chunkCells, zb = Mathf.Min(za + chunkCells, res - 1);
             RebuildTufts(ci, cj, xa, xb, za, zb);
             RebuildClumps(ci, cj, xa, xb, za, zb);
+            chunkDecorAt[cj, ci] = Time.realtimeSinceStartup;
+            chunkDecorStale[cj, ci] = false;
+        }
+
+        /// <summary>Grass and clods held back while their piece was busy: put them right once it's had a moment.</summary>
+        void CatchUpDecor()
+        {
+            if (chunkDecorStale == null) return;
+            float now = Time.realtimeSinceStartup;
+            int done = 0;
+            for (int j = 0; j < chunksZ && done < 3; j++)
+                for (int i = 0; i < chunksX && done < 3; i++)
+                    if (chunkDecorStale[j, i] && now - chunkDecorAt[j, i] > 0.15f) { RebuildDecor(i, j); done++; }
+        }
+
+        void TriK(int a, int b, int c)
+        {
+            int sa = scoreBuf[a], sb = scoreBuf[b], sc = scoreBuf[c];
+            int cat = sa >= sb && sa >= sc ? catBuf[a] : sb >= sc ? catBuf[b] : catBuf[c];
+            Tri(vBuf[a], vBuf[b], vBuf[c], cat);
+        }
+
+        void Skirt(int a, int b)
+        {
+            Vector3 pa = vBuf[a], pb = vBuf[b], da = pa + Vector3.down * 0.6f, db = pb + Vector3.down * 0.6f;
+            int cat = scoreBuf[a] >= scoreBuf[b] ? catBuf[a] : catBuf[b];
+            Tri(pa, db, da, cat); Tri(pa, pb, db, cat);
         }
 
         Vector3 V(int x, int z) => new Vector3(x * cell, Surf(x, z) - baseY, z * cell);
@@ -772,6 +1017,8 @@ namespace FPSBase.Mining
         {
             int i = verts.Count;
             verts.Add(a); verts.Add(b); verts.Add(c);
+            var n = Vector3.Cross(b - a, c - a).normalized; // every facet its own flat normal
+            norms.Add(n); norms.Add(n); norms.Add(n);
             var t = tris[cat]; t.Add(i); t.Add(i + 1); t.Add(i + 2);
         }
 
@@ -782,17 +1029,19 @@ namespace FPSBase.Mining
             var list = chunkTufts[cj, ci];
             list.Clear();
             if (grassTuftMesh == null || grassTuftMaterial == null) return;
-            for (int z = za; z < zb && list.Count < 1023; z++)
-                for (int x = xa; x < xb && list.Count < 1023; x++)
+            int st = detail;
+            for (int z = za; z + st <= zb && list.Count < 1023; z += st)
+                for (int x = xa; x + st <= xb && list.Count < 1023; x += st)
                 {
-                    uint hsh = (uint)(x * 73856093) ^ (uint)(z * 19349663) ^ (uint)seed;
+                    int gx = x / st, gz = z / st;
+                    uint hsh = (uint)(gx * 73856093) ^ (uint)(gz * 19349663) ^ (uint)seed;
                     hsh ^= hsh >> 13; hsh *= 0x5bd1e995; hsh ^= hsh >> 15;
                     if ((hsh & 7) == 0) continue; // a few bare spots
-                    if (!IsGrass(x, z) || !IsGrass(x + 1, z) || !IsGrass(x, z + 1) || !IsGrass(x + 1, z + 1)) continue;
+                    if (!IsGrass(x, z) || !IsGrass(x + st, z) || !IsGrass(x, z + st) || !IsGrass(x + st, z + st) || st > 1 && !IsGrass(x + st / 2, z + st / 2)) continue;
                     float ox = ((hsh >> 4) & 255) / 255f, oz = ((hsh >> 12) & 255) / 255f;
                     float rot = ((hsh >> 20) & 255) / 255f * 360f;
                     float sc = 0.7f + ((hsh >> 8) & 15) / 15f * 0.7f;
-                    Vector3 p = origin + new Vector3((x + ox) * cell, 0f, (z + oz) * cell);
+                    Vector3 p = origin + new Vector3((x + ox * st) * cell, 0f, (z + oz * st) * cell);
                     p.y = SurfaceY(p);
                     list.Add(Matrix4x4.TRS(p, Quaternion.Euler(0f, rot, 0f), Vector3.one * sc));
                 }

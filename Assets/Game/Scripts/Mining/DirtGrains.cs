@@ -186,62 +186,102 @@ namespace FPSBase.Mining
 
         // ------------------------------------------------------------------ clods resting on clods
 
-        const float HashCell = 0.32f;
-        readonly Dictionary<long, int> heads = new();
+        const int TableSize = 8192; // (cells are hashed into this many slots; a shared slot only costs a few extra checks)
+        readonly int[] slotHead = new int[TableSize];
+        readonly int[] slotStamp = new int[TableSize];
+        int stamp;
         readonly int[] nextInCell = new int[MaxGrains];
+        readonly int[] cellX = new int[MaxGrains], cellY = new int[MaxGrains], cellZ = new int[MaxGrains];
+        readonly Vector3[] cp = new Vector3[MaxGrains];
+        readonly float[] cr = new float[MaxGrains];
 
-        static long HashKey(int x, int y, int z) => ((long)(x & 0x1FFFFF) << 42) | ((long)(y & 0x1FFFFF) << 21) | (long)(z & 0x1FFFFF);
+        static int Slot(int x, int y, int z) => (int)(((uint)(x * 73856093) ^ (uint)(y * 19349663) ^ (uint)(z * 83492791)) & (TableSize - 1));
 
         /// <summary>
         /// Clods in a heap push each other apart, so they pile up (instead of all sharing one spot on the ground) and
         /// roll off each other at the sides. A clod sitting on others counts as resting, so a heap left alone settles.
+        /// The grid is sized to the clods about (a dense heap of small ones has small cells, so each looks at few);
+        /// the odd big lump looks further out for what it touches.
         /// </summary>
         void CollideClods()
         {
-            heads.Clear();
+            stamp++;
             int live = 0;
+            float sumR = 0f, maxR = 0f;
             for (int i = 0; i < count; i++)
             {
                 ref Grain q = ref g[i];
                 q.onClod = false;
                 if (!q.pushed && q.age < 0.25f) { nextInCell[i] = -2; continue; } // still falling out of a bucket
-                var key = HashKey(Mathf.FloorToInt(q.p.x / HashCell), Mathf.FloorToInt(q.p.y / HashCell), Mathf.FloorToInt(q.p.z / HashCell));
-                nextInCell[i] = heads.TryGetValue(key, out int h) ? h : -1;
-                heads[key] = i;
-                live++;
+                nextInCell[i] = -1;
+                live++; sumR += q.r;
+                if (q.r > maxR) maxR = q.r;
             }
             if (live < 2) return;
+            float small = Mathf.Clamp(sumR / live * 1.6f, 0.05f, 0.3f); // clods up to this size are "small" (nearly all)
+            float H = 1.64f * small;                                     // two small ones touching are within one cell
+            float inv = 1f / H;
+            for (int i = 0; i < count; i++)
+            {
+                if (nextInCell[i] == -2) continue;
+                ref Grain q = ref g[i];
+                cp[i] = q.p; cr[i] = q.r;
+                int x = Mathf.FloorToInt(q.p.x * inv), y = Mathf.FloorToInt(q.p.y * inv), z = Mathf.FloorToInt(q.p.z * inv);
+                cellX[i] = x; cellY[i] = y; cellZ[i] = z;
+                int sl = Slot(x, y, z);
+                nextInCell[i] = slotStamp[sl] == stamp ? slotHead[sl] : -1;
+                slotStamp[sl] = stamp; slotHead[sl] = i;
+            }
             for (int i = 0; i < count; i++)
             {
                 if (nextInCell[i] == -2) continue;
                 ref Grain a = ref g[i];
-                int cx = Mathf.FloorToInt(a.p.x / HashCell), cy = Mathf.FloorToInt(a.p.y / HashCell), cz = Mathf.FloorToInt(a.p.z / HashCell);
-                for (int dz = -1; dz <= 1; dz++)
-                    for (int dy = -1; dy <= 1; dy++)
-                        for (int dx = -1; dx <= 1; dx++)
+                bool aBig = a.r > small;
+                // small: the 27 cells round it, for other small ones (a big one finds it from its own side)
+                // big: as far as it can reach, for everything (other big ones only once, from the lower number)
+                int k = aBig ? Mathf.Min(4, Mathf.CeilToInt((a.r + maxR) * 0.82f * inv)) : 1;
+                int cx = cellX[i], cy = cellY[i], cz = cellZ[i];
+                for (int oz = -k; oz <= k; oz++)
+                    for (int oy = -k; oy <= k; oy++)
+                        for (int ox = -k; ox <= k; ox++)
                         {
-                            if (!heads.TryGetValue(HashKey(cx + dx, cy + dy, cz + dz), out int j)) continue;
-                            for (; j >= 0; j = nextInCell[j])
+                            int tx = cx + ox, ty = cy + oy, tz = cz + oz;
+                            int sl = Slot(tx, ty, tz);
+                            if (slotStamp[sl] != stamp) continue;
+                            for (int j = slotHead[sl]; j >= 0; j = nextInCell[j])
                             {
-                                if (j <= i) continue;
-                                ref Grain b = ref g[j];
-                                Vector3 d = a.p - b.p;
-                                float rr = (a.r + b.r) * 0.82f; // (lumpy: they nest into each other a little)
-                                float d2 = d.sqrMagnitude;
-                                if (d2 >= rr * rr || d2 < 1e-10f) continue;
-                                float dist = Mathf.Sqrt(d2);
-                                Vector3 n = d / dist;
-                                float push = (rr - dist) * 0.5f;
-                                a.p += n * push; b.p -= n * push;
-                                Vector3 vr = a.v - b.v;
-                                float vn = Vector3.Dot(vr, n);
-                                if (vn < 0f) { a.v -= n * (vn * 0.5f); b.v += n * (vn * 0.5f); }
-                                Vector3 vt = vr - n * Vector3.Dot(vr, n);
-                                a.v -= vt * 0.12f; b.v += vt * 0.12f; // rough: they drag each other along
-                                if (n.y > 0.45f) a.onClod = true; else if (n.y < -0.45f) b.onClod = true;
+                                if (j == i || cellX[j] != tx || cellY[j] != ty || cellZ[j] != tz) continue;
+                                float rb = cr[j];
+                                bool bBig = rb > small;
+                                if (aBig ? (bBig && j < i) : (bBig || j < i)) continue;
+                                // (a quick look from the packed copy first: most pairs aren't touching)
+                                float rr = (a.r + rb) * 0.82f;
+                                Vector3 dd = a.p - cp[j];
+                                if (dd.x * dd.x + dd.y * dd.y + dd.z * dd.z >= rr * rr) continue;
+                                Bump(ref a, ref g[j]);
+                                cp[j] = g[j].p;
                             }
                         }
             }
+        }
+
+
+        static void Bump(ref Grain a, ref Grain b)
+        {
+            Vector3 d = a.p - b.p;
+            float rr = (a.r + b.r) * 0.82f; // (lumpy: they nest into each other a little)
+            float d2 = d.sqrMagnitude;
+            if (d2 >= rr * rr || d2 < 1e-10f) return;
+            float dist = Mathf.Sqrt(d2);
+            Vector3 n = d / dist;
+            float push = (rr - dist) * 0.5f;
+            a.p += n * push; b.p -= n * push;
+            Vector3 vr = a.v - b.v;
+            float vn = Vector3.Dot(vr, n);
+            if (vn < 0f) { a.v -= n * (vn * 0.5f); b.v += n * (vn * 0.5f); }
+            Vector3 vt = vr - n * Vector3.Dot(vr, n);
+            a.v -= vt * 0.12f; b.v += vt * 0.12f; // rough: they drag each other along
+            if (n.y > 0.45f) a.onClod = true; else if (n.y < -0.45f) b.onClod = true;
         }
 
         static DirtGrains inst;
@@ -378,7 +418,9 @@ namespace FPSBase.Mining
                 int sub = dt > MaxStepDt ? 2 : 1;
                 for (int s = 0; s < sub; s++) Step(Mathf.Min(dt / sub, MaxStepDt));
             }
+            long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
             Draw();
+            DrawMs += (System.Diagnostics.Stopwatch.GetTimestamp() - t0) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
         }
 
         static float testClock;
@@ -400,8 +442,21 @@ namespace FPSBase.Mining
             for (float t = 0f; t < maxSeconds && inst.count > 0; t += 1f / 60f) inst.Step(1f / 60f);
         }
 
+        /// <summary>Time spent moving clods (for the frame-rate readout).</summary>
+        public static double StepMs, PushersMs, CollideMs, DrawMs;
+
         void Step(float dt)
         {
+            long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
+            try { StepCore(dt); }
+            finally { StepMs += (System.Diagnostics.Stopwatch.GetTimestamp() - t0) * 1000.0 / System.Diagnostics.Stopwatch.Frequency; }
+        }
+
+        int stepNo;
+
+        void StepCore(float dt)
+        {
+            stepNo++;
             Vector3 grav = Physics.gravity * dt;
             for (int i = 0; i < count; i++)
             {
@@ -416,7 +471,8 @@ namespace FPSBase.Mining
                 bool gone = false, onSomething = false;
 
                 // ---- machines, buildings, rocks, truck beds, hoppers...
-                if (!q.visual)
+                // (a slow clod looks for machines every third step: it moves far less than its own size meanwhile)
+                if (!q.visual && (q.v.sqrMagnitude > 0.09f || ((i + stepNo) % 3) == 0))
                 {
                     Vector3 d = np - q.p;
                     float len = d.magnitude;
@@ -500,8 +556,13 @@ namespace FPSBase.Mining
                 if (onSomething && q.v.sqrMagnitude > 1e-4f) q.spinAxis = Vector3.Cross(Vector3.up, q.v).normalized;
                 q.rot = Quaternion.AngleAxis(sp * dt, q.spinAxis) * q.rot;
             }
+            long t1 = System.Diagnostics.Stopwatch.GetTimestamp();
             if (pushers.Count > 0 || recent.Count > 0) ApplyPushers(dt);
+            long t2 = System.Diagnostics.Stopwatch.GetTimestamp();
             CollideClods();
+            long t3 = System.Diagnostics.Stopwatch.GetTimestamp();
+            double f = 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+            PushersMs += (t2 - t1) * f; CollideMs += (t3 - t2) * f;
         }
 
         /// <summary>Coulomb-style friction: gravity along a slope steeper than atan(mu) keeps it sliding, gentler slopes stop it.</summary>

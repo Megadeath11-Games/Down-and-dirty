@@ -68,17 +68,26 @@ namespace FPSBase.Mining
             if (native[z, x] <= Floor(x, z) + 0.05f) return float.MaxValue; // bedrock / dig floor never caves
             float wx = origin.x + x * cell, wz = origin.z + z * cell;
             float depth = orig[z, x] - native[z, x] + 0.2f;
-            float ang;
+            float ang, stand;
             switch (LayerAt(wx, wz, depth).kind)
             {
-                case SoilKind.Clay: ang = 80f; delayMin = 3f; delayMax = 10f; break;
-                case SoilKind.Sand: ang = 50f; delayMin = 0.2f; delayMax = 1.2f; break;
-                case SoilKind.Gravel: ang = 60f; delayMin = 0.6f; delayMax = 2.5f; break;
-                case SoilKind.PayGravel: ang = 62f; delayMin = 0.8f; delayMax = 3f; break;
-                default: ang = 72f; delayMin = 1.5f; delayMax = 5f; break; // topsoil: roots hold it together
+                case SoilKind.Clay: ang = 80f; stand = 2.4f; delayMin = 3f; delayMax = 10f; break;
+                case SoilKind.Sand: ang = 42f; stand = 0.25f; delayMin = 0.2f; delayMax = 1.2f; break;
+                case SoilKind.Gravel: ang = 60f; stand = 0.6f; delayMin = 0.6f; delayMax = 2.5f; break;
+                case SoilKind.PayGravel: ang = 62f; stand = 0.7f; delayMin = 0.8f; delayMax = 3f; break;
+                default: ang = 72f; stand = 1.5f; delayMin = 1.5f; delayMax = 5f; break; // topsoil: roots hold it together
             }
-            return cell * Mathf.Tan(ang * Mathf.Deg2Rad);
+            // a wall up to `stand` high holds straight up (a fresh ditch); a taller one leans back to its angle. It's
+            // only as strong as the soil at its foot: firm ground over sand falls in when the sand runs out under it
+            float foot = orig[z, x] - LowestNeighbour(x, z, out _) - 0.1f;
+            if (foot > depth) stand = Mathf.Min(stand, StandHeight(LayerAt(wx, wz, foot).kind));
+            return Mathf.Max(cell * Mathf.Tan(ang * Mathf.Deg2Rad), stand);
         }
+
+        static float StandHeight(SoilKind k) => k switch
+        {
+            SoilKind.Clay => 2.4f, SoilKind.Sand => 0.25f, SoilKind.Gravel => 0.6f, SoilKind.PayGravel => 0.7f, _ => 1.5f,
+        };
 
         float LowestNeighbour(int x, int z, out int lk)
         {
@@ -111,7 +120,7 @@ namespace FPSBase.Mining
             if (crumbles.Count == 0) return;
             float now = Time.time;
             int done = 0;
-            for (int k = crumbles.Count - 1; k >= 0 && done < 64; k--)
+            for (int k = crumbles.Count - 1; k >= 0 && done < 64 * detail * detail; k--)
             {
                 var c = crumbles[k];
                 if (!all && c.due > now) continue;
@@ -241,7 +250,7 @@ namespace FPSBase.Mining
                         var m = Remove(x, z, d, low);
                         if (m.IsEmpty) continue;
                         float lat = rx * push.x + rz * push.z;
-                        Vector3 to = new Vector3(origin.x + x * cell, 0f, origin.z + z * cell) + push * (radius - lat + cell);
+                        Vector3 to = new Vector3(origin.x + x * cell, 0f, origin.z + z * cell) + push * (radius - lat + 0.5f); // (half a metre past the track, however fine the ground)
                         AddLoose(Mathf.RoundToInt((to.x - origin.x) / cell), Mathf.RoundToInt((to.z - origin.z) / cell), m);
                         scuffed = true;
                     }

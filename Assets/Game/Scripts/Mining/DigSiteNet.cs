@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.IO;
+using Mathf = UnityEngine.Mathf;
 
 namespace FPSBase.Mining
 {
@@ -50,7 +51,8 @@ namespace FPSBase.Mining
         /// </summary>
         public void RebaseOldTownGround()
         {
-            if (primary || orig == null || res != 513) return;
+            if (primary || orig == null || (res - 1) % 512 != 0) return;
+            float k = 512f / (res - 1); // (this ground's squares in the old map's)
             UnityEngine.Terrain hills = null;
             foreach (var t in UnityEngine.Terrain.activeTerrains)
                 if (t != null && t.GetComponent<DigSite>() == null && t.terrainData.size.x > 500f &&
@@ -61,13 +63,14 @@ namespace FPSBase.Mining
             foreach (int i in new List<int>(everChanged)) // (a copy: MarkHeights adds to the set)
             {
                 int x = i % res, z = i / res;
+                float ox = x * k, oz = z * k;
                 float old;
-                if (x >= oldRes || z >= oldRes) old = origin.y; // never filled in: the bottom of the ground
+                if (ox > oldRes - 1 || oz > oldRes - 1) old = origin.y; // never filled in: the bottom of the ground
                 else
                 {
-                    var w = origin + new UnityEngine.Vector3(x * oldCell, 0f, z * oldCell);
+                    var w = origin + new UnityEngine.Vector3(ox * oldCell, 0f, oz * oldCell);
                     old = hills.SampleHeight(w) + hills.transform.position.y;
-                    bool edge = x == 0 || z == 0 || x == oldRes - 1 || z == oldRes - 1;
+                    bool edge = ox < 0.5f || oz < 0.5f || ox > oldRes - 1.5f || oz > oldRes - 1.5f;
                     if (!edge) old += (UnityEngine.Mathf.PerlinNoise(w.x * 0.4f + 5f, w.z * 0.4f + 2f) - 0.5f) * 0.05f;
                 }
                 float shift = orig[z, x] - old;
@@ -77,6 +80,72 @@ namespace FPSBase.Mining
                 moved++;
             }
             UnityEngine.Debug.Log($"[Save] moved {moved} of {everChanged.Count} dug town cells onto the fixed town ground");
+        }
+
+        /// <summary>
+        /// Read `count` cells written on a ground of `fromRes` squares a side (a save from before the ground got
+        /// finer): each one's dig, fill and dirt is spread over the finer squares around it.
+        /// </summary>
+        public void ReadCells(BinaryReader r, int count, int fromRes)
+        {
+            if (fromRes <= 1 || fromRes == res) { ReadCells(r, count); return; }
+            int f = (res - 1) / (fromRes - 1);
+            if (f < 2 || f * (fromRes - 1) != res - 1) { r.BaseStream.Position += (long)count * NetCellBytes; return; }
+            var got = new Dictionary<int, float[]>(count);
+            for (int n = 0; n < count; n++)
+            {
+                int i = r.ReadInt32();
+                var v = new float[8];
+                for (int k = 0; k < 6; k++) v[k] = r.ReadSingle();
+                byte tb = r.ReadByte();
+                v[6] = (tb & 1) != 0 ? 1f : 0f; v[7] = (tb >> 1) / 127f;
+                int ox = i % fromRes, oz = i / fromRes;
+                if (ox < 0 || oz < 0 || ox >= fromRes || oz >= fromRes) continue;
+                v[0] -= orig[oz * f, ox * f];           // how far it was dug (-) or built up (+)
+                float oldArea = cellArea * f * f;
+                for (int k = 2; k <= 5; k++) v[k] /= oldArea; // gold and dirt kinds: per square metre
+                got[i] = v;
+            }
+            float[] Old(int ox, int oz) => ox >= 0 && oz >= 0 && ox < fromRes && oz < fromRes && got.TryGetValue(oz * fromRes + ox, out var v) ? v : null;
+            var fineCells = new HashSet<int>();
+            foreach (int i in got.Keys)
+            {
+                int ox = i % fromRes, oz = i / fromRes;
+                for (int z = Mathf.Max(0, (oz - 1) * f + 1); z <= Mathf.Min(res - 1, (oz + 1) * f - 1); z++)
+                    for (int x = Mathf.Max(0, (ox - 1) * f + 1); x <= Mathf.Min(res - 1, (ox + 1) * f - 1); x++)
+                        fineCells.Add(z * res + x);
+            }
+            applyingNet = true;
+            try
+            {
+                var val = new float[8];
+                foreach (int i in fineCells)
+                {
+                    int x = i % res, z = i / res;
+                    int ox = x / f, oz = z / f; float tx = (x - ox * f) / (float)f, tz = (z - oz * f) / (float)f;
+                    System.Array.Clear(val, 0, 8);
+                    bool any = false;
+                    for (int c = 0; c < 4; c++)
+                    {
+                        int cx = ox + (c & 1), cz = oz + (c >> 1);
+                        float w = ((c & 1) != 0 ? tx : 1f - tx) * ((c >> 1) != 0 ? tz : 1f - tz);
+                        if (w <= 0f) continue;
+                        var v = Old(cx, cz);
+                        if (v == null) continue;
+                        any = true;
+                        for (int k = 0; k < 8; k++) val[k] += v[k] * w;
+                    }
+                    if (!any) continue;
+                    native[z, x] = orig[z, x] + val[0];
+                    loose[z, x] = Mathf.Max(0f, val[1]);
+                    looseGold[z, x] = val[2] * cellArea; looseSand[z, x] = val[3] * cellArea;
+                    looseGravel[z, x] = val[4] * cellArea; looseClay[z, x] = val[5] * cellArea;
+                    trampled[z, x] = val[6] >= 0.5f; packed[z, x] = Mathf.Clamp01(val[7]);
+                    everChanged.Add(i);
+                    MarkHeights(x, z);
+                }
+            }
+            finally { applyingNet = false; }
         }
 
         /// <summary>Read `count` cells written by WriteCell on another player's game and put them in this ground.</summary>

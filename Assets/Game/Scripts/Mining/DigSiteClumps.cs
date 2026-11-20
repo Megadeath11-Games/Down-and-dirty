@@ -20,13 +20,15 @@ namespace FPSBase.Mining
             var lists = chunkClumps[cj, ci];
             if (lists == null) chunkClumps[cj, ci] = lists = new[] { new List<Matrix4x4>(), new List<Matrix4x4>(), new List<Matrix4x4>(), new List<Matrix4x4>() };
             foreach (var l in lists) l.Clear();
-            float scale = cell / 0.5f;
-            for (int z = za; z < zb; z++)
-                for (int x = xa; x < xb; x++)
+            int st = detail;
+            float scale = cell * st / 0.5f;
+            float span = cell * st;
+            for (int z = za; z < zb; z += st)
+                for (int x = xa; x < xb; x += st)
                 {
                     float l = loose[z, x];
                     if (l < 0.04f) continue;
-                    uint h = (uint)(x * 73856093) ^ (uint)(z * 19349663) ^ 0x9e3779b9u;
+                    uint h = (uint)((x / st) * 73856093) ^ (uint)((z / st) * 19349663) ^ 0x9e3779b9u;
                     int n = l > 0.25f ? 3 : l > 0.1f ? 2 : 1;
                     float lv = l * cellArea;
                     for (int k = 0; k < n; k++)
@@ -34,7 +36,7 @@ namespace FPSBase.Mining
                         h ^= h >> 13; h *= 0x5bd1e995; h ^= h >> 15;
                         float ox = (h & 255) / 255f, oz = ((h >> 8) & 255) / 255f;
                         float sz = (0.06f + ((h >> 16) & 15) / 15f * 0.09f) * scale;
-                        Vector3 p = origin + new Vector3((x + ox - 0.5f) * cell, 0f, (z + oz - 0.5f) * cell);
+                        Vector3 p = origin + new Vector3(x * cell + (ox - 0.5f) * span, 0f, z * cell + (oz - 0.5f) * span);
                         p.y = SurfaceY(p) + sz * 0.15f;
                         // which material this clod is, by the cell's make-up
                         float pick = ((h >> 20) & 1023) / 1023f * lv;

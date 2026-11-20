@@ -45,6 +45,8 @@ namespace FPSBase.DebugTools
                         case "transport": yield return TransportTests(); break;
                         case "save": yield return SaveTests(); break;
                         case "dozerblade": yield return DozerBladeTests(); break;
+                        case "fine": yield return FineGroundTests(); break;
+                        case "dirtphys": yield return DirtPhysicsTests(DigSite.Instance, FindFirstObjectByType<DumpPickup>()); break;
                         case "hill": yield return PickupHillTests(); break;
                         case "heavy": yield return HeavyTests(); break;
                         case "skidcarry": yield return SkidCarryTests(); break;
@@ -277,6 +279,7 @@ namespace FPSBase.DebugTools
             yield return MultiControlTests();
             yield return SaveTests();
             yield return DozerBladeTests();
+            yield return FineGroundTests();
             yield return PickupHillTests();
             yield return HeavyTests();
             yield return SkidCarryTests();
@@ -372,6 +375,47 @@ namespace FPSBase.DebugTools
             Check(!File.Exists(listed.path), "deleting a save removes the file");
         }
 
+        /// <summary>The finer ground: ditches with straight walls, and a save from the old 0.5 m squares loads onto it.</summary>
+        IEnumerator FineGroundTests()
+        {
+            var site = DigSite.Instance;
+            Check(site.Cell < 0.3f && site.Detail >= 2, $"the ground is in {site.Cell * 100f:0} cm squares ({site.Detail} to each of the map's)");
+            // a ditch in topsoil, dug with a bucket: 1 m deep, its sides straight down, and they stay up
+            Vector3 d0 = new Vector3(40f, 0f, -110f);
+            for (int pass = 0; pass < 8; pass++)
+                for (float s = 0f; s <= 5f; s += 0.15f)
+                {
+                    Vector3 tip = d0 + new Vector3(0f, 0f, s);
+                    tip.y = site.OriginalY(tip) - 1f;
+                    site.Dig(tip, 0.3f, 0.08f);
+                }
+            Vector3 mid = d0 + new Vector3(0f, 0f, 2.5f);
+            for (int i = 0; i < 120; i++) yield return null;
+            site.SettleNow();
+            float inDitch = site.CutDepth(mid), wall = site.CutDepth(mid + Vector3.right * 0.6f);
+            Check(inDitch > 0.9f && wall < 0.05f, $"a bucket digs a ditch with straight walls: {inDitch:0.00} m deep in the middle, {wall:0.00} m just 0.6 m to the side, still standing after settling");
+            yield return ShotAt(mid + new Vector3(2.2f, 1.6f, -2.2f), mid + Vector3.down * 0.6f, "Screenshots/fine_ditch.png");
+
+            // a cell from a save on the old squares: it lands on the same spot, as deep, with its loose dirt kept
+            int coarseRes = (site.Res - 1) / site.Detail + 1;
+            Vector3 p = new Vector3(30f, 0f, -120f);
+            float c0 = site.Cell * site.Detail;
+            int ox = Mathf.RoundToInt((p.x - site.transform.position.x) / c0), oz = Mathf.RoundToInt((p.z - site.transform.position.z) / c0);
+            p = site.transform.position + new Vector3(ox * c0, 0f, oz * c0);
+            float looseBefore = site.TotalLoose();
+            var ms = new System.IO.MemoryStream();
+            var w = new System.IO.BinaryWriter(ms);
+            w.Write(oz * coarseRes + ox);
+            w.Write(site.OriginalY(p) - 0.5f); w.Write(0.2f); w.Write(0f); w.Write(0f); w.Write(0f); w.Write(0f); w.Write((byte)1);
+            w.Flush(); ms.Position = 0;
+            site.ReadCells(new System.IO.BinaryReader(ms), 1, coarseRes);
+            float added = site.TotalLoose() - looseBefore, want = 0.2f * c0 * c0;
+            float there = site.CutDepth(p) + 0.2f, half = site.CutDepth(p + Vector3.right * c0 * 0.5f) + 0.1f;
+            Check(Mathf.Abs(there - 0.5f) < 0.03f && Mathf.Abs(half - 0.25f) < 0.05f && Mathf.Abs(added - want) < want * 0.15f,
+                $"an old save's dug square loads onto the finer ground ({there:0.00} m deep where it was, {half:0.00} m halfway to the next, {added:0.000} of {want:0.000} m³ loose dirt)");
+            yield return null;
+        }
+
         /// <summary>Dozer blades tilt (one end down) and swivel (angle): an angled blade rolls its dirt off to that side.</summary>
         IEnumerator DozerBladeTests()
         {
@@ -408,10 +452,11 @@ namespace FPSBase.DebugTools
                 DirtGrains.FastForward(); site.SettleNow();
                 // where the pushed dirt went, sideways from the line the machine drove along
                 float sum = 0f, moment = 0f;
-                for (float a = 0f; a <= 12f; a += 0.5f)
-                    for (float b = -d.bladeWidth * 1.5f; b <= d.bladeWidth * 1.5f; b += 0.5f)
+                float gs = site.Cell; // (every square once, however fine the ground)
+                for (float a = 0f; a <= 12f; a += gs)
+                    for (float b = -d.bladeWidth * 1.5f; b <= d.bladeWidth * 1.5f; b += gs)
                     {
-                        float v = site.LooseVolume(st + fw * a + rt * b, 0.25f, out _);
+                        float v = site.LooseVolume(st + fw * a + rt * b, gs * 0.5f, out _);
                         sum += v; moment += v * b;
                     }
                 float side = sum > 1e-4f ? moment / sum : 0f;
@@ -3352,7 +3397,7 @@ namespace FPSBase.DebugTools
                 float c0 = site.CollapsedVolume;
                 for (int i = 0; i < 300; i++) site.Dig(sandSpot + Vector3.down * 2.2f + new Vector3(Random.Range(-0.6f, 0.6f), 0f, Random.Range(-0.6f, 0.6f)), 0.7f, 0.3f);
                 site.Relax(site.slumpBudget);
-                Vector3 rim = sandSpot + Vector3.right * 1.9f;
+                Vector3 rim = sandSpot + Vector3.right * 1.55f; // (just past where the bucket reached)
                 float rimBefore = site.SurfaceY(rim);
                 Check(site.PendingCollapses > 0, $"the sand walls start to give way ({site.PendingCollapses} cells)");
                 for (int i = 0; i < 90; i++) yield return null;
@@ -3360,7 +3405,7 @@ namespace FPSBase.DebugTools
                 site.SettleNow();
                 float caved = site.CollapsedVolume - c0;
                 Check(caved > 0.5f && site.SurfaceY(rim) < rimBefore - 0.08f,
-                    $"sand hole caved in: {caved:0.00} m³ slid in, the rim 1.9 m out dropped {rimBefore - site.SurfaceY(rim):0.00} m");
+                    $"sand hole caved in: {caved:0.00} m³ slid in, the rim 1.55 m out dropped {rimBefore - site.SurfaceY(rim):0.00} m");
             }
             Vector3 top = new Vector3(150f, 0f, 10f); top.y = site.SurfaceY(top);
             log.AppendLine($"INFO  topsoil test spot layer at 0.6 m: {site.LayerAt(top.x, top.z, 0.6f).kind}");

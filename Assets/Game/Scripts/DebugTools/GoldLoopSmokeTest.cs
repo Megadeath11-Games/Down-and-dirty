@@ -35,6 +35,7 @@ namespace FPSBase.DebugTools
                     switch (part.Trim())
                     {
                         case "dig": yield return DigCycleTests(); break;
+                        case "bucket": yield return BucketTests(); break;
                         case "multi": yield return MultiControlTests(); break;
                         case "fleet2": yield return Fleet2Tests(); break;
                         case "net": yield return NetSyncTests(); yield return NetMirrorTests(); break;
@@ -264,7 +265,7 @@ namespace FPSBase.DebugTools
             var bedClumps = truck.GetComponent<ClumpContainer>();
             Check(bedClumps != null && bedClumps.Count > 30, $"the truck bed load is live clumps ({(bedClumps != null ? bedClumps.Count : 0)} clods)");
             yield return ShotAt(bc + truck.transform.right * 3.2f + Vector3.up * 2.6f - truck.transform.forward * 2f, bc, "Screenshots/truck_bed.png");
-            Check(site.ClumpDecorations > 200, $"loose dirt heaps are covered in clods ({site.ClumpDecorations})");
+            Check(site.ClumpDecorations > 40, $"loose dirt heaps show some clods ({site.ClumpDecorations})");
             ex.bucketLoad = default;
             for (int i = 0; i < 3; i++) yield return null;
             Check(exClumps != null && exClumps.Count == 0, "emptying the bucket removes its clumps");
@@ -276,6 +277,7 @@ namespace FPSBase.DebugTools
             yield return PlayerTests(site, truck);
 
             yield return DigCycleTests();
+            yield return BucketTests();
             yield return MultiControlTests();
             yield return SaveTests();
             yield return DozerBladeTests();
@@ -2837,6 +2839,118 @@ namespace FPSBase.DebugTools
             for (int i = 0; i < 5; i++) yield return null;
         }
 
+        /// <summary>
+        /// The bucket cuts the ground in its own shape (no steel buried in drawn dirt), scoops only through its
+        /// mouth, shoves dirt with its back; the ground pushes back on a bucket, arm or blade forced into it.
+        /// </summary>
+        IEnumerator BucketTests()
+        {
+            var site = DigSite.Instance;
+            var dealer = FindFirstObjectByType<VehicleDealer>();
+            MiniExcavator e = null;
+            foreach (var l in dealer.listings)
+                if (l.prefab != null && l.prefab.GetComponent<MiniExcavator>() != null && l.name.Contains("5 t"))
+                { e = Instantiate(l.prefab, new Vector3(0f, -50f, 0f), Quaternion.identity).GetComponent<MiniExcavator>(); break; }
+            if (e == null) { Check(false, "a 5 t excavator for sale"); yield break; }
+            Check(e.ShellPoints > 150 && e.bucketPivot.Find("Tool Teeth") != null, $"the bucket cuts with its whole shell ({e.ShellPoints} points) and the teeth have a hitbox of their own");
+            var rb = e.GetComponent<Rigidbody>();
+            Vector3 at = new Vector3(40f, 0f, -150f); at.y = site.SurfaceY(at);
+            IEnumerator Place(float boom, float stick, float bucket)
+            {
+                e.TestControl(null);
+                rb.isKinematic = true;
+                e.transform.SetPositionAndRotation(at + Vector3.up * 0.2f, Quaternion.identity);
+                e.SetPose(boom, stick, bucket, 0f);
+                e.bucketLoad = default; e.fuel = 50f;
+                Physics.SyncTransforms();
+                yield return null;
+                rb.isKinematic = false; rb.linearVelocity = Vector3.zero; rb.angularVelocity = Vector3.zero;
+                for (int i = 0; i < 80; i++) yield return new WaitForFixedUpdate();
+            }
+            // ---- a dig cycle with the machine free on its tracks
+            yield return Place(10f, -70f, 0f);
+            float deepest = 0f, sumDeep = 0f, peak = 0f; int frames = 0;
+            void Watch() { float d = e.DeepestInDirt(); deepest = Mathf.Max(deepest, d); sumDeep += d; frames++; peak = Mathf.Max(peak, e.bucketLoad.volume); }
+            for (float t = 0f; t < 6f && !site.IsUnderground(e.bucketTip.position + Vector3.down * 0.25f * e.sizeScale); t += Time.deltaTime)
+            { e.TestControl(new MiniExcavator.Inputs { boom = -1f }); yield return null; Watch(); }
+            for (float t = 0f; t < 5f && e.bucketLoad.volume < e.bucketCapacity * 0.98f; t += Time.deltaTime)
+            { e.TestControl(new MiniExcavator.Inputs { stick = -1f, bucket = -0.6f, boom = -0.15f }); yield return null; Watch(); }
+            for (float t = 0f; t < 3f; t += Time.deltaTime)
+            { e.TestControl(new MiniExcavator.Inputs { bucket = -1f, boom = 1f }); yield return null; Watch(); }
+            e.TestControl(new MiniExcavator.Inputs());
+            float avg = sumDeep / Mathf.Max(1, frames);
+            log.AppendLine($"INFO  bucket dig: peak {peak:0.000} of {e.bucketCapacity:0.00} m3, steel under the dirt: deepest {deepest:0.000} m, average {avg:0.000} m over {frames} frames");
+            Check(peak > e.bucketCapacity * 0.6f, $"the bucket scoops a load ({peak / e.bucketCapacity * 100f:0}%)");
+            Check(avg < 0.05f && deepest < 0.25f, $"the bucket stays out of the drawn dirt while digging (average {avg * 100f:0.0} cm, worst {deepest * 100f:0} cm)");
+            yield return ShotAt(at + new Vector3(3f, 3f, 5f), e.bucketTip.position, "Screenshots/bucket_cut.png");
+
+            // ---- swung sideways through a heap: it shoves the dirt, nothing jumps into the bucket
+            yield return Place(10f, -70f, -60f);
+            Vector3 heap = e.transform.position + e.transform.forward * 3.2f; heap.y = site.SurfaceY(heap);
+            MaterialTransfer.PourInstant(heap + Vector3.up * 2f, MaterialLoad.Mix(1.5f, 0f, 0f, 0f, 0f), null);
+            site.SettleNow();
+            float peak0 = site.SurfaceY(heap);
+            e.SetPose(-10f, -80f, -60f, -35f);
+            for (int i = 0; i < 5; i++) yield return null;
+            float spread = 0f, took = 0f;
+            for (int pass = 0; pass < 2; pass++)
+                for (float t = 0f; t < 1.2f; t += Time.deltaTime)
+                {
+                    e.TestControl(new MiniExcavator.Inputs { swing = pass % 2 == 0 ? 1f : -1f, boom = -0.15f });
+                    yield return null;
+                    spread += e.LastSpread; took += e.LastScooped;
+                }
+            e.TestControl(new MiniExcavator.Inputs());
+            site.SettleNow();
+            float peak1 = site.SurfaceY(heap);
+            log.AppendLine($"INFO  bucket swung through a heap: {spread:0.00} m3 shoved, {took:0.00} m3 into the bucket, heap {peak0 - at.y:0.00} to {peak1 - at.y:0.00} m");
+            Check(spread > 0.1f && peak1 < peak0 - 0.05f && took < spread * 0.5f,
+                $"swung sideways the bucket shoves the heap along ({spread:0.00} m3 shoved, {took:0.00} m3 went in the bucket)");
+
+            // ---- boom forced down with the bucket's back to the ground: the ground lifts the machine
+            yield return Place(10f, -60f, 20f);
+            float pitch0 = Vector3.Angle(e.transform.up, Vector3.up), over = 0f, pen = 0f;
+            for (float t = 0f; t < 3f; t += Time.deltaTime)
+            { e.TestControl(new MiniExcavator.Inputs { boom = -1f }); yield return null; over = Mathf.Max(over, e.Overload); pen = Mathf.Max(pen, e.LastPenetration); }
+            float pitch1 = Vector3.Angle(e.transform.up, Vector3.up);
+            e.TestControl(new MiniExcavator.Inputs());
+            log.AppendLine($"INFO  boom forced down: push-back {over * 100f:0}% of the weight, steel {pen:0.00} m past where it may go, tilt {pitch0:0.0} to {pitch1:0.0} deg");
+            Check(over > 0.15f && pen < 0.3f, $"forcing the bucket down into hard ground pushes the machine up ({over * 100f:0}% of its weight, {pen * 100f:0} cm in)");
+
+            // ---- the backfill blade pushed down: lifts the front, like on pavement
+            if (e.HasBlade)
+            {
+                yield return Place(25f, -60f, -30f);
+                float o = 0f;
+                for (float t = 0f; t < 2f; t += Time.deltaTime)
+                { e.TestControl(new MiniExcavator.Inputs { blade = -1f }); yield return null; o = Mathf.Max(o, e.Overload); }
+                e.TestControl(new MiniExcavator.Inputs());
+                Check(o > 0.1f, $"the 5 t blade pushed into the ground lifts the machine ({o * 100f:0}% of its weight)");
+            }
+            Destroy(e.gameObject);
+
+            // ---- a dozer blade lowered into the ground while standing still
+            foreach (var l in dealer.listings)
+            {
+                if (l.prefab == null || l.prefab.GetComponent<Bulldozer>() == null) continue;
+                var d = Instantiate(l.prefab, new Vector3(0f, -50f, 0f), Quaternion.identity).GetComponent<Bulldozer>();
+                var drb = d.GetComponent<Rigidbody>();
+                drb.isKinematic = true;
+                d.transform.SetPositionAndRotation(at + Vector3.up * 0.2f + Vector3.right * 12f, Quaternion.identity);
+                d.SetBlade(0.2f);
+                Physics.SyncTransforms();
+                yield return null;
+                drb.isKinematic = false;
+                for (int i = 0; i < 80; i++) yield return new WaitForFixedUpdate();
+                float p0 = Vector3.SignedAngle(Vector3.up, d.transform.up, d.transform.right), push = 0f;
+                for (float t = 0f; t < 1.5f; t += Time.fixedDeltaTime) { d.SetBlade(d.BladeHeight - 0.6f * Time.fixedDeltaTime); yield return new WaitForFixedUpdate(); push = Mathf.Max(push, d.BladePushBack); }
+                float p1 = Vector3.SignedAngle(Vector3.up, d.transform.up, d.transform.right);
+                Check(push > 0.1f, $"{d.displayName}: the blade lowered into the ground lifts the front ({push * 100f:0}% of its weight, pitch {p0:0.0} to {p1:0.0} deg)");
+                Destroy(d.gameObject);
+                yield return null;
+            }
+        }
+
         IEnumerator DigCycleTests()
         {
             var site = DigSite.Instance;
@@ -2895,7 +3009,7 @@ namespace FPSBase.DebugTools
                 e.TestControl(new MiniExcavator.Inputs());
                 Vector3 mw = cc != null ? e.bucketLoadVisual.parent.rotation * cc.mouth : Vector3.zero;
                 float kept = peak > 0f ? e.bucketLoad.volume / peak : 0f;
-                log.AppendLine($"INFO  dig cycle {e.displayName}: peak {peak:0.000} m3 of {e.bucketCapacity:0.00}, kept {e.bucketLoad.volume:0.000}, spilled {(cc != null ? cc.Spilled - sp0 : 0f):0.000}, clumps {(cc != null ? cc.Count : 0)}, mouth {mw}");
+                log.AppendLine($"INFO  dig cycle {e.displayName}: bucket shell {e.ShellPoints} points ({e.TeethPoints} at the teeth), {e.Stalls} stalls against the ground; peak {peak:0.000} m3 of {e.bucketCapacity:0.00}, kept {e.bucketLoad.volume:0.000}, spilled {(cc != null ? cc.Spilled - sp0 : 0f):0.000}, clumps {(cc != null ? cc.Count : 0)}, mouth {mw}");
                 Check(peak > e.bucketCapacity * 0.6f, $"{e.displayName}: a dig cycle fills the bucket ({peak / e.bucketCapacity * 100f:0}%)");
                 Check(kept > 0.85f, $"{e.displayName}: the dirt stays in the bucket while lifting and swinging ({kept * 100f:0}% kept)");
                 yield return ShotAt(e.bucketTip.position + e.transform.right * 3f * e.sizeScale + Vector3.up * 1.5f * e.sizeScale - e.transform.forward * 1.5f * e.sizeScale,

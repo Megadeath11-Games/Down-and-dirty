@@ -341,11 +341,12 @@ namespace FPSBase.Mining
         /// Pour a load from a point (a bucket lip, a tailgate). It falls as clods and lands wherever physics takes it.
         /// `ignore` = the machine doing the pouring (its own colliders don't catch the stream for the first moment).
         /// </summary>
-        public static void Pour(Vector3 from, MaterialLoad load, Transform ignore, Vector3 velocity = default)
+        /// `grainR` = the size of the clods it pours (a bucket's own clumps: they come out as big as they were in it).
+        public static void Pour(Vector3 from, MaterialLoad load, Transform ignore, Vector3 velocity = default, float grainR = 0f)
         {
             if (load.IsEmpty) return;
             WorkSounds.Pour(from, load.volume);
-            Instance.Spawn(from, load, ignore, velocity, Mathf.Clamp(Mathf.Pow(load.volume, 1f / 3f) * 0.35f, 0.08f, 0.6f));
+            Instance.Spawn(from, load, ignore, velocity, Mathf.Clamp(Mathf.Pow(load.volume, 1f / 3f) * 0.35f, 0.08f, 0.6f), false, grainR);
         }
 
         /// <summary>
@@ -379,9 +380,10 @@ namespace FPSBase.Mining
             };
         }
 
-        void Spawn(Vector3 from, MaterialLoad load, Transform ignore, Vector3 vel, float spread, bool visual = false)
+        void Spawn(Vector3 from, MaterialLoad load, Transform ignore, Vector3 vel, float spread, bool visual = false, float grainR = 0f)
         {
             Traits(load, out float gv, out float mu, out float bounce, out float settle, out byte cat, out bool clod);
+            if (grainR > 0f) gv = Mathf.Max(1e-5f, 4.18879f * grainR * grainR * grainR); // (a ball of that size)
             int n = Mathf.Clamp(Mathf.CeilToInt(load.volume / gv), 1, MaxPerPour);
             if (visual && count + n > MaxGrains - 200) return; // busy: skip the show
             if (count + n > MaxGrains)

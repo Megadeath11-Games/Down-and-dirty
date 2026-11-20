@@ -315,7 +315,7 @@ namespace FPSBase.Vehicles
             Poured += pour.volume;
             // out along the gate's width (a random spot each frame: spread evenly over time)
             Vector3 across = (bedPivot != null ? bedPivot.right : transform.right) * (Random.Range(-1f, 1f) * bedInnerSize.x * 0.45f);
-            MaterialTransfer.Pour(tailgatePour.position + across, pour, transform);
+            MaterialTransfer.Pour(tailgatePour.position + across, pour, transform, clumps != null ? clumps.ClumpRadius : 0f);
             UpdateContents();
         }
 

@@ -67,9 +67,6 @@ namespace FPSBase.Mining
         public static void Dig(Vector3 at)
         {
             WorkSounds.Dig(at);
-            // clods kicked up by the teeth
-            for (int k = 0; k < 2; k++)
-                DirtGrains.Spray(at + Vector3.up * 0.1f + Random.insideUnitSphere * 0.15f, Random.insideUnitSphere * 1.3f + Vector3.up * 1.8f, 0, Random.Range(0.05f, 0.1f));
             if (Random.value > 0.35f) return;
             var p = System;
             var e = new ParticleSystem.EmitParams

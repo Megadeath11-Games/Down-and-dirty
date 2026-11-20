@@ -136,6 +136,18 @@ namespace FPSBase.Vehicles
             if (ripperShank != null) ripperShank.localRotation = Quaternion.Euler(ripper, 0f, 0f);
         }
 
+        /// <summary>How hard the ground pushes back on the blade, as a fraction of the machine's weight (for the test).</summary>
+        public float BladePushBack { get; private set; }
+
+        // the blade lowered into unbroken ground further than it's cutting lifts the front, like on pavement
+        protected override void GroundPushBack()
+        {
+            BladePushBack = 0f;
+            if (bladeEdge == null) return;
+            Vector3 r = (Swivel != null ? Swivel.right : transform.right) * (bladeWidth * 0.5f);
+            BladePushBack = GroundPush.Edge(rb, suspension.gravityScale, bladeEdge.position - r, bladeEdge.position + r, 9, 0.04f, 0.12f, out _);
+        }
+
         protected override void FixedUpdate()
         {
             // nobody driving (parked, or rolling / test-driven without a driver): the blade still works the ground it
@@ -220,7 +232,7 @@ namespace FPSBase.Vehicles
             if (moved > 0f)
             {
                 // the heap rolls: clods come over the top of it and tumble down its front and sides
-                int n = Mathf.Clamp(Mathf.CeilToInt(moved / 0.004f), 1, 5);
+                int n = Random.value < 0.35f ? 1 : 0;
                 for (int i = 0; i < n; i++)
                 {
                     Vector3 at = edge + f * (pushAhead + Random.Range(-0.1f, 0.3f)) + r * Random.Range(-0.45f, 0.45f) * bladeWidth;

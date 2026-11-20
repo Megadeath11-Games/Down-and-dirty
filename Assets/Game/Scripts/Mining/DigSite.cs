@@ -243,6 +243,18 @@ namespace FPSBase.Mining
             return Mathf.Lerp(a, b, tz);
         }
 
+        /// <summary>Height of the unbroken ground (under any loose dirt) at a world X/Z.</summary>
+        public float NativeY(Vector3 world)
+        {
+            float fx = Mathf.Clamp((world.x - origin.x) / cell, 0f, res - 1.001f);
+            float fz = Mathf.Clamp((world.z - origin.z) / cell, 0f, res - 1.001f);
+            int x = (int)fx, z = (int)fz;
+            float tx = fx - x, tz = fz - z;
+            float a = Mathf.Lerp(native[z, x], native[z, x + 1], tx);
+            float b = Mathf.Lerp(native[z + 1, x], native[z + 1, x + 1], tx);
+            return Mathf.Lerp(a, b, tz);
+        }
+
         public bool IsUnderground(Vector3 tip) => Contains(tip) && tip.y < SurfaceY(tip) - 0.02f;
 
         bool InClaim(float wx, float wz) => claimRect.Contains(new Vector2(wx, wz));
@@ -427,13 +439,16 @@ namespace FPSBase.Mining
         }
 
         /// <summary>Drop loose dirt at a point. It spreads a little, then slumps into a natural heap.</summary>
-        public void Deposit(Vector3 at, MaterialLoad load)
+        public void Deposit(Vector3 at, MaterialLoad load) => Deposit(at, load, 0f);
+
+        /// <summary>As above, spread over `radius` m (0 = by how much there is).</summary>
+        public void Deposit(Vector3 at, MaterialLoad load, float radius)
         {
             if (load.IsEmpty) return;
             var rocks = load.TakeRocks();
             if (!rocks.IsEmpty) Boulder.SpawnFromLoad(at, rocks);
             if (load.IsEmpty) return;
-            float r = Mathf.Clamp(Mathf.Sqrt(load.volume) * 0.9f, cell * 0.6f, 1.6f);
+            float r = radius > 0f ? Mathf.Max(radius, cell * 0.6f) : Mathf.Clamp(Mathf.Sqrt(load.volume) * 0.9f, cell * 0.6f, 1.6f);
             Range(at, r, out int x0, out int z0, out int x1, out int z1);
             float sum = 0f;
             for (int z = z0; z <= z1; z++) for (int x = x0; x <= x1; x++) sum += Weight(x, z, at, r);

@@ -162,6 +162,8 @@ namespace FPSBase.Mining
 
         System.Func<MaterialLoad> source;
         System.Func<Vector3?> spawnAt;
+        /// <summary>Where dirt is coming in through the mouth right now (a bucket cutting it), else null.</summary>
+        public System.Func<Vector3?> enterAt;
         System.Func<Vector3> drainAt;
 
         Vector3 Origin => frame.TransformPoint(center);
@@ -181,12 +183,27 @@ namespace FPSBase.Mining
             while (clumps.Count < target && guard++ < 40)
             {
                 // dropped in from above (a bucket dumped into a bed): they come in falling, and splash the pile.
-                // Dug in (a bucket): they go in at the back of the bucket, away from the mouth
+                // Dug in (a bucket): they come in where the dirt was cut, through the mouth, and tumble on in
                 bool fromAbove = !spawnWorld.HasValue;
-                Vector3 p = !fromAbove
-                    ? Clamp(-mouth * (Support * 0.35f) + Vector3.Scale(Random.insideUnitSphere, half * 0.5f), baseR)
-                    : new Vector3(Random.Range(-half.x, half.x) * 0.7f, half.y + baseR * Random.Range(1f, 4f), Random.Range(-half.z, half.z) * 0.7f);
-                Vector3 v0 = fromAbove ? Quaternion.Inverse(Rot) * (Vector3.down * 2.6f) + Random.insideUnitSphere * 0.8f : Random.insideUnitSphere * 0.3f;
+                Vector3 p, v0;
+                if (fromAbove)
+                {
+                    p = new Vector3(Random.Range(-half.x, half.x) * 0.7f, half.y + baseR * Random.Range(1f, 4f), Random.Range(-half.z, half.z) * 0.7f);
+                    v0 = Quaternion.Inverse(Rot) * (Vector3.down * 2.6f) + Random.insideUnitSphere * 0.8f;
+                }
+                else if (enterAt?.Invoke() is Vector3 cutAt)
+                {
+                    // where the dirt was cut, just inside the opening, tumbling on in
+                    Vector3 at = ToLocal(cutAt) + Vector3.Scale(Random.insideUnitSphere, half * 0.25f);
+                    p = Clamp(Clamp(at, baseR) - mouth * (Support * 0.3f), baseR);
+                    v0 = -mouth * Random.Range(0.4f, 0.9f) + Random.insideUnitSphere * 0.25f;
+                }
+                else
+                {
+                    // a load that's just there (loaded game, another player's machine): settled in the back
+                    p = Clamp(-mouth * (Support * 0.35f) + Vector3.Scale(Random.insideUnitSphere, half * 0.5f), baseR);
+                    v0 = Random.insideUnitSphere * 0.3f;
+                }
                 clumps.Add(new Clump
                 {
                     p = p, v = v0, rot = Random.rotation,
@@ -453,7 +470,7 @@ namespace FPSBase.Mining
                 if (part.IsEmpty) continue;
                 Spilled += part.volume; SpillCount++;
                 Vector3 wp = ToWorld(c.p), wv = containerVel + Rot * c.v;
-                DirtGrains.Pour(wp, part, transform, wv);
+                DirtGrains.Pour(wp, part, transform, wv, c.r); // as big out of the bucket as it was in it
             }
         }
 

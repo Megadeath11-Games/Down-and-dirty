@@ -119,12 +119,12 @@ namespace FPSBase.Mining
         /// Pour `load` at a point. The dirt falls as real clods (DirtGrains) and lands in whatever catches it: a truck
         /// bed or hopper below, the side of a machine (and spills off), or the ground. Boulders drop straight down.
         /// </summary>
-        public static void Pour(Vector3 from, MaterialLoad load, Transform ignore)
+        public static void Pour(Vector3 from, MaterialLoad load, Transform ignore, float grainR = 0f)
         {
             if (load.IsEmpty) return;
             var rocks = load.TakeRocks();
             if (!rocks.IsEmpty) PourInstant(from, rocks, ignore);
-            if (!load.IsEmpty) DirtGrains.Pour(from, load, ignore);
+            if (!load.IsEmpty) DirtGrains.Pour(from, load, ignore, default, grainR);
         }
 
         /// <summary>The instant version: straight into the receiver below, otherwise onto the ground.</summary>

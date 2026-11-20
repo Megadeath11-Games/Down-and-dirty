@@ -13,6 +13,16 @@ namespace FPSBase.Core
         /// <summary>Newest first.</summary>
         public static readonly Post[] Blog =
         {
+            new Post { date = "Update 22  ·  Nov 19, 2026", title = "The bucket digs exactly where it goes",
+                body =
+                "• The excavator bucket now cuts the ground in its own shape: every part of the bucket, the teeth, the floor, the back and the sides, takes out the dirt it moves through. No more bucket sinking into dirt that's still drawn, and the hole it leaves is the shape of the bucket.\n" +
+                "• It really scoops: dirt only goes into the bucket when the cutting edge leads (curling, crowding, dragging in), and the clumps come in at the mouth where it was cut, instead of appearing at the back.\n" +
+                "• Curl out into a pile, swing sideways or push with the back of the bucket and it shoves the dirt along like a small blade. Nothing jumps into the bucket.\n" +
+                "• The teeth bite into hard ground the way they point, and they have their own hitbox now, so they don't poke through things.\n" +
+                "• The ground pushes back: force the bucket, the stick or the boom into hard ground faster than it can cut and the arm stalls and the machine lifts up on it, like a real one. Lower a dozer or 5 t blade into the dirt and it lifts the front, the same as on pavement.\n" +
+                "• Fewer clumps: far fewer clods drawn on loose dirt, no clods flicked up by the teeth, fewer off a dozer's heap.\n" +
+                "• Clods keep their size: what falls out of a bucket, a loader or a truck bed lands as big as it was inside, instead of turning into little ones.",
+            },
             new Post { date = "Update 21  ·  Nov 19, 2026", title = "Dug dirt you can see the detail in",
                 body =
                 "• Loose dirt now slides off in every direction, diagonals too, so heaps and the sides of holes come out rounded and natural instead of square pyramids with big flat faces.\n" +
@@ -213,11 +223,18 @@ namespace FPSBase.Core
                 "• Dozer berms build up properly in front of the blade." },
         };
 
-        public const string TestListVersion = "2026-11-19p";
+        public const string TestListVersion = "2026-11-19q";
 
         /// <summary>What's new in this build to try out.</summary>
         public static readonly string[] TestList =
         {
+            "Excavator: dig slowly and watch the bucket: the dirt goes away exactly where the bucket passes, no bucket inside drawn dirt",
+            "Excavator: curl and pull in: the clumps come into the bucket at the teeth and tumble in, they don't pop up at the back",
+            "Excavator: curl the bucket out and push a pile with its back, or swing it sideways through a pile: the pile gets shoved, the bucket stays empty",
+            "Excavator: force the boom down into hard ground: the arm stops and the machine lifts up on the bucket instead of the bucket going in",
+            "5 t excavator and dozers: lower the blade into the dirt standing still: the front lifts like on pavement",
+            "Dump a full bucket on the ground and into a truck: the clods land as big as they were in the bucket",
+            "Loose dirt has only a few clods on it now, not a carpet of them",
             "Excavator: dig a pit and dump the dirt beside it: the pit and the heap show lots of small facets and rounded sides, not big flat triangles",
             "Excavator: dig a ditch along a line: the walls go straight down and stay standing",
             "Dig a deep hole in sand: the walls cave in after a moment; in topsoil a 1 m hole keeps its walls",

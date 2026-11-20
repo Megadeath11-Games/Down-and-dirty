@@ -139,7 +139,8 @@ namespace FPSBase.Vehicles
             {
                 float open = Mathf.InverseLerp(dumpAngle, tiltRange.y, tilt);
                 var pour = bucketLoad.Take(dumpRate * (0.3f + open) * dt);
-                MaterialTransfer.Pour(pourAt, pour, transform);
+                var lcc = GetComponent<ClumpContainer>();
+                MaterialTransfer.Pour(pourAt, pour, transform, lcc != null ? lcc.ClumpRadius : 0f);
             }
             return pourAt;
         }

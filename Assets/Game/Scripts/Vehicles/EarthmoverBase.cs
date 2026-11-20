@@ -71,12 +71,16 @@ namespace FPSBase.Vehicles
             cab.pedalR = Mathf.Max(0f, throttle);
         }
 
+        /// <summary>Steel (a blade) forced into the ground further than it cuts pushes the machine up. Each machine knows its own.</summary>
+        protected virtual void GroundPushBack() { }
+
         protected virtual void FixedUpdate()
         {
             IgnorePileCollisions();
             if (!Occupied) { throttle = testThrottle; steer = 0f; }
             if (rb.isKinematic) return;
             suspension.Step();
+            GroundPushBack();
             bool grounded = suspension.Contacts > 0 ? suspension.Touching > 0
                 : Physics.Raycast(transform.position + Vector3.up * 0.3f, Vector3.down, groundCheck, ~0, QueryTriggerInteraction.Ignore);
             float target = (throttle >= 0f ? throttle * driveSpeed : throttle * reverseSpeed) * speedFactor;

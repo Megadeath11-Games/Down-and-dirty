@@ -135,6 +135,102 @@ namespace FPSBase.Mining
             return got;
         }
 
+        float[] carveBuf = new float[0];
+        int[] carveWho = new int[0];
+
+        /// <summary>
+        /// A bucket moving through the ground, given as points on its steel (world space): every square of ground
+        /// under it is cut down to the lowest steel over that square, so the bucket takes exactly the dirt it moves
+        /// through and never sinks into dirt that's still drawn. Each point says how deep it may cut into unbroken
+        /// ground this frame (`limit`: the teeth bite, the back of the bucket only scrapes; loose dirt always goes),
+        /// whether dirt it cuts goes in through the mouth (`scoop`) or is shoved along, and how it moves (`vel`).
+        /// `scooped` = what went into the bucket; `pushed` = what the steel shoved, which lands just ahead of it
+        /// (`pushDir`). Gold nuggets go with the dirt. Returns the volume cut.
+        /// </summary>
+        public float CarveBelow(Vector3[] pts, float[] limit, bool[] scoop, Vector3[] vel, int n, float nativeBudget,
+            out MaterialLoad scooped, out MaterialLoad pushed, out Vector3 scoopAt, out Vector3 pushAt)
+        {
+            scooped = new MaterialLoad(); pushed = new MaterialLoad();
+            scoopAt = pushAt = Vector3.zero;
+            if (n <= 0) return 0f;
+            float minX = float.MaxValue, minZ = float.MaxValue, maxX = float.MinValue, maxZ = float.MinValue, lowY = float.MaxValue;
+            Vector3 center = Vector3.zero;
+            for (int i = 0; i < n; i++)
+            {
+                var p = pts[i];
+                center += p;
+                if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
+                if (p.z < minZ) minZ = p.z; if (p.z > maxZ) maxZ = p.z;
+                if (p.y < lowY) lowY = p.y;
+            }
+            center /= n;
+            float reach = Mathf.Max(maxX - minX, maxZ - minZ) * 0.5f;
+            if (lowY > SurfaceY(center) + reach + 1f) return 0f; // nothing of it is down at the dirt
+            int x0 = Mathf.Clamp(Mathf.FloorToInt((minX - origin.x) / cell), 1, res - 2), x1 = Mathf.Clamp(Mathf.FloorToInt((maxX - origin.x) / cell) + 1, 1, res - 2);
+            int z0 = Mathf.Clamp(Mathf.FloorToInt((minZ - origin.z) / cell), 1, res - 2), z1 = Mathf.Clamp(Mathf.FloorToInt((maxZ - origin.z) / cell) + 1, 1, res - 2);
+            int w = x1 - x0 + 1, h = z1 - z0 + 1;
+            if (w <= 0 || h <= 0 || w * h > 250000) return 0f;
+            if (carveBuf.Length < w * h) { carveBuf = new float[w * h]; carveWho = new int[w * h]; }
+            for (int i = 0; i < w * h; i++) { carveBuf[i] = float.MaxValue; carveWho[i] = -1; }
+            // the lowest steel over each corner of the ground (and which point of the bucket that is): each bit of
+            // steel lowers all four corners of the square it's over, so the ground drawn between them is under it too
+            for (int i = 0; i < n; i++)
+            {
+                var p = pts[i];
+                int bx = Mathf.FloorToInt((p.x - origin.x) / cell) - x0, bz = Mathf.FloorToInt((p.z - origin.z) / cell) - z0;
+                for (int c = 0; c < 4; c++)
+                {
+                    int x = bx + (c & 1), z = bz + (c >> 1);
+                    if (x < 0 || z < 0 || x >= w || z >= h) continue;
+                    int k = z * w + x;
+                    if (p.y < carveBuf[k]) { carveBuf[k] = p.y; carveWho[k] = i; }
+                }
+            }
+            Vector3 sAt = Vector3.zero, pAt = Vector3.zero, pDir = Vector3.zero;
+            float sW = 0f, pW = 0f, total = 0f;
+            for (int z = 0; z < h; z++)
+                for (int x = 0; x < w; x++)
+                {
+                    int who = carveWho[z * w + x];
+                    if (who < 0 || limit[who] < 0f) continue; // (steel standing still cuts nothing)
+                    float bottom = carveBuf[z * w + x];
+                    int gx = x0 + x, gz = z0 + z;
+                    float s = Surf(gx, gz);
+                    if (s <= bottom + 0.002f) continue;
+                    // unbroken ground: only as much as the machine has the force for (the rest pushes back on it)
+                    float nat = Mathf.Min(limit[who], Mathf.Max(0f, nativeBudget) / cellArea);
+                    float looseHere = loose[gz, gx] * cellArea;
+                    var m = Remove(gx, gz, Mathf.Min(s - bottom, loose[gz, gx] + nat), bottom);
+                    if (m.IsEmpty) continue;
+                    nativeBudget -= Mathf.Max(0f, m.volume - looseHere);
+                    Touch(gx, gz);
+                    total += m.volume;
+                    var wp = new Vector3(origin.x + gx * cell, bottom, origin.z + gz * cell);
+                    if (scoop[who]) { scooped.Add(m); sAt += wp * m.volume; sW += m.volume; }
+                    else { pushed.Add(m); pAt += wp * m.volume; pW += m.volume; pDir += vel[who] * m.volume; }
+                }
+            if (total <= 0f) return 0f;
+            finds.Clear();
+            TakeExposed(center, reach + 0.3f, finds);
+            foreach (var f in finds)
+                if (f.kind == FindKind.Gold) { if (sW > 0f) scooped.goldGrams += f.grams; else pushed.goldGrams += f.grams; }
+            CheckBoulders(center, reach + 1f);
+            scoopAt = sW > 0f ? sAt / sW : center;
+            if (pW > 0f)
+            {
+                // shoved dirt lands just past the edge of the bucket, the way it was going
+                Vector3 from = pAt / pW;
+                pDir.y = 0f;
+                if (pDir.sqrMagnitude < 1e-6f) { pDir = from - center; pDir.y = 0f; } // (barely moving: off to the side it's on)
+                pDir = pDir.sqrMagnitude > 1e-8f ? pDir.normalized : Vector3.forward;
+                float out_ = 0f; // how far the bucket reaches beyond that point along the push
+                for (int i = 0; i < n; i++) out_ = Mathf.Max(out_, Vector3.Dot(pts[i] - from, pDir));
+                pushAt = from + pDir * (out_ + cell * 1.2f);
+                pushAt.y = SurfaceY(pushAt);
+            }
+            return total;
+        }
+
         readonly List<BuriedFind> finds = new();
 
         /// <summary>After a blade or ripper moved dirt: free boulders, and nuggets end up in the loose dirt.</summary>

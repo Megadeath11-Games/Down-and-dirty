@@ -192,6 +192,42 @@ namespace FPSBase.Vehicles
     /// builder. They shove other vehicles and hit buildings, but pass into the dirt (digging is handled by the dig
     /// code, and the dig resistance spring stands in for the ground pushing back).
     /// </summary>
+    /// <summary>
+    /// Unbroken ground pushes back on steel forced into it further than the machine can cut (a blade or bucket
+    /// shoved down into the dirt lifts the machine, the way it does on pavement). Loose dirt doesn't: it gets shoved.
+    /// </summary>
+    public static class GroundPush
+    {
+        /// <summary>Along an edge from `a` to `b`: pushes up at its deepest point. Returns the push as a fraction of the machine's weight.</summary>
+        public static float Edge(Rigidbody rb, float gravityScale, Vector3 a, Vector3 b, int n, float allowed, float travel, out float depth)
+        {
+            depth = 0f;
+            var site = DigSite.At((a + b) * 0.5f);
+            if (site == null || rb == null || rb.isKinematic) return 0f;
+            float best = 0f; Vector3 at = default;
+            for (int i = 0; i < n; i++)
+            {
+                Vector3 p = Vector3.Lerp(a, b, n > 1 ? i / (n - 1f) : 0.5f);
+                if (!site.Contains(p)) continue;
+                float e = site.NativeY(p) - p.y - allowed;
+                if (e > best) { best = e; at = p; }
+            }
+            depth = best;
+            return best > 0f ? Push(rb, gravityScale, at, best, travel) : 0f;
+        }
+
+        /// <summary>A stiff, damped spring at `at`, `excess` m deep: up to 90% of the machine's weight.</summary>
+        public static float Push(Rigidbody rb, float gravityScale, Vector3 at, float excess, float travel)
+        {
+            float m = rb.mass, w = m * -Physics.gravity.y * gravityScale;
+            float k = w / Mathf.Max(0.05f, travel);
+            float vUp = rb.GetPointVelocity(at).y;
+            float f = Mathf.Clamp(k * excess - Mathf.Sqrt(k * m) * vUp, 0f, w * 0.9f);
+            rb.AddForceAtPosition(Vector3.up * f, at, ForceMode.Force);
+            return f / Mathf.Max(1e-3f, w);
+        }
+    }
+
     public static class ToolColliders
     {
         public static Collider[] Find(Transform root)

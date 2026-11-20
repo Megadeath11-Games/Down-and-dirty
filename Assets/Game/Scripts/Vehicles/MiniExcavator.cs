@@ -81,6 +81,7 @@ namespace FPSBase.Vehicles
             rb.centerOfMass = new Vector3(0f, centerOfMassHeight, 0f);
             rb.angularDamping = Mathf.Max(rb.angularDamping, 3f);
             suspension.Setup(rb, GetComponent<BoxCollider>(), false);
+            BuildShell();
             tools = ToolColliders.Find(transform);
             if (bucketLoadVisual != null)
             {
@@ -90,18 +91,26 @@ namespace FPSBase.Vehicles
                     () => bucketLoad, () => bucketTip != null ? bucketTip.position : (Vector3?)null, () => bucketTip != null ? bucketTip.position : transform.position,
                     bucketLoadVisual.GetComponentsInChildren<Renderer>(true));
                 cc.takeOut = v => bucketLoad.Take(v);
+                cc.enterAt = () => scoopedAt;
                 // the marker shows where the load lands once the bucket opens, not where the teeth are now
                 DumpMarker.Attach(gameObject, bucketTip, Mathf.Max(0.35f, digRadius * 1.3f)).sourceAt = () => DumpPoint(AimAngle);
                 // the builder knows which way the bucket opens; otherwise find it from the bucket's shape
                 if (bucketMouth.sqrMagnitude > 0.01f) cc.SetMouth(bucketMouth.normalized);
                 else cc.AutoMouth(bucketLoadVisual.GetComponentsInChildren<Renderer>(true));
                 // while the bucket is cutting into the ground the load is packed in: nothing falls out
+                // (the bucket cuts its own way now, so the teeth are never buried: cutting just now counts)
                 cc.packed = () =>
                 {
+                    if (Time.time - lastCutAt < 0.35f) return true;
                     var s = DigSite.At(transform.position);
                     if (bucketTip == null) return false;
                     Vector3 t = bucketTip.position;
-                    return s != null && s.Contains(t) && s.SurfaceY(t) > t.y - 0.08f;
+                    if (s == null || !s.Contains(t)) return false;
+                    // still down in the hole it cut: the walls round it hold the load in
+                    float r = 0.6f * sizeScale, top = s.SurfaceY(t);
+                    top = Mathf.Max(top, Mathf.Max(s.SurfaceY(t + new Vector3(r, 0f, 0f)), s.SurfaceY(t - new Vector3(r, 0f, 0f))));
+                    top = Mathf.Max(top, Mathf.Max(s.SurfaceY(t + new Vector3(0f, 0f, r)), s.SurfaceY(t - new Vector3(0f, 0f, r))));
+                    return top > t.y - 0.08f;
                 };
             }
             ApplyPose();
@@ -160,26 +169,197 @@ namespace FPSBase.Vehicles
         /// <summary>Dirt the bucket spread last frame (m^3).</summary>
         public float LastSpread { get; private set; }
 
-        /// <summary>
-        /// Spreading: the bucket moving through loose dirt without digging (swung sideways, pushed out, or dragged
-        /// back with the bucket opened out) shoves the dirt along like a small blade: level a pile, fill a trench.
-        /// </summary>
-        void Spread(bool digging, float dt)
+        // ---- the bucket's steel: points all over its shell, so it cuts the ground in its own shape
+        Vector3[] shellLocal, shellW, shellPrev, shellVel;
+        float[] shellLim; bool[] shellScoop, shellTooth;
+        bool shellHasPrev;
+        Vector3 shellMid;
+        Vector3? scoopedAt;
+        // the boom and stick: they can't go into the ground at all (they push back on the machine instead)
+        Vector3[] armLocal; Transform[] armFrame;
+        /// <summary>Points on the bucket's steel (for the test).</summary>
+        public int ShellPoints => shellLocal != null ? shellLocal.Length : 0;
+        /// <summary>How deep the bucket's steel is under the drawn dirt right now, at its deepest point (m; for the test).</summary>
+        public float DeepestInDirt()
         {
-            LastSpread = 0f;
             var site = DigSite.At(transform.position);
-            if (site == null || bucketTip == null) return;
-            Vector3 tip = bucketTip.position;
-            Vector3 v = hasLastTip && dt > 1e-4f ? (tip - lastTip) / dt : Vector3.zero;
-            lastTip = tip; hasLastTip = true;
-            v.y = 0f;
-            if (digging || v.magnitude < 0.12f || v.magnitude > 25f || !site.Contains(tip)) return;
-            if (site.SurfaceY(tip) < tip.y + 0.02f) return; // not in the dirt
-            float width = Mathf.Max(0.4f, digRadius * 2.4f);
-            // the bucket shaves unbroken ground too (a little per frame, never below the teeth), so dragging it
-            // across undug ground levels and reshapes it
-            LastSpread = site.Spread(tip, v.normalized, width, tip.y, Mathf.Clamp(0.25f * sizeScale, 0.15f, 0.8f), 1.2f * dt);
-            if (LastSpread > 0.002f && Random.value < 0.15f) PourFx.Dig(tip);
+            if (site == null || shellLocal == null) return 0f;
+            var m = bucketPivot.localToWorldMatrix;
+            float d = 0f;
+            for (int i = 0; i < shellLocal.Length; i++)
+            {
+                Vector3 p = m.MultiplyPoint3x4(shellLocal[i]);
+                if (site.Contains(p)) d = Mathf.Max(d, site.SurfaceY(p) - p.y);
+            }
+            return d;
+        }
+        /// <summary>Dirt the bucket took in through its mouth last frame (m^3).</summary>
+        public float LastScooped { get; private set; }
+        /// <summary>How far any steel was in the unbroken ground past what it may (m), last physics step (for the test).</summary>
+        public float LastPenetration { get; private set; }
+
+        static void SampleMeshes(Transform root, System.Func<Transform, bool> skip, float step, int cap,
+            System.Action<Vector3, Transform> add)
+        {
+            float q = step * 0.7f;
+            var seen = new System.Collections.Generic.HashSet<long>();
+            int count = 0;
+            foreach (var mf in root.GetComponentsInChildren<MeshFilter>(true))
+            {
+                if (skip(mf.transform)) continue;
+                var mesh = mf.sharedMesh;
+                if (mesh == null) continue;
+                var m = mf.transform.localToWorldMatrix;
+                void AddW(Vector3 w)
+                {
+                    long key = ((long)Mathf.RoundToInt(w.x / q) * 73856093L) ^ ((long)Mathf.RoundToInt(w.y / q) * 19349663L) ^ ((long)Mathf.RoundToInt(w.z / q) * 83492791L);
+                    if (count < cap && seen.Add(key)) { add(w, mf.transform); count++; }
+                }
+                void Tri(Vector3 a, Vector3 b, Vector3 c)
+                {
+                    float L = Mathf.Max((b - a).magnitude, Mathf.Max((c - a).magnitude, (c - b).magnitude));
+                    int k = Mathf.Clamp(Mathf.CeilToInt(L / step), 1, 80);
+                    for (int u = 0; u <= k; u++)
+                        for (int w = 0; u + w <= k; w++)
+                            AddW(a + (b - a) * (u / (float)k) + (c - a) * (w / (float)k));
+                }
+                if (mesh.isReadable)
+                {
+                    var v = mesh.vertices; var t = mesh.triangles;
+                    for (int i = 0; i + 2 < t.Length && count < cap; i += 3)
+                        Tri(m.MultiplyPoint3x4(v[t[i]]), m.MultiplyPoint3x4(v[t[i + 1]]), m.MultiplyPoint3x4(v[t[i + 2]]));
+                }
+                else
+                {
+                    // can't read the mesh: its box
+                    var bb = mesh.bounds;
+                    Vector3 C(int i) => m.MultiplyPoint3x4(bb.center + Vector3.Scale(bb.extents, new Vector3((i & 1) == 0 ? -1 : 1, (i & 2) == 0 ? -1 : 1, (i & 4) == 0 ? -1 : 1)));
+                    int[] f = { 0, 1, 3, 2, 4, 5, 7, 6, 0, 1, 5, 4, 2, 3, 7, 6, 0, 2, 6, 4, 1, 3, 7, 5 };
+                    for (int i = 0; i < 24; i += 4) { Tri(C(f[i]), C(f[i + 1]), C(f[i + 2])); Tri(C(f[i]), C(f[i + 2]), C(f[i + 3])); }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Sample the bucket's steel (every plate, the teeth, the cutting edge) as points in the bucket's frame, and
+        /// mark the ones at the teeth; the teeth also get a hitbox of their own (they used to poke through things).
+        /// The boom and stick are sampled too, more coarsely: they push back on the machine if forced into the ground.
+        /// </summary>
+        void BuildShell()
+        {
+            if (bucketPivot == null || bucketTip == null) return;
+            var pts = new System.Collections.Generic.List<Vector3>();
+            var toLocal = bucketPivot.worldToLocalMatrix;
+            float step = Mathf.Clamp(0.045f * Mathf.Max(1f, sizeScale), 0.04f, 0.09f);
+            bool NotSteel(Transform t) =>
+                (bucketLoadVisual != null && t.IsChildOf(bucketLoadVisual)) || t.name.Contains("Load") || t.name.Contains("dirt");
+            SampleMeshes(bucketPivot, NotSteel, step, 20000, (w, _) => pts.Add(toLocal.MultiplyPoint3x4(w)));
+            if (pts.Count == 0) return;
+            shellLocal = pts.ToArray();
+            int n = shellLocal.Length;
+            shellW = new Vector3[n]; shellPrev = new Vector3[n]; shellVel = new Vector3[n];
+            shellLim = new float[n]; shellScoop = new bool[n]; shellTooth = new bool[n];
+            // the teeth and cutting edge: the points near the tip
+            Vector3 tipL = toLocal.MultiplyPoint3x4(bucketTip.position);
+            var all = new Bounds(shellLocal[0], Vector3.zero);
+            foreach (var p in shellLocal) all.Encapsulate(p);
+            shellMid = all.center;
+            float teethR = Mathf.Max(0.09f, all.size.magnitude * 0.16f);
+            Bounds teeth = default; bool any = false;
+            for (int i = 0; i < n; i++)
+            {
+                if ((shellLocal[i] - tipL).magnitude > teethR) continue;
+                shellTooth[i] = true;
+                if (!any) { teeth = new Bounds(shellLocal[i], Vector3.zero); any = true; } else teeth.Encapsulate(shellLocal[i]);
+            }
+            if (any && bucketPivot.Find("Tool Teeth") == null)
+            {
+                var go = new GameObject("Tool Teeth");
+                go.transform.SetParent(bucketPivot, false);
+                go.transform.localPosition = teeth.center;
+                var bc = go.AddComponent<BoxCollider>();
+                Vector3 sz = teeth.size, ls = bucketPivot.lossyScale;
+                float thin = 0.03f / Mathf.Max(0.01f, Mathf.Abs(ls.x));
+                bc.size = new Vector3(Mathf.Max(sz.x, thin), Mathf.Max(sz.y, thin), Mathf.Max(sz.z, thin));
+            }
+
+            // the arm: boom and stick steel (not the bucket), each point kept in the frame of the part it's on
+            var arm = new System.Collections.Generic.List<Vector3>();
+            var frames = new System.Collections.Generic.List<Transform>();
+            Transform armRoot = boomPivot != null ? boomPivot : stickPivot;
+            if (armRoot != null)
+                SampleMeshes(armRoot, t => t.IsChildOf(bucketPivot) || NotSteel(t), step * 2.5f, 4000,
+                    (w, t) => { arm.Add(t.InverseTransformPoint(w)); frames.Add(t); });
+            armLocal = arm.ToArray(); armFrame = frames.ToArray();
+        }
+
+        /// <summary>
+        /// The bucket in the ground: every bit of its steel cuts the dirt it moves through, in its own shape. Moving
+        /// mouth first (curling, crowding, dragging in) the dirt it cuts goes in through the mouth: it really scoops.
+        /// Moving any other way (curled out into a pile, swung sideways, the back pushed along) the steel shoves the
+        /// dirt ahead of it like a small blade. The teeth bite into unbroken ground whichever way they go; the back
+        /// of the bucket only scrapes it; and no more is cut than the machine has the force for (the rest of the
+        /// bucket stays against the ground and pushes back: see DigResistance).
+        /// </summary>
+        void Carve(bool room, float dt)
+        {
+            LastSpread = 0f; LastScooped = 0f; scoopedAt = null;
+            if (shellLocal == null || bucketTip == null || bucketPivot == null) return;
+            int n = shellLocal.Length;
+            var m = bucketPivot.localToWorldMatrix;
+            bool fresh = !shellHasPrev || dt <= 1e-4f;
+            for (int i = 0; i < n; i++)
+            {
+                var w = m.MultiplyPoint3x4(shellLocal[i]);
+                shellVel[i] = fresh ? Vector3.zero : (w - shellPrev[i]) / dt;
+                shellPrev[i] = shellW[i] = w;
+            }
+            shellHasPrev = true;
+            if (fresh) return;
+            var site = DigSite.At(bucketTip.position);
+            if (site == null || !site.Contains(bucketTip.position)) return;
+            var cc = rockBox;
+            Vector3 mouthW = cc != null && bucketLoadVisual != null ? (bucketLoadVisual.parent.rotation * cc.mouth).normalized : bucketPivot.up;
+            float shave = 0.4f * sizeScale * dt;
+            // the cutting edge leading (moving the way the teeth point, or mouth first): the teeth cut and the rest of
+            // the bucket follows them into the cut, and what it cuts goes in. Otherwise (the back or the side of the
+            // bucket first) it only shoves loose dirt and scrapes the unbroken ground
+            Vector3 teethW = (bucketTip.position - m.MultiplyPoint3x4(shellMid)).normalized;
+            Vector3 vTip = Vector3.zero; int nt = 0;
+            for (int i = 0; i < n; i++) if (shellTooth[i]) { vTip += shellVel[i]; nt++; }
+            if (nt > 0) vTip /= nt;
+            float tsp = vTip.magnitude;
+            bool leading = tsp > 0.01f && (Vector3.Dot(vTip, teethW) > 0.3f * tsp || Vector3.Dot(vTip, mouthW) > 0.2f * tsp);
+            for (int i = 0; i < n; i++)
+            {
+                Vector3 v = shellVel[i]; float sp = v.magnitude;
+                if (sp < 0.01f || sp > 30f) { shellLim[i] = -1f; shellScoop[i] = false; continue; }
+                shellScoop[i] = room && leading;
+                shellLim[i] = leading ? 10f : shave;
+            }
+            // how much unbroken ground the hydraulics can cut this frame (clay is slower, sand quicker)
+            site.GroundNameAt(bucketTip.position, out float ease);
+            if (ease <= 0f) ease = 1f;
+            float budget = digRate * 2.5f * ease * dt;
+            float cut = site.CarveBelow(shellW, shellLim, shellScoop, shellVel, n, budget, out var sc, out var pu, out var sAt, out var pAt);
+            if (cut > 0f && leading) lastCutAt = Time.time;
+            if (cut <= 0f) return;
+            if (!sc.IsEmpty)
+            {
+                float space = Mathf.Max(0f, bucketCapacity - bucketLoad.volume - (cc != null ? cc.HeldRockVolume : 0f));
+                var into = sc.Take(space);
+                bucketLoad.Add(into);
+                LastScooped = into.volume;
+                scoopedAt = sAt;
+                if (!sc.IsEmpty) // heaped over: the rest rolls off the front
+                {
+                    Vector3 off = sAt + Vector3.ProjectOnPlane(mouthW, Vector3.up).normalized * (site.Cell * 2f);
+                    site.Deposit(off, sc, site.Cell * 1.2f);
+                }
+            }
+            if (!pu.IsEmpty) { site.Deposit(pAt, pu, site.Cell * 1.2f); LastSpread = pu.volume; }
+            strainAmount = Mathf.Max(strainAmount, Mathf.Clamp01(cut / dt / Mathf.Max(0.01f, digRate * 2f)));
+            if (Random.value < 0.25f) PourFx.Dig(bucketTip.position);
         }
 
         /// <summary>The operator's inputs this frame (-1..1 each), for the cab controls and the network.</summary>
@@ -205,6 +385,7 @@ namespace FPSBase.Vehicles
             bladeAngle = Mathf.Clamp(bladeAngle + bladeIn * bladeSpeed * dt, bladeRange.x, bladeRange.y);
             BladeWork();
 
+            float boom0 = boom, stick0 = stick, bucket0 = bucket, swing0 = swing;
             swing += swingIn * swingSpeed * dt;
             boom = Mathf.Clamp(boom + boomIn * boomSpeed * dt, boomRange.x, boomRange.y);
             stick = Mathf.Clamp(stick + stickIn * stickSpeed * dt, stickRange.x, stickRange.y);
@@ -222,14 +403,45 @@ namespace FPSBase.Vehicles
             // Dig: bucket tip in the ground while curling or pulling in (an opened-out bucket drags instead)
             float digInput = Mathf.Max(-bucketIn, -stickIn, 0f);
             float rockRoom = rockBox != null ? rockBox.HeldRockVolume : 0f;
-            bool digging = digInput > 0f && bucketLoad.volume + rockRoom < bucketCapacity && bucket < dumpAngle;
+            bool room = bucketLoad.volume + rockRoom < bucketCapacity && bucket < dumpAngle;
+            bool digging = digInput > 0f && room;
+            Carve(room, dt);
+            // the hydraulics stall against ground they can't cut: the arm stops there (and the ground pushes the
+            // machine up instead), so no steel goes into the earth
+            // (only the rams that are pushing it in stop: the boom stalls, the bucket can still curl)
+            float pen = Penetration(out _);
+            float stallAt = Mathf.Max(0.04f * sizeScale, lastPen + 0.001f);
+            if (pen > stallAt)
+            {
+                // stop the ram that helps most, then the next, until it's out of the ground again
+                float[] now = { boom, swing, stick, bucket }, was = { boom0, swing0, stick0, bucket0 };
+                var held = new bool[4];
+                for (int round = 0; round < 4 && pen > stallAt; round++)
+                {
+                    int best = -1; float bestPen = pen;
+                    for (int j = 0; j < 4; j++)
+                    {
+                        if (held[j] || now[j] == was[j]) continue;
+                        SetJoints(j, was, now, held);
+                        float p = Penetration(out _);
+                        if (p < bestPen - 1e-4f) { bestPen = p; best = j; }
+                    }
+                    if (best < 0) break;
+                    held[best] = true; pen = bestPen;
+                }
+                SetJoints(-1, was, now, held);
+                pen = Penetration(out _);
+                strainAmount = 0.8f; Stalls++;
+            }
+            lastPen = pen;
             if (digging)
             {
                 var site = DigSite.At(transform.position);
-                if (site != null && site.IsUnderground(bucketTip.position))
+                // off the dirt field (a dumped pile somewhere else): the old way, from the pile under the teeth
+                if ((site == null || !site.Contains(bucketTip.position)) && DirtPile.FindContaining(bucketTip.position) != null)
                 {
                     float rate = digRate;
-                    if (site.LooseVolume(bucketTip.position, digRadius, out _) > bucketCapacity * 0.25f) rate *= looseDigBonus;
+                    rate *= looseDigBonus;
                     float want = Mathf.Min(rate * digInput * dt, bucketCapacity - bucketLoad.volume - rockRoom);
                     var got = DigSite.DigAnywhere(bucketTip.position, digRadius, want);
                     bucketLoad.Add(got);
@@ -240,7 +452,6 @@ namespace FPSBase.Vehicles
                 if (cc != null && cc.Scoop(bucketTip.position, digRadius * 1.4f, bucketCapacity) is Boulder b)
                     GameUI.Toast($"Scooped up a {b.volume:0.0#} m³ boulder");
             }
-            Spread(digging, dt);
 
             DumpStep(dt);
             UpdateBucketVisual();
@@ -292,7 +503,7 @@ namespace FPSBase.Vehicles
             {
                 float open = Mathf.InverseLerp(dumpAngle, bucketRange.y, bucket);
                 var pour = bucketLoad.Take(dumpRate * (0.3f + open) * dt);
-                MaterialTransfer.Pour(DumpPoint(bucket), pour, transform);
+                MaterialTransfer.Pour(DumpPoint(bucket), pour, transform, rockBox != null ? rockBox.ClumpRadius : 0f);
             }
         }
 
@@ -336,22 +547,67 @@ namespace FPSBase.Vehicles
         /// bedrock, or just shoving too fast). The push acts at the bucket tip, so a hard shove lifts the tracks
         /// on that side of the machine — the bigger the machine, the more it can take.
         /// </summary>
+        /// <summary>
+        /// How far the steel is into unbroken ground past what it may be (m), and where: the bucket where it couldn't
+        /// cut, or the boom or stick, which can't cut at all. Loose dirt doesn't count: it just gets shoved.
+        /// </summary>
+        float Penetration(out Vector3 at)
+        {
+            at = bucketTip != null ? bucketTip.position : transform.position;
+            var site = DigSite.At(transform.position);
+            if (site == null || bucketTip == null || !site.Contains(bucketTip.position)) return 0f;
+            float allowed = allowedPenetration >= 0f ? allowedPenetration : 0.03f * sizeScale;
+            float excess = 0f;
+            PenetrationBy = "bucket";
+            if (shellLocal == null) return Mathf.Max(0f, site.SurfaceY(at) - at.y - digRadius * 0.45f);
+            var bm = bucketPivot.localToWorldMatrix;
+            for (int i = 0; i < shellLocal.Length; i += 2)
+            {
+                Vector3 p = bm.MultiplyPoint3x4(shellLocal[i]);
+                float d = site.NativeY(p) - p.y - allowed;
+                if (d > excess) { excess = d; at = p; }
+            }
+            for (int i = 0; armLocal != null && i < armLocal.Length; i++)
+            {
+                Vector3 p = armFrame[i].TransformPoint(armLocal[i]);
+                float d = site.NativeY(p) - p.y - allowed;
+                if (d > excess) { excess = d; at = p; PenetrationBy = armFrame[i].name; }
+            }
+            return excess;
+        }
+
+        float lastPen, lastCutAt = -10f;
+
+        /// <summary>The arm at its new angles, with the rams `held` (and `also`, if set) back where they were.</summary>
+        void SetJoints(int also, float[] was, float[] now, bool[] held)
+        {
+            float J(int j) => held[j] || j == also ? was[j] : now[j];
+            boom = J(0); swing = J(1); stick = J(2); bucket = J(3);
+            ApplyPose();
+        }
+        /// <summary>Which part is furthest into the ground (for the test).</summary>
+        public string PenetrationBy { get; private set; } = "";
+        public int Stalls { get; private set; }
+        public int TeethPoints { get { int k = 0; if (shellTooth != null) foreach (var b in shellTooth) if (b) k++; return k; } }
+
         void DigResistance()
         {
             Overload = 0f;
-            var site = DigSite.At(transform.position);
-            if (site == null || bucketTip == null) return;
-            Vector3 tip = bucketTip.position;
-            if (!site.Contains(tip)) return;
-            float allowed = allowedPenetration >= 0f ? allowedPenetration : digRadius * 0.45f;
-            float excess = site.SurfaceY(tip) - tip.y - allowed;
+            // the backfill blade pushed down into unbroken ground lifts the machine (like on pavement)
+            if (blade != null && bladeEdge != null)
+            {
+                Vector3 r = blade.right * (bladeWidth * 0.5f);
+                Overload = GroundPush.Edge(rb, suspension.gravityScale, bladeEdge.position - r, bladeEdge.position + r, 7, 0.04f, 0.1f * sizeScale, out _);
+            }
+            float excess = Penetration(out Vector3 tip);
+            LastPenetration = excess;
             if (excess <= 0f) return;
             float m = rb.mass, w = m * -Physics.gravity.y * suspension.gravityScale;
-            float k = w / Mathf.Max(0.05f, resistanceTravel * sizeScale);
+            float k = w / Mathf.Max(0.03f, Mathf.Min(resistanceTravel, 0.08f) * sizeScale);
             float vUp = rb.GetPointVelocity(tip).y;
             float f = Mathf.Clamp(k * excess - Mathf.Sqrt(k * m) * vUp, 0f, w * 0.9f);
             rb.AddForceAtPosition(Vector3.up * f, tip, ForceMode.Force);
-            Overload = f / w;
+            Overload = Mathf.Max(Overload, f / w);
         }
 
         void ApplyPose()
@@ -416,7 +672,8 @@ namespace FPSBase.Vehicles
             float v = Vector3.Dot(rb.linearVelocity, transform.forward);
             Vector3 e = bladeEdge.position;
             if (!site.Contains(e)) return LastBladeMoved = 0f;
-            if (v > 0.05f) return LastBladeMoved = site.BladePush(e, transform.forward, bladeWidth, e.y);
+            // it cuts a little below the ground it's on, not deeper (pushed down further, it lifts the machine instead)
+            if (v > 0.05f) return LastBladeMoved = site.BladePush(e, transform.forward, bladeWidth, Mathf.Max(e.y, site.SurfaceY(e + transform.forward * 0.3f * sizeScale) - 0.08f * sizeScale));
             if (v < -0.05f) return LastBladeMoved = site.BladePush(e - transform.forward * 0.15f * sizeScale, -transform.forward, bladeWidth, e.y + 0.02f, 0.45f * sizeScale, out _);
             return LastBladeMoved = 0f;
         }

@@ -176,6 +176,40 @@ namespace FPSBase.Core
                             yield return Shot("pit_above.png");
                             if (pcam != null) pcam.transform.SetPositionAndRotation(camWas, camRot);
                             foreach (var lk in looks) lk.enabled = true;
+                            // in the excavator, digging with the real controls: what the ground looks like from its camera
+                            var exv = FindFirstObjectByType<FPSBase.Vehicles.MiniExcavator>();
+                            if (exv != null)
+                            {
+                                var erb = exv.GetComponent<Rigidbody>();
+                                Vector3 ep = new Vector3(56f, 0f, -98f); ep.y = site.SurfaceY(ep) + 0.4f;
+                                erb.isKinematic = true; exv.transform.SetPositionAndRotation(ep, Quaternion.identity); erb.position = ep; erb.rotation = Quaternion.identity; erb.isKinematic = false;
+                                Physics.SyncTransforms();
+                                for (int i = 0; i < 30; i++) yield return null;
+                                exv.Interact(player);
+                                for (int i = 0; i < 20; i++) yield return null;
+                                System.Collections.IEnumerator Hold(float secs, params GameAction[] acts)
+                                {
+                                    Controls.TestHeld.Clear();
+                                    foreach (var a in acts) Controls.TestHeld[a] = 1f;
+                                    float u4 = Time.unscaledTime + secs; while (Time.unscaledTime < u4) yield return null;
+                                    Controls.TestHeld.Clear();
+                                }
+                                for (int c = 0; c < 4; c++)
+                                {
+                                    yield return Hold(1.6f, GameAction.BoomDown, GameAction.StickOut);
+                                    yield return Hold(2.2f, GameAction.StickIn, GameAction.ExBucketCurl, GameAction.BoomDown);
+                                    yield return Hold(1.8f, GameAction.BoomUp, GameAction.ExBucketCurl);
+                                    yield return Hold(1.2f, GameAction.SwingLeft);
+                                    yield return Hold(1.5f, GameAction.ExBucketDump);
+                                    yield return Hold(1.2f, GameAction.SwingRight);
+                                }
+                                float u5 = Time.unscaledTime + 2f; while (Time.unscaledTime < u5) yield return null;
+                                Vector3 tipAt = exv.bucketTip != null ? exv.bucketTip.position : exv.transform.position;
+                                Debug.Log($"[Excavator] ground at the bucket drawn every {site.DrawStepAt(tipAt)} square(s); {FPSBase.Mining.DigSite.EyeInfo}; dug {site.CutDepth(tipAt):0.00} m there");
+                                yield return Shot("excavator_dig.png");
+                                exv.Exit();
+                                for (int i = 0; i < 10; i++) yield return null;
+                            }
                         }
                     }
                 }

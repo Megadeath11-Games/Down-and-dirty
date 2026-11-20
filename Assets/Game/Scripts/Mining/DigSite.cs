@@ -759,8 +759,8 @@ namespace FPSBase.Mining
                 return;
             }
             // nearest the camera first, and stop when the time's up (at least 4 a frame, so nothing waits forever)
-            var cam = Camera.main;
-            Vector3 eye = cam != null ? cam.transform.position : origin;
+            // (the camera you're looking through: in a machine that's its own camera, not the player's)
+            Vector3 eye = Eye();
             flushWatch.Restart();
             while (built < maxChunks)
             {
@@ -1019,6 +1019,9 @@ namespace FPSBase.Mining
         }
 
         Vector3 V(int x, int z) => new Vector3(x * cell, Surf(x, z) - baseY, z * cell);
+
+        /// <summary>Which camera the ground's detail follows, and where it is (for the test log).</summary>
+        public static string EyeInfo { get { var c = TuftRenderer.ActiveCamera(); return c == null ? "no camera" : $"camera '{c.name}' at {c.transform.position}"; } }
 
         /// <summary>How finely the piece of ground under a point is drawn right now (squares per facet), for the test.</summary>
         public int DrawStepAt(Vector3 p)

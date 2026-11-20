@@ -186,17 +186,34 @@ namespace FPSBase.Mining
                     if (p.y < carveBuf[k]) { carveBuf[k] = p.y; carveWho[k] = i; }
                 }
             }
+            // a square the steel spans but no sampled point landed in (a big bucket's points are further apart than
+            // the squares): it takes the higher of the steel on either side, so no uncut column is left standing
+            for (int pass = 0; pass < 2; pass++)
+                for (int z = 0; z < h; z++)
+                    for (int x = 0; x < w; x++)
+                    {
+                        int k = z * w + x;
+                        if (carveWho[k] >= 0) continue;
+                        int a = -1, b = -1;
+                        if (x > 0 && x < w - 1 && carveWho[k - 1] >= 0 && carveWho[k + 1] >= 0) { a = k - 1; b = k + 1; }
+                        else if (z > 0 && z < h - 1 && carveWho[k - w] >= 0 && carveWho[k + w] >= 0) { a = k - w; b = k + w; }
+                        if (a < 0) continue;
+                        bool hiA = carveBuf[a] >= carveBuf[b];
+                        carveBuf[k] = hiA ? carveBuf[a] : carveBuf[b];
+                        carveWho[k] = hiA ? carveWho[a] : carveWho[b];
+                    }
             Vector3 sAt = Vector3.zero, pAt = Vector3.zero, pDir = Vector3.zero;
             float sW = 0f, pW = 0f, total = 0f;
             for (int z = 0; z < h; z++)
                 for (int x = 0; x < w; x++)
                 {
                     int who = carveWho[z * w + x];
-                    if (who < 0 || limit[who] < 0f) continue; // (steel standing still cuts nothing)
+                    if (who < 0 || (limit[who] < 0f && limit[who] > -1.5f)) continue; // (steel standing still cuts nothing)
                     float bottom = carveBuf[z * w + x];
                     int gx = x0 + x, gz = z0 + z;
                     float s = Surf(gx, gz);
                     if (s <= bottom + 0.002f) continue;
+                    if (limit[who] < -1.5f) { PackCell(gx, gz, 1f); continue; } // (pressed down: packs the dirt, cuts nothing)
                     // unbroken ground: only as much as the machine has the force for (the rest pushes back on it)
                     float nat = Mathf.Min(limit[who], Mathf.Max(0f, nativeBudget) / cellArea);
                     float looseHere = loose[gz, gx] * cellArea;

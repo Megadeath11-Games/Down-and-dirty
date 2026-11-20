@@ -150,7 +150,14 @@ namespace FPSBase.Vehicles
                 float open = Mathf.InverseLerp(dumpAngle, tiltRange.y, tilt);
                 var pour = bucketLoad.Take(dumpRate * (0.3f + open) * dt);
                 var lcc = GetComponent<ClumpContainer>();
-                MaterialTransfer.Pour(pourAt, pour, transform, lcc != null ? lcc.ClumpRadius : 0f);
+                // out along the whole cutting edge (a random spot each frame: spread evenly over time), not just its middle
+                Vector3 side = bucketLoadVisual != null ? bucketLoadVisual.parent.right : transform.right;
+                float halfW = lcc != null ? lcc.Half.x : 0.4f;
+                Vector3 at = pourAt + side * (Random.Range(-1f, 1f) * halfW * 0.85f);
+                // (over a truck or hopper, only the bit of the edge that's over it: a bucket wider than the bed doesn't miss it)
+                var rec = MaterialTransfer.FindReceiverBelow(pourAt, transform, out _);
+                if (rec != null && MaterialTransfer.FindReceiverBelow(at, transform, out _) != rec) at = pourAt;
+                MaterialTransfer.Pour(at, pour, transform, lcc != null ? lcc.ClumpRadius : 0f);
             }
             return pourAt;
         }

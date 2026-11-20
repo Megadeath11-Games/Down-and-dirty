@@ -45,7 +45,11 @@ namespace FPSBase.Mining
             if (l.IsEmpty) return;
             var rocks = l.TakeRocks();
             if (!rocks.IsEmpty) Boulder.SpawnFromLoad(p, rocks);
-            AddLoose(Mathf.RoundToInt((p.x - origin.x) / cell), Mathf.RoundToInt((p.z - origin.z) / cell), l);
+            if (l.IsEmpty) return;
+            // (over the clod's own footprint: a big clod tipped into one 12.5 cm square stood up as a thin spike)
+            float r = Mathf.Pow(l.volume, 1f / 3f) * 0.9f;
+            if (r <= cell * 0.75f) AddLoose(Mathf.RoundToInt((p.x - origin.x) / cell), Mathf.RoundToInt((p.z - origin.z) / cell), l);
+            else Deposit(p, l, r);
         }
 
         /// <summary>Steepest step (m per cell) the loose dirt in this cell can hold: dry sand ~30°, dirt ~34°, clay ~42°.</summary>
@@ -353,16 +357,22 @@ namespace FPSBase.Mining
                 {
                     float rx = origin.x + x * cell - at.x, rz = origin.z + z * cell - at.z;
                     if (rx * rx + rz * rz > radius * radius) continue;
-                    float l = loose[z, x], p = packed[z, x];
-                    if (l < 0.01f || p >= want - 0.005f) continue;
-                    float p2 = p + (want - p) * 0.3f;
-                    float l2 = l / (1f - CompactShrink * p) * (1f - CompactShrink * p2);
-                    float k = l2 / l;
-                    loose[z, x] = l2; packed[z, x] = p2;
-                    looseSand[z, x] *= k; looseGravel[z, x] *= k; looseClay[z, x] *= k;
-                    compactedVolume += (l - l2) * cellArea;
-                    Touch(x, z);
+                    PackCell(x, z, want);
                 }
+        }
+
+        /// <summary>One square of loose dirt packed a step closer to `want` (0..1): it shrinks a little and holds.</summary>
+        void PackCell(int x, int z, float want)
+        {
+            float l = loose[z, x], p = packed[z, x];
+            if (l < 0.01f || p >= want - 0.005f) return;
+            float p2 = p + (want - p) * 0.3f;
+            float l2 = l / (1f - CompactShrink * p) * (1f - CompactShrink * p2);
+            float k = l2 / l;
+            loose[z, x] = l2; packed[z, x] = p2;
+            looseSand[z, x] *= k; looseGravel[z, x] *= k; looseClay[z, x] *= k;
+            compactedVolume += (l - l2) * cellArea;
+            Touch(x, z);
         }
 
         /// <summary>How packed the loose dirt at a point is (0..1).</summary>

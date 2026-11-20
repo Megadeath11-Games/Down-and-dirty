@@ -85,12 +85,25 @@ namespace FPSBase.Core
         /// <summary>Set by a shop: shown at the top right of its window (your money).</summary>
         public string PanelCorner { get; set; }
 
-        public void ClosePanel() { panelDraw = null; panelDrawRect = null; PanelCorner = null; towing = null; towDest = null; }
+        public void ClosePanel() { askInvite = false; panelDraw = null; panelDrawRect = null; PanelCorner = null; towing = null; towDest = null; }
+
+        /// <summary>Just started hosting: open the multiplayer panel asking who to invite (friends in the game at the top).</summary>
+        public void OfferInvites() { OpenMultiplayer(); askInvite = true; }
+        bool askInvite;
 
         void OpenMultiplayer()
         {
             OpenPanel("Multiplayer", () =>
             {
+                if (askInvite)
+                {
+                    GUILayout.BeginHorizontal(GUI.skin.box);
+                    GUILayout.Label("<b><size=16>Your game is up. Invite friends?</size></b>  Pick \"Invite\" next to a friend below (friends with the game open are at the top).",
+                        new GUIStyle(GUI.skin.label) { richText = true, wordWrap = true });
+                    if (GUILayout.Button("Not now", GUILayout.Width(100), GUILayout.Height(30))) { askInvite = false; ClosePanel(); GUIUtility.ExitGUI(); }
+                    GUILayout.EndHorizontal();
+                    GUILayout.Space(6);
+                }
                 var net = FPSBase.Net.NetSession.Instance;
                 if (net != null) net.DrawPanel();
                 else GUILayout.Label("Multiplayer isn't available in this session.");

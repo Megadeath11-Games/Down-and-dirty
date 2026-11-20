@@ -292,9 +292,24 @@ namespace FPSBase.Vehicles
         /// of the bucket only scrapes it; and no more is cut than the machine has the force for (the rest of the
         /// bucket stays against the ground and pushes back: see DigResistance).
         /// </summary>
+        /// <summary>The bucket is being pressed straight down on its bottom: it packs the dirt and lifts the machine instead of cutting.</summary>
+        public bool Pressing { get; private set; }
+
+        /// <summary>Half the bucket's width (m): spilled and shoved dirt spreads across it instead of piling up in a spike.</summary>
+        float BucketHalfWidth()
+        {
+            if (bucketHalfWidth > 0f) return bucketHalfWidth;
+            float lo = float.MaxValue, hi = float.MinValue;
+            foreach (var p in shellLocal) { lo = Mathf.Min(lo, p.x); hi = Mathf.Max(hi, p.x); }
+            bucketHalfWidth = hi > lo ? (hi - lo) * 0.5f * Mathf.Abs(bucketPivot.lossyScale.x) : 0.3f * sizeScale;
+            return bucketHalfWidth;
+        }
+        float bucketHalfWidth, pressUntil = -10f;
+        bool pressIntent;
+
         void Carve(bool room, float digInput, float dt)
         {
-            LastSpread = 0f; LastScooped = 0f; scoopedAt = null;
+            LastSpread = 0f; LastScooped = 0f; scoopedAt = null; Pressing = false;
             if (shellLocal == null || bucketTip == null || bucketPivot == null) return;
             int n = shellLocal.Length;
             var m = bucketPivot.localToWorldMatrix;
@@ -326,10 +341,19 @@ namespace FPSBase.Vehicles
             bool scooping = digInput > 0.05f && tsp > 0.01f && Vector3.Dot(vTip, mouthW) > 0.2f * tsp;
             bool teethIn = !scooping && tsp > 0.01f && Vector3.Dot(vTip, teethW) > 0.5f * tsp;
             float creep = 0.05f * sizeScale * dt;
+            // Pressed straight down on its flat bottom (taking the weight off the tracks to turn): the steel doesn't
+            // cut or shove anything, it packs the dirt under it and the ground pushes the machine up (see Penetration).
+            // (the boom held down with nothing else working is that.) Any steel going mostly straight down packs the
+            // dirt under it rather than shoving it out of the way; teeth first, only the teeth creep in.
+            // (held a moment so a frame where the stalled arm doesn't move, or the machine rocks, doesn't drop it)
+            if (!scooping && pressIntent) pressUntil = Time.time + 0.4f;
+            Pressing = !scooping && Time.time < pressUntil;
             for (int i = 0; i < n; i++)
             {
                 Vector3 v = shellVel[i]; float sp = v.magnitude;
                 if (sp < 0.01f || sp > 30f) { shellLim[i] = -1f; shellScoop[i] = false; continue; }
+                if (teethIn && shellTooth[i]) { shellLim[i] = creep; shellScoop[i] = false; continue; }
+                if (Pressing || (!scooping && v.y < -0.5f * sp)) { shellLim[i] = v.y < 0f ? -2f : -1f; shellScoop[i] = false; continue; }
                 // (a full bucket still cuts when dragged: what it slices off can't get in, so it heaps up in front of
                 // the mouth and gets pushed or pulled along with the bucket, like a little blade)
                 shellScoop[i] = scooping;
@@ -357,8 +381,10 @@ namespace FPSBase.Vehicles
                     dir = dir.sqrMagnitude > 1e-6f ? dir.normalized : transform.forward;
                     float reach = 0f;
                     for (int i = 0; i < n; i++) reach = Mathf.Max(reach, Vector3.Dot(shellW[i] - sAt, dir));
-                    Vector3 off = sAt + dir * (reach + site.Cell * 2f);
-                    site.Deposit(off, sc, site.Cell * 1.2f);
+                    // (spread across the width of the mouth, not dropped in one spot where it stacks up in a spike)
+                    float spread = Mathf.Max(site.Cell * 1.2f, BucketHalfWidth() * 0.8f);
+                    Vector3 off = sAt + dir * (reach + spread * 0.6f);
+                    site.Deposit(off, sc, spread);
                 }
             }
             if (!pu.IsEmpty) { site.Deposit(pAt, pu, site.Cell * 1.2f); LastSpread = pu.volume; }
@@ -411,6 +437,7 @@ namespace FPSBase.Vehicles
             bool digging = digInput > 0f && room;
             // (dragged through the dirt even opened out, the dirt is packed in as it's cut: it only pours out of an
             // open bucket once it stops cutting)
+            pressIntent = boomIn < -0.1f && Mathf.Abs(stickIn) < 0.3f && Mathf.Abs(bucketIn) < 0.3f && Mathf.Abs(swingIn) < 0.3f;
             Carve(bucketLoad.volume + rockRoom < bucketCapacity * HoldFraction, digInput, dt);
             // the hydraulics stall against ground they can't cut: the arm stops there (and the ground pushes the
             // machine up instead), so no steel goes into the earth
@@ -532,7 +559,13 @@ namespace FPSBase.Vehicles
             {
                 float open = Mathf.InverseLerp(dumpAngle, bucketRange.y, bucket);
                 var pour = bucketLoad.Take(dumpRate * (0.3f + open) * dt);
-                MaterialTransfer.Pour(DumpPoint(bucket), pour, transform, rockBox != null ? rockBox.ClumpRadius : 0f);
+                // (across the width of the bucket, a random spot each frame, not all from its middle)
+                Vector3 across = shellLocal != null && bucketPivot != null ? bucketPivot.right * (Random.Range(-1f, 1f) * BucketHalfWidth() * 0.8f) : Vector3.zero;
+                Vector3 from = DumpPoint(bucket), at = from + across;
+                // (over a truck or hopper, only the bit of the bucket that's over it)
+                var rec = MaterialTransfer.FindReceiverBelow(from, transform, out _);
+                if (rec != null && MaterialTransfer.FindReceiverBelow(at, transform, out _) != rec) at = from;
+                MaterialTransfer.Pour(at, pour, transform, rockBox != null ? rockBox.ClumpRadius : 0f);
             }
         }
 
@@ -593,7 +626,8 @@ namespace FPSBase.Vehicles
             for (int i = 0; i < shellLocal.Length; i += 2)
             {
                 Vector3 p = bm.MultiplyPoint3x4(shellLocal[i]);
-                float d = site.NativeY(p) - p.y - allowed;
+                // (pressed down flat, the packed dirt on top holds it up too)
+                float d = (Pressing ? site.SurfaceY(p) : site.NativeY(p)) - p.y - allowed;
                 if (d > excess) { excess = d; at = p; }
             }
             for (int i = 0; armLocal != null && i < armLocal.Length; i++)

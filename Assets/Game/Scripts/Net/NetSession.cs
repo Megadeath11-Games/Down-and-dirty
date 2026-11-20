@@ -282,6 +282,8 @@ namespace FPSBase.Net
             {
                 Status = "Hosting. Invite friends below";
                 GameUI.Toast("Multiplayer game started. Invite a friend (F2)");
+                // loaded in: straight away ask who to invite (not when the host already picked a friend to invite)
+                if (lan == null && pendingInvites.Count == 0 && GameUI.Instance != null) GameUI.Instance.OfferInvites();
                 if (lan == null) foreach (var f in pendingInvites) SteamMatchmaking.InviteUserToLobby(lobby, f);
                 pendingInvites.Clear();
             }
@@ -1267,6 +1269,9 @@ namespace FPSBase.Net
 
         Vector2 friendScroll;
 
+        readonly List<(int rank, string name, CSteamID id)> friendOrder = new();
+        float friendsSortedAt = -10f;
+
         /// <summary>The F2 / pause-menu multiplayer panel.</summary>
         public void DrawPanel()
         {
@@ -1315,12 +1320,25 @@ namespace FPSBase.Net
             GUILayout.Space(8);
             GUILayout.Label("<b>Friends online</b>  (they need the game open; \"Join\" shows when they are hosting)", rich);
             friendScroll = GUILayout.BeginScrollView(friendScroll, GUILayout.Height(Mathf.Min(360f, Screen.height - 380f)));
-            int n = SteamFriends.GetFriendCount(EFriendFlags.k_EFriendFlagImmediate);
-            int shown = 0;
-            for (int i = 0; i < n; i++)
+            // friends with the game open go at the top (hosting first), then everyone else online, by name
+            if (Time.unscaledTime >= friendsSortedAt + 2f || friendOrder.Count == 0)
             {
-                var f = SteamFriends.GetFriendByIndex(i, EFriendFlags.k_EFriendFlagImmediate);
-                if (SteamFriends.GetFriendPersonaState(f) == EPersonaState.k_EPersonaStateOffline) continue;
+                friendsSortedAt = Time.unscaledTime;
+                friendOrder.Clear();
+                int n = SteamFriends.GetFriendCount(EFriendFlags.k_EFriendFlagImmediate);
+                for (int i = 0; i < n; i++)
+                {
+                    var f = SteamFriends.GetFriendByIndex(i, EFriendFlags.k_EFriendFlagImmediate);
+                    if (SteamFriends.GetFriendPersonaState(f) == EPersonaState.k_EPersonaStateOffline) continue;
+                    bool inGame = SteamFriends.GetFriendGamePlayed(f, out FriendGameInfo_t gi) && gi.m_gameID.AppID().m_AppId == AppId;
+                    int rank = !inGame ? 2 : gi.m_steamIDLobby.IsValid() ? 0 : 1;
+                    friendOrder.Add((rank, NameOf(f), f));
+                }
+                friendOrder.Sort((a, b) => a.rank != b.rank ? a.rank.CompareTo(b.rank) : string.Compare(a.name, b.name, System.StringComparison.OrdinalIgnoreCase));
+            }
+            int shown = 0;
+            foreach (var (_, _, f) in friendOrder)
+            {
                 shown++;
                 bool playing = SteamFriends.GetFriendGamePlayed(f, out FriendGameInfo_t g) && g.m_gameID.AppID().m_AppId == AppId;
                 GUILayout.BeginHorizontal(GUI.skin.box);

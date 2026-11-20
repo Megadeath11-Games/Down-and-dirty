@@ -1868,6 +1868,36 @@ namespace FPSBase.DebugTools
                 fl.TestDrive(0f);
                 float lost = (full - fl.bucketLoad.volume) / Mathf.Max(1e-4f, full);
                 Check(full > fl.bucketCapacity * 0.85f && lost < 0.12f, $"{fl.displayName} carries a full bucket ({full:0.00} m³) through a start, a hard reverse and a stop, losing {lost * 100f:0}%");
+                if (k == 1 && ccb != null)
+                {
+                    // dumped from a little way up: it pours out along the whole edge, not in one stream from the middle
+                    for (int i = 0; i < 40; i++) yield return new WaitForFixedUpdate();
+                    frb.isKinematic = true;
+                    fl.SetPose(Mathf.Lerp(fl.armRange.x, fl.armRange.y, 0.35f), fl.tiltRange.x);
+                    fl.bucketLoad = MaterialLoad.Mix(fl.bucketCapacity, 0f, 0f, 0f, 0f);
+                    Physics.SyncTransforms();
+                    for (int i = 0; i < 10; i++) yield return null;
+                    Vector3 lip = fl.bucketTip.position, side = fl.bucketLoadVisual.parent.right; side.y = 0f; side.Normalize();
+                    Vector3 fwd = fl.transform.forward; fwd.y = 0f; fwd.Normalize();
+                    float bw = ccb.Half.x * 2f, c = site.Cell;
+                    var before = new System.Collections.Generic.Dictionary<Vector2Int, float>();
+                    for (int a = -24; a <= 24; a++) for (int b = -4; b <= 20; b++)
+                        { Vector3 p = lip + side * (a * c) + fwd * (b * c); before[new Vector2Int(a, b)] = site.SurfaceY(p); }
+                    fl.SetPose(fl.Arm, fl.tiltRange.y);
+                    for (float t = 0f; t < 5f; t += Time.deltaTime) { fl.SetPose(fl.Arm, fl.tiltRange.y); yield return null; }
+                    float lo = 99f, hi = -99f, landed = 0f;
+                    foreach (var kv in before)
+                    {
+                        Vector3 p = lip + side * (kv.Key.x * c) + fwd * (kv.Key.y * c);
+                        float rise = site.SurfaceY(p) - kv.Value;
+                        if (rise < 0.01f) continue;
+                        landed += rise * c * c;
+                        lo = Mathf.Min(lo, kv.Key.x * c); hi = Mathf.Max(hi, kv.Key.x * c);
+                    }
+                    float width = hi - lo;
+                    log.AppendLine($"INFO  {fl.displayName} dump: {landed:0.00} m³ landed in front, {width:0.00} m wide (bucket {bw:0.00} m), {fl.bucketLoad.volume:0.00} m³ left in the bucket");
+                    Check(width > bw * 1.3f,$"{fl.displayName}: a dumped bucket pours along its whole edge ({width:0.00} m wide from a {bw:0.00} m bucket)");
+                }
                 Destroy(fl.gameObject);
                 yield return null;
             }
@@ -3273,6 +3303,31 @@ namespace FPSBase.DebugTools
             log.AppendLine($"INFO  boom forced down: push-back {over * 100f:0}% of the weight, steel {pen:0.00} m past where it may go, tilt {pitch0:0.0} to {pitch1:0.0} deg");
             Check(over > 0.15f && pen < 0.3f, $"forcing the bucket down into hard ground pushes the machine up ({over * 100f:0}% of its weight, {pen * 100f:0} cm in)");
 
+            // ---- pressed down flat on dug (loose) dirt to take the weight off the tracks: lifts the machine, packs the dirt, shoves next to none
+            at = atWas + Vector3.right * 21f; at.y = site.SurfaceY(at);
+            yield return Place(10f, -70f, -100f);
+            {
+                Vector3 under = e.bucketTip.position; under.y = site.SurfaceY(under);
+                MaterialTransfer.PourInstant(under + Vector3.up * 2f, MaterialLoad.Mix(1.2f, 0f, 0f, 0f, 0f), null);
+                site.SettleNow();
+                float g0 = site.SurfaceY(under), shoved = 0f, overL = 0f, worst = 0f; int pressed = 0, nf = 0;
+                for (float t = 0f; t < 3f; t += Time.deltaTime)
+                {
+                    float t0 = Time.realtimeSinceStartup;
+                    e.TestControl(new MiniExcavator.Inputs { boom = -1f });
+                    yield return null;
+                    worst = Mathf.Max(worst, Time.unscaledDeltaTime);
+                    shoved += e.LastSpread + e.LastScooped; overL = Mathf.Max(overL, e.Overload); nf++;
+                    if (e.Pressing) pressed++;
+                }
+                e.TestControl(new MiniExcavator.Inputs());
+                float sunk = g0 - site.SurfaceY(under);
+                log.AppendLine($"INFO  bucket pressed flat on loose dirt: pressing {pressed} of {nf} frames, {shoved * 1000f:0} L shoved or scooped, push-back {overL * 100f:0}% of the weight, ground there down {sunk:0.00} m, slowest frame {worst * 1000f:0} ms");
+                Check(shoved < 0.3f && overL > 0.15f && sunk < 0.35f,
+                    $"pressing the bucket down flat on loose dirt lifts the machine instead of shoving dirt ({overL * 100f:0}% of its weight, {shoved * 1000f:0} L moved, {sunk * 100f:0} cm down)");
+            }
+            at = atWas;
+
             // ---- the backfill blade pushed down: lifts the front, like on pavement
             if (e.HasBlade)
             {
@@ -3364,6 +3419,26 @@ namespace FPSBase.DebugTools
                     yield return null;
                 }
                 e.TestControl(new MiniExcavator.Inputs());
+                {
+                    // spikes: no point of dirt sticks up over everything round it (8 ways, two squares out) steeper
+                    // than a heap stands (a trench edge or a slope has something as high next to it, a spike doesn't)
+                    float c = site.Cell, spike = 0f; Vector3 sp = e.bucketTip.position, around = Vector3.Lerp(at, e.bucketTip.position, 0.5f);
+                    float half = 4f * e.sizeScale, r2 = 2f * c;
+                    for (float x = -half; x <= half; x += c)
+                        for (float z = -half; z <= half; z += c)
+                        {
+                            Vector3 p = around + new Vector3(x, 0f, z);
+                            float hh = site.SurfaceY(p), nb = float.MinValue;
+                            for (int a = 0; a < 8; a++)
+                            {
+                                float ang = a * Mathf.PI / 4f;
+                                nb = Mathf.Max(nb, site.SurfaceY(p + new Vector3(Mathf.Cos(ang), 0f, Mathf.Sin(ang)) * r2));
+                            }
+                            if (hh - nb > spike) { spike = hh - nb; sp = p; }
+                        }
+                    log.AppendLine($"INFO  dig cycle {e.displayName}: tallest spike of dirt {spike:0.00} m over the squares round it at {sp - at} (loose dirt there {site.SurfaceY(sp) - site.NativeY(sp):0.00} m deep)");
+                    Check(spike < 0.2f,$"{e.displayName}: digging leaves no spikes of dirt ({spike * 100f:0} cm tallest)");
+                }
                 Vector3 mw = cc != null ? e.bucketLoadVisual.parent.rotation * cc.mouth : Vector3.zero;
                 float kept = peak > 0f ? e.bucketLoad.volume / peak : 0f;
                 log.AppendLine($"INFO  dig cycle {e.displayName} clods: up to {DirtGrains.MostLive} at once, fastest up {DirtGrains.MaxUp:0.0} m/s ({DirtGrains.MaxUpWhat}), lifted out of the ground up to {DirtGrains.MaxLift:0.00} m in a step ({DirtGrains.MaxLiftWhat}), {(Time.frameCount - fr0) / Mathf.Max(0.01f, Time.realtimeSinceStartup - tStart):0} fps");

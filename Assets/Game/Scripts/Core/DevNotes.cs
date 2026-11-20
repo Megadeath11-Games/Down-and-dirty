@@ -13,6 +13,12 @@ namespace FPSBase.Core
         /// <summary>Newest first.</summary>
         public static readonly Post[] Blog =
         {
+            new Post { date = "Update 28  ·  Nov 20, 2026", title = "Pressing down, no spikes, wide pours, quick invites",
+                body =
+                "• Pressing the bucket down flat (to take the weight off the tracks and turn) no longer shoves the dirt round and round under it, which lagged the game. It packs the dirt and lifts the machine.\n" +
+                "• No more spikes of dirt in front of the bucket: clods that come to rest spread over their own size instead of standing up in one 12.5 cm square, the big buckets leave no uncut columns, and dirt that won't fit spreads across the mouth.\n" +
+                "• Skid steers, loaders and excavators pour out along the whole edge of the bucket, not just from the middle.\n" +
+                "• Multiplayer: once your hosted game has loaded it asks who you want to invite, and friends with the game open are at the top of the list." },
             new Post { date = "Update 27  ·  Nov 20, 2026", title = "A full bucket keeps pulling",
                 body =
                 "• A full excavator bucket no longer stops dead in the dirt like it hit concrete. Drag it in with the stick or curl and it keeps cutting: what it slices off heaps up in front of the mouth and gets pulled (or pushed) along with the bucket, so you can still drag dirt towards you to clean up or back-fill." },
@@ -261,11 +267,15 @@ namespace FPSBase.Core
                 "• Dozer berms build up properly in front of the blade." },
         };
 
-        public const string TestListVersion = "2026-11-20d";
+        public const string TestListVersion = "2026-11-20e";
 
         /// <summary>What's new in this build to try out.</summary>
         public static readonly string[] TestList =
         {
+            "Excavator: hold the boom down with the bucket flat on dug dirt: the machine lifts so you can turn, no lag, the dirt doesn't get shoved about",
+            "Excavator (try the 90 t): dig a few buckets: no spikes of dirt left standing in front of the bucket",
+            "Skid steer: dump a full bucket: it pours out along the whole edge, not one stream from the middle",
+            "Multiplayer: host a game: when it has loaded, it asks you to invite friends, with friends in the game at the top",
             "Excavator: fill the bucket, keep it in the dirt and pull the stick in: it keeps moving and drags the dirt towards you instead of stopping dead",
             "Block yard (next to the landscape supply): back a trailer into the painted bay, buy some lock blocks: they're loaded onto the trailer",
             "Look at a block on the trailer, F: chain down the whole load, then drive off: they ride with the trailer and don't slide",

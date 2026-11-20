@@ -83,7 +83,7 @@ namespace FPSBase.Mining
         /// How much finer the dirt is than the ground's map: 2 = 25 cm squares on a 0.5 m map, so ditches and holes
         /// can have near-straight walls. The same on every game (the squares are sent to friends by number).
         /// </summary>
-        public static int GroundDetail = ArgInt("-grounddetail", 2);
+        public static int GroundDetail = ArgInt("-grounddetail", 4);
         static int ArgInt(string name, int def)
         {
             var a = System.Environment.GetCommandLineArgs();
@@ -163,7 +163,7 @@ namespace FPSBase.Mining
                 else { detail = 1; data.heightmapResolution = srcRes; data.size = size; data.SetHeights(0, 0, src); }
             }
             chunkCells = ArgInt("-chunkcells", chunkCells * detail); // (the same size pieces in metres: more, smaller ones cost more to draw)
-            slumpBudget *= detail;
+            slumpBudget *= detail * detail; // (as many squares as before per square metre: the same slumping per frame)
 
             res = data.heightmapResolution;
             cell = data.size.x / (res - 1);
@@ -211,11 +211,14 @@ namespace FPSBase.Mining
                     go.layer = gameObject.layer;
                     var mesh = new Mesh { name = go.name };
                     mesh.MarkDynamic();
+                    mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32; // (a close-up piece of fine ground has more than 65k corners)
                     go.AddComponent<MeshFilter>().sharedMesh = mesh;
                     var mr = go.AddComponent<MeshRenderer>();
                     mr.sharedMaterials = mats;
                     mr.shadowCastingMode = ShadowCastingMode.On;
                     chunkMesh[j, i] = mesh;
+                    chunkGo ??= new GameObject[chunksZ, chunksX];
+                    chunkGo[j, i] = go;
                     chunkTufts[j, i] = new List<Matrix4x4>(1023);
                     RebuildChunk(i, j);
                 }
@@ -448,7 +451,7 @@ namespace FPSBase.Mining
             var rocks = load.TakeRocks();
             if (!rocks.IsEmpty) Boulder.SpawnFromLoad(at, rocks);
             if (load.IsEmpty) return;
-            float r = radius > 0f ? Mathf.Max(radius, cell * 0.6f) : Mathf.Clamp(Mathf.Sqrt(load.volume) * 0.9f, cell * 0.6f, 1.6f);
+            float r = radius > 0f ? Mathf.Max(radius, cell * 0.6f) : Mathf.Clamp(Mathf.Sqrt(load.volume) * 0.9f, Mathf.Max(cell * 0.6f, 0.3f), 1.6f); // (at least 30 cm across however fine the squares)
             Range(at, r, out int x0, out int z0, out int x1, out int z1);
             float sum = 0f;
             for (int z = z0; z <= z1; z++) for (int x = x0; x <= x1; x++) sum += Weight(x, z, at, r);
@@ -576,7 +579,7 @@ namespace FPSBase.Mining
             if (moved > 0f)
             {
                 AfterGroundMoved(edge, reach + 0.5f, edge + forward * ahead);
-                Relax(3000 * detail); // the heap slumps now, before this frame's ground is drawn
+                Relax(3000 * detail * detail); // the heap slumps now, before this frame's ground is drawn
             }
             return moved;
         }
@@ -733,6 +736,16 @@ namespace FPSBase.Mining
             int i0 = Mathf.Clamp((x - 1) / chunkCells, 0, chunksX - 1), i1 = Mathf.Clamp(x / chunkCells, 0, chunksX - 1);
             int j0 = Mathf.Clamp((z - 1) / chunkCells, 0, chunksZ - 1), j1 = Mathf.Clamp(z / chunkCells, 0, chunksZ - 1);
             for (int j = j0; j <= j1; j++) for (int i = i0; i <= i1; i++) chunkDirty[j, i] = true;
+            if (quarterDirty == null) return;
+            int hc = chunkCells / 2;
+            for (int dz = -1; dz <= 0; dz++)
+                for (int dx = -1; dx <= 0; dx++)
+                {
+                    int qx = Mathf.Clamp(x + dx, 0, res - 2), qz = Mathf.Clamp(z + dz, 0, res - 2);
+                    int i = Mathf.Min(qx / chunkCells, chunksX - 1), j = Mathf.Min(qz / chunkCells, chunksZ - 1);
+                    int q = ((qx - i * chunkCells) >= hc ? 1 : 0) | ((qz - j * chunkCells) >= hc ? 2 : 0);
+                    quarterDirty[j, i] |= (byte)(1 << q);
+                }
         }
 
         void Update()
@@ -760,7 +773,12 @@ namespace FPSBase.Mining
                 for (int z = 0; z < h; z++)
                     for (int x = 0; x < w; x++)
                         sub[z, x] = Mathf.Clamp01((Surf(dx0 + x, dz0 + z) - baseY) / sizeY);
-                data.SetHeights(dx0, dz0, sub);
+                long c0 = System.Diagnostics.Stopwatch.GetTimestamp();
+                // (without redoing the hidden terrain's own drawing levels, which cost ~12 ms a time on the fine ground
+                // however little changed: the physics collider is still updated straight away)
+                data.SetHeightsDelayLOD(dx0, dz0, sub);
+                ColliderMs += (System.Diagnostics.Stopwatch.GetTimestamp() - c0) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+                ColliderSamples += w * h; ColliderCalls++;
                 dx0 = dz0 = int.MaxValue; dx1 = dz1 = -1;
             }
             int built = 0;
@@ -882,7 +900,10 @@ namespace FPSBase.Mining
             float half = chunkCells * cell * 0.5f;
             float cx = origin.x + ci * chunkCells * cell + half - eye.x, cz = origin.z + cj * chunkCells * cell + half - eye.z;
             float dist = Mathf.Max(0f, Mathf.Sqrt(cx * cx + cz * cz) - half * 1.41f);
-            int st = dist < 45f ? 1 : dist < 120f ? detail : detail * 2;
+            // (12.5 cm squares: every one close up, then every 2nd (25 cm), the map's own 50 cm, then 1 m far off)
+            int st = detail >= 4
+                ? (dist < 10f ? 1 : dist < 35f ? detail / 2 : dist < 90f ? detail : detail * 2)
+                : (dist < 45f ? 1 : dist < 120f ? detail : detail * 2);
             return Mathf.Min(st, chunkCells);
         }
 
@@ -911,6 +932,30 @@ namespace FPSBase.Mining
             finally { RebuildMs += (System.Diagnostics.Stopwatch.GetTimestamp() - t0) * 1000.0 / System.Diagnostics.Stopwatch.Frequency; Rebuilds++; }
         }
 
+        // close up, a piece of fine ground is drawn as four quarters, so digging in one redraws only that quarter
+        GameObject[,] chunkGo;
+        Mesh[,][] quarterMesh;
+        byte[,] quarterDirty;
+        bool UseQuarters => detail >= 4 && chunkCells >= 32;
+
+        Mesh Quarter(int ci, int cj, int q)
+        {
+            quarterMesh ??= new Mesh[chunksZ, chunksX][];
+            var qs = quarterMesh[cj, ci] ??= new Mesh[4];
+            if (qs[q] != null) return qs[q];
+            var go = new GameObject($"Quarter {q}");
+            go.transform.SetParent(chunkGo[cj, ci].transform, false);
+            go.layer = gameObject.layer;
+            var mesh = new Mesh { name = $"{chunkGo[cj, ci].name} q{q}" };
+            mesh.MarkDynamic();
+            mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
+            go.AddComponent<MeshFilter>().sharedMesh = mesh;
+            var mr = go.AddComponent<MeshRenderer>();
+            mr.sharedMaterials = surfaceMaterials;
+            mr.shadowCastingMode = ShadowCastingMode.On;
+            return qs[q] = mesh;
+        }
+
         void RebuildChunkCore(int ci, int cj, Vector3 eye)
         {
             bool changed = chunkDirty[cj, ci] || chunkLod == null || chunkLod[cj, ci] == 0; // (not just drawn finer/coarser)
@@ -918,17 +963,70 @@ namespace FPSBase.Mining
             chunkLod ??= new int[chunksZ, chunksX];
             chunkLodStale ??= new bool[chunksZ, chunksX];
             chunkLodStale[cj, ci] = false;
+            if (UseQuarters) quarterDirty ??= new byte[chunksZ, chunksX];
+            int was = chunkLod[cj, ci];
             int st = WantedStep(ci, cj, eye);
             chunkLod[cj, ci] = st;
-            verts.Clear(); norms.Clear();
-            foreach (var t in tris) t.Clear();
             int xa = ci * chunkCells, xb = Mathf.Min(xa + chunkCells, res - 1);
             int za = cj * chunkCells, zb = Mathf.Min(za + chunkCells, res - 1);
+            float minY, maxY;
+            long tm;
+            if (UseQuarters && st == 1 && Application.isPlaying)
+            {
+                // only the quarters whose ground changed (all four when it just came close)
+                int mask = was == 1 ? quarterDirty[cj, ci] : 0xF;
+                if (mask == 0) mask = 0xF;
+                quarterDirty[cj, ci] = 0;
+                int hx = xa + chunkCells / 2, hz = za + chunkCells / 2;
+                minY = chunkBounds[cj, ci].size.y > 0f && was == 1 ? chunkBounds[cj, ci].min.y - origin.y + 1.5f : float.MaxValue;
+                maxY = chunkBounds[cj, ci].size.y > 0f && was == 1 ? chunkBounds[cj, ci].max.y - origin.y - 1.5f : float.MinValue;
+                tm = System.Diagnostics.Stopwatch.GetTimestamp();
+                for (int q = 0; q < 4; q++)
+                {
+                    if ((mask & (1 << q)) == 0) continue;
+                    int qa = (q & 1) == 0 ? xa : Mathf.Min(hx, xb), qb = (q & 1) == 0 ? Mathf.Min(hx, xb) : xb;
+                    int ra = (q & 2) == 0 ? za : Mathf.Min(hz, zb), rb = (q & 2) == 0 ? Mathf.Min(hz, zb) : zb;
+                    var qm = Quarter(ci, cj, q);
+                    if (qb <= qa || rb <= ra) { qm.Clear(); continue; }
+                    BuildPiece(qm, qa, qb, ra, rb, 1, out float lo, out float hi);
+                    minY = Mathf.Min(minY, lo); maxY = Mathf.Max(maxY, hi);
+                }
+                if (was != 1) chunkMesh[cj, ci].Clear();
+            }
+            else
+            {
+                BuildPiece(chunkMesh[cj, ci], xa, xb, za, zb, st, out minY, out maxY);
+                tm = System.Diagnostics.Stopwatch.GetTimestamp();
+                if (was == 1 && quarterMesh != null && quarterMesh[cj, ci] != null)
+                    foreach (var qm in quarterMesh[cj, ci]) if (qm != null) qm.Clear();
+                if (quarterDirty != null) quarterDirty[cj, ci] = 0;
+            }
+            chunkBounds[cj, ci] = new Bounds(
+                origin + new Vector3((xa + xb) * 0.5f * cell, (minY + maxY) * 0.5f, (za + zb) * 0.5f * cell),
+                new Vector3((xb - xa) * cell + 1f, maxY - minY + 3f, (zb - za) * cell + 1f));
+            long tt = System.Diagnostics.Stopwatch.GetTimestamp();
+            // grass and the clods on loose dirt: at most every 0.15 s while a piece keeps changing (a blade at work)
+            chunkDecorAt ??= new float[chunksZ, chunksX];
+            chunkDecorStale ??= new bool[chunksZ, chunksX];
+            float now = Time.realtimeSinceStartup;
+            if (!changed) { }
+            else if (!Application.isPlaying || now - chunkDecorAt[cj, ci] > 0.15f) RebuildDecor(ci, cj);
+            else chunkDecorStale[cj, ci] = true;
+            long te = System.Diagnostics.Stopwatch.GetTimestamp();
+            double fq = 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+            DecorMs += (te - tt) * fq;
+        }
+
+        /// <summary>Draw the ground from square `xa`..`xb`, `za`..`zb`, every `st` squares, into `mesh`.</summary>
+        void BuildPiece(Mesh mesh, int xa, int xb, int za, int zb, int st, out float minY, out float maxY)
+        {
+            verts.Clear(); norms.Clear();
+            foreach (var t in tris) t.Clear();
             // the points this piece uses, each looked at once (not once for every facet it's a corner of)
             int nxp = (xb - xa + st - 1) / st + 1, nzp = (zb - za + st - 1) / st + 1;
             int np = nxp * nzp;
             if (vBuf.Length < np) { vBuf = new Vector3[np]; catBuf = new int[np]; scoreBuf = new int[np]; }
-            float minY = float.MaxValue, maxY = float.MinValue;
+            minY = float.MaxValue; maxY = float.MinValue;
             int half = st / 2;
             for (int pz = 0; pz < nzp; pz++)
                 for (int px = 0; px < nxp; px++)
@@ -968,8 +1066,7 @@ namespace FPSBase.Mining
                 for (int pz = 0; pz < nzp - 1; pz++) { Skirt((pz + 1) * nxp, pz * nxp); Skirt(pz * nxp + nxp - 1, (pz + 1) * nxp + nxp - 1); }
                 minY -= 0.6f;
             }
-            long tm = System.Diagnostics.Stopwatch.GetTimestamp();
-            var mesh = chunkMesh[cj, ci];
+            long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
             mesh.Clear();
             mesh.SetVertices(verts);
             mesh.SetNormals(norms);
@@ -978,23 +1075,10 @@ namespace FPSBase.Mining
             var lb = new Bounds();
             lb.SetMinMax(new Vector3(xa * cell, minY, za * cell), new Vector3(xb * cell, maxY, zb * cell));
             mesh.bounds = lb;
-            chunkBounds[cj, ci] = new Bounds(
-                origin + new Vector3((xa + xb) * 0.5f * cell, (minY + maxY) * 0.5f, (za + zb) * 0.5f * cell),
-                new Vector3((xb - xa) * cell + 1f, maxY - minY + 3f, (zb - za) * cell + 1f));
-            long tt = System.Diagnostics.Stopwatch.GetTimestamp();
-            // grass and the clods on loose dirt: at most every 0.15 s while a piece keeps changing (a blade at work)
-            chunkDecorAt ??= new float[chunksZ, chunksX];
-            chunkDecorStale ??= new bool[chunksZ, chunksX];
-            float now = Time.realtimeSinceStartup;
-            if (!changed) { }
-            else if (!Application.isPlaying || now - chunkDecorAt[cj, ci] > 0.15f) RebuildDecor(ci, cj);
-            else chunkDecorStale[cj, ci] = true;
-            long te = System.Diagnostics.Stopwatch.GetTimestamp();
-            double fq = 1000.0 / System.Diagnostics.Stopwatch.Frequency;
-            UploadMs += (tt - tm) * fq; DecorMs += (te - tt) * fq;
+            UploadMs += (System.Diagnostics.Stopwatch.GetTimestamp() - t0) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
         }
 
-        public static double UploadMs, DecorMs;
+        public static double UploadMs, DecorMs, ColliderMs; public static long ColliderSamples, ColliderCalls;
         float[,] chunkDecorAt;
         bool[,] chunkDecorStale;
 

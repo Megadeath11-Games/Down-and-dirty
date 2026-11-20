@@ -193,10 +193,11 @@ namespace FPSBase.Mining
                 }
                 else if (enterAt?.Invoke() is Vector3 cutAt)
                 {
-                    // where the dirt was cut, just inside the opening, tumbling on in
-                    Vector3 at = ToLocal(cutAt) + Vector3.Scale(Random.insideUnitSphere, half * 0.25f);
-                    p = Clamp(Clamp(at, baseR) - mouth * (Support * 0.3f), baseR);
-                    v0 = -mouth * Random.Range(0.4f, 0.9f) + Random.insideUnitSphere * 0.25f;
+                    // in front of the opening, where the cutting edge sliced it off: it rides in over the lip
+                    Vector3 at = ToLocal(cutAt) + Vector3.Scale(Random.insideUnitSphere, half * 0.2f);
+                    p = Clamp(at, baseR);
+                    p += mouth * (Support - Vector3.Dot(p, mouth) + baseR * 1.2f); // (out to just past the lip)
+                    v0 = -mouth * Random.Range(0.8f, 1.4f) + Random.insideUnitSphere * 0.2f;
                 }
                 else
                 {
@@ -470,6 +471,7 @@ namespace FPSBase.Mining
                 if (part.IsEmpty) continue;
                 Spilled += part.volume; SpillCount++;
                 Vector3 wp = ToWorld(c.p), wv = containerVel + Rot * c.v;
+                if (wv.sqrMagnitude > 9f) wv = wv.normalized * 3f; // (a jolted machine doesn't fling dirt across the site)
                 DirtGrains.Pour(wp, part, transform, wv, c.r); // as big out of the bucket as it was in it
             }
         }

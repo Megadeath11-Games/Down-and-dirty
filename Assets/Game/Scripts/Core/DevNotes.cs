@@ -13,6 +13,15 @@ namespace FPSBase.Core
         /// <summary>Newest first.</summary>
         public static readonly Post[] Blog =
         {
+            new Post { date = "Update 23  ·  Nov 19, 2026", title = "You have to scoop: and the ground is twice as fine",
+                body =
+                "• Shoving the bucket straight down as hard as it goes no longer digs a hole or fills it, and no dirt sprays everywhere. The teeth only creep in a little and the ground pushes the machine up.\n" +
+                "• To fill the bucket you have to drag it through the dirt with the stick or the curl, cutting edge first. The dirt comes in at the mouth where it's cut, not popping up inside.\n" +
+                "• An opened-out bucket only holds a little (under half): curl it in to fill it. Dirt stays packed in while you're cutting and while the bucket's still down in its hole, and pours out when you lift it out opened.\n" +
+                "• The ground is now in 12.5 cm squares (was 25 cm): ditches, holes and heaps show far more detail.\n" +
+                "• And it's faster than before: the ground near you redraws in quarters so digging only redraws the bit you're in, and a slow step in updating the ground you drive on (about 12 ms every time you dug) is gone. Pushing dirt with a dozer runs about as fast as before on the twice-as-fine ground, standing by is faster.\n" +
+                "• Fixed: dirt the bucket heaped over, or shoved while opened out, was dropped right on top of the bucket.",
+            },
             new Post { date = "Update 22  ·  Nov 19, 2026", title = "The bucket digs exactly where it goes",
                 body =
                 "• The excavator bucket now cuts the ground in its own shape: every part of the bucket, the teeth, the floor, the back and the sides, takes out the dirt it moves through. No more bucket sinking into dirt that's still drawn, and the hole it leaves is the shape of the bucket.\n" +
@@ -223,11 +232,17 @@ namespace FPSBase.Core
                 "• Dozer berms build up properly in front of the blade." },
         };
 
-        public const string TestListVersion = "2026-11-19q";
+        public const string TestListVersion = "2026-11-19r";
 
         /// <summary>What's new in this build to try out.</summary>
         public static readonly string[] TestList =
         {
+            "Excavator: shove the bucket straight down with the boom as hard as it goes: it barely goes in, the machine lifts, no dirt sprays and the bucket stays empty",
+            "Excavator: open the bucket out and drag it in with the stick: it only takes a little dirt; curl it in as you pull and it fills",
+            "Excavator: fill the bucket and lift it out curled: nothing falls out. Lift it out opened: it pours",
+            "Excavator: dig a hole: the dirt it can't hold rolls off ahead of the bucket, not on top of it",
+            "Look at a pit and heap up close: the facets are about half the size they were, and far off the ground fills in as you get close (no gaps or seams)",
+            "Push dirt with a dozer and dig with an excavator: the frame rate feels as smooth as before (or better)",
             "Excavator: dig slowly and watch the bucket: the dirt goes away exactly where the bucket passes, no bucket inside drawn dirt",
             "Excavator: curl and pull in: the clumps come into the bucket at the teeth and tumble in, they don't pop up at the back",
             "Excavator: curl the bucket out and push a pile with its back, or swing it sideways through a pile: the pile gets shoved, the bucket stays empty",

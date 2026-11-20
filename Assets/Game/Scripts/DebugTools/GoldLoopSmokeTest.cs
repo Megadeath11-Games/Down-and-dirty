@@ -381,7 +381,7 @@ namespace FPSBase.DebugTools
         IEnumerator FineGroundTests()
         {
             var site = DigSite.Instance;
-            Check(site.Cell < 0.3f && site.Detail >= 2, $"the ground is in {site.Cell * 100f:0} cm squares ({site.Detail} to each of the map's)");
+            Check(site.Cell < 0.14f && site.Detail >= 4, $"the ground is in {site.Cell * 100f:0} cm squares ({site.Detail} to each of the map's)");
             // a ditch in topsoil, dug with a bucket: 1 m deep, its sides straight down, and they stay up
             Vector3 d0 = new Vector3(40f, 0f, -110f);
             for (int pass = 0; pass < 8; pass++)
@@ -397,6 +397,13 @@ namespace FPSBase.DebugTools
             float inDitch = site.CutDepth(mid), wall = site.CutDepth(mid + Vector3.right * 0.6f);
             Check(inDitch > 0.9f && wall < 0.05f, $"a bucket digs a ditch with straight walls: {inDitch:0.00} m deep in the middle, {wall:0.00} m just 0.6 m to the side, still standing after settling");
             yield return ShotAt(mid + new Vector3(2.2f, 1.6f, -2.2f), mid + Vector3.down * 0.6f, "Screenshots/fine_ditch.png");
+            // what you drive on follows the digging: the physics ground in the ditch is down at the dug bottom
+            {
+                var tc = site.GetComponent<TerrainCollider>();
+                bool hit = tc.Raycast(new Ray(mid + Vector3.up * 20f, Vector3.down), out var rh, 60f);
+                float gap = hit ? rh.point.y - site.SurfaceY(mid) : 99f;
+                Check(hit && Mathf.Abs(gap) < 0.05f, $"the ground you drive on is dug out too ({gap:+0.00;-0.00} m from the drawn bottom of the ditch)");
+            }
 
             // a cell from a save on the old squares: it lands on the same spot, as deep, with its loose dirt kept
             int coarseRes = (site.Res - 1) / site.Detail + 1;
@@ -917,9 +924,9 @@ namespace FPSBase.DebugTools
             for (float x = r.xMin + 0.25f; x < r.xMax; x += 0.5f)
                 for (float z = r.yMin + 0.25f; z < r.yMax; z += 0.5f)
                     for (int k = 0; k < 4; k++) town.Dig(new Vector3(x, town.OriginalY(new Vector3(x, 0f, z)) + 0.01f, z), 0.4f, 5f);
-            for (float x = r.xMin + 0.25f; x < r.xMax; x += 0.5f)
-                for (float z = r.yMin + 0.25f; z < r.yMax; z += 0.5f)
-                    DigSite.DropAt(new Vector3(x, 0f, z), FPSBase.City.GravelBin.Make(0, 0.25f * (j.depth + 0.03f)));
+            for (float x = r.xMin + 0.125f; x < r.xMax; x += 0.25f)
+                for (float z = r.yMin + 0.125f; z < r.yMax; z += 0.25f)
+                    DigSite.DropAt(new Vector3(x, 0f, z), FPSBase.City.GravelBin.Make(0, 0.0625f * (j.depth + 0.03f)));
             town.Flush(9999);
             jobs.Check(j);
             log.AppendLine($"INFO  driveway spread out: {j.status}");
@@ -2869,17 +2876,19 @@ namespace FPSBase.DebugTools
             }
             // ---- a dig cycle with the machine free on its tracks
             yield return Place(10f, -70f, 0f);
-            float deepest = 0f, sumDeep = 0f, peak = 0f; int frames = 0;
-            void Watch() { float d = e.DeepestInDirt(); deepest = Mathf.Max(deepest, d); sumDeep += d; frames++; peak = Mathf.Max(peak, e.bucketLoad.volume); }
+            float deepest = 0f, sumDeep = 0f, peak = 0f; int frames = 0, phase = 0, deepAt = 0, deepPhase = 0; string deepWhy = "";
+            void Watch() { float d = e.DeepestInDirt(); if (d > deepest) { deepest = d; deepAt = frames; deepPhase = phase; deepWhy = $"load {e.bucketLoad.volume:0.000}, scooped {e.LastScooped * 1000f:0.0} L, shoved {e.LastSpread * 1000f:0.0} L, scooping {e.LastScooping}, past the firm ground {e.LastPenetration:0.000} m"; } sumDeep += d; frames++; peak = Mathf.Max(peak, e.bucketLoad.volume); }
             for (float t = 0f; t < 6f && !site.IsUnderground(e.bucketTip.position + Vector3.down * 0.25f * e.sizeScale); t += Time.deltaTime)
             { e.TestControl(new MiniExcavator.Inputs { boom = -1f }); yield return null; Watch(); }
+            phase = 1;
             for (float t = 0f; t < 5f && e.bucketLoad.volume < e.bucketCapacity * 0.98f; t += Time.deltaTime)
             { e.TestControl(new MiniExcavator.Inputs { stick = -1f, bucket = -0.6f, boom = -0.15f }); yield return null; Watch(); }
+            phase = 2;
             for (float t = 0f; t < 3f; t += Time.deltaTime)
             { e.TestControl(new MiniExcavator.Inputs { bucket = -1f, boom = 1f }); yield return null; Watch(); }
             e.TestControl(new MiniExcavator.Inputs());
             float avg = sumDeep / Mathf.Max(1, frames);
-            log.AppendLine($"INFO  bucket dig: peak {peak:0.000} of {e.bucketCapacity:0.00} m3, steel under the dirt: deepest {deepest:0.000} m, average {avg:0.000} m over {frames} frames");
+            log.AppendLine($"INFO  bucket dig: peak {peak:0.000} of {e.bucketCapacity:0.00} m3, steel under the dirt: deepest {deepest:0.000} m (frame {deepAt}, {(deepPhase == 0 ? "lowering" : deepPhase == 1 ? "digging" : "curling up")}: {deepWhy}), average {avg:0.000} m over {frames} frames");
             Check(peak > e.bucketCapacity * 0.6f, $"the bucket scoops a load ({peak / e.bucketCapacity * 100f:0}%)");
             Check(avg < 0.05f && deepest < 0.25f, $"the bucket stays out of the drawn dirt while digging (average {avg * 100f:0.0} cm, worst {deepest * 100f:0} cm)");
             yield return ShotAt(at + new Vector3(3f, 3f, 5f), e.bucketTip.position, "Screenshots/bucket_cut.png");
@@ -2906,6 +2915,23 @@ namespace FPSBase.DebugTools
             log.AppendLine($"INFO  bucket swung through a heap: {spread:0.00} m3 shoved, {took:0.00} m3 into the bucket, heap {peak0 - at.y:0.00} to {peak1 - at.y:0.00} m");
             Check(spread > 0.1f && peak1 < peak0 - 0.05f && took < spread * 0.5f,
                 $"swung sideways the bucket shoves the heap along ({spread:0.00} m3 shoved, {took:0.00} m3 went in the bucket)");
+
+            // ---- shoved straight down as hard as it goes (teeth first, then flat): it doesn't fill, barely digs
+            Vector3 atWas = at;
+            foreach (float bk in new[] { -40f, -100f })
+            {
+                at = atWas + Vector3.right * (bk < -50f ? 14f : 7f); at.y = site.SurfaceY(at); // (fresh ground each time)
+                yield return Place(10f, -70f, bk);
+                Vector3 under = e.bucketTip.position; float g0 = site.SurfaceY(under);
+                float load = 0f;
+                for (float t = 0f; t < 3f; t += Time.deltaTime)
+                { e.TestControl(new MiniExcavator.Inputs { boom = -1f }); yield return null; load = Mathf.Max(load, e.bucketLoad.volume); }
+                e.TestControl(new MiniExcavator.Inputs());
+                float sunk = g0 - site.SurfaceY(under);
+                log.AppendLine($"INFO  bucket at {bk:0} deg shoved straight down: {load * 1000f:0} L got in, ground there down {sunk:0.00} m, machine tilted {Vector3.Angle(e.transform.up, Vector3.up):0.0} deg");
+                Check(load < e.bucketCapacity * 0.1f && sunk < 0.25f, $"shoving the bucket straight down (at {bk:0} deg) doesn't fill it or dig a hole ({load * 1000f:0} L in, {sunk * 100f:0} cm down)");
+            }
+            at = atWas;
 
             // ---- boom forced down with the bucket's back to the ground: the ground lifts the machine
             yield return Place(10f, -60f, 20f);

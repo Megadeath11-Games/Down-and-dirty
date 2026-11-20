@@ -112,7 +112,7 @@ namespace FPSBase.Core
 
         void Update()
         {
-            FPSBase.UI.MenuScene.Want(menuOpen && !loading);
+            FPSBase.UI.MenuScene.Want(menuOpen && !loading && !FPSBase.Net.NetSession.InSession);
             var kb = Keyboard.current;
             if (menuOpen)
             {
@@ -123,7 +123,8 @@ namespace FPSBase.Core
                     if (controlsOpen) controlsOpen = false;
                     else if (screen != MenuScreen.Main) { screen = MenuScreen.Main; menuMessage = null; }
                 }
-                if (menuOpen) Time.timeScale = FPSBase.Net.NetSession.InSession ? 1f : 0f;
+                // (the world waits while the menu is up, unless friends are in it or the real machines are working behind it)
+                if (menuOpen) Time.timeScale = FPSBase.Net.NetSession.InSession || FPSBase.UI.MenuScene.Live ? 1f : 0f;
                 if (menuOpen && AudioListener.pause != (Time.timeScale == 0f)) AudioListener.pause = Time.timeScale == 0f;
                 Cursor.lockState = CursorLockMode.None;
                 Cursor.visible = true;

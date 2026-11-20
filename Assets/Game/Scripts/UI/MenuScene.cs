@@ -11,11 +11,17 @@ namespace FPSBase.UI
     /// taken off), moved by this script on a clear patch of ground near you, filmed by its own slowly drifting
     /// camera. Runs in real time (the world itself waits while the menu is up). Gone when the menu closes.
     /// </summary>
-    public class MenuScene : MonoBehaviour
+    public partial class MenuScene : MonoBehaviour
     {
         static MenuScene inst;
         static bool tried;
         public static bool Showing => inst != null && inst.ready;
+
+        static bool stopped;
+        /// <summary>Off, and kept off until the next fresh world (hosting or joining a game: nothing of it may linger).</summary>
+        public static void Stop() { stopped = true; Want(false); }
+        /// <summary>A fresh world: the menu may show its machines again.</summary>
+        public static void Allow() => stopped = false;
 
         /// <summary>Called every frame by the menu: on while the main menu is up.</summary>
         public static void Want(bool on)
@@ -23,17 +29,24 @@ namespace FPSBase.UI
             if (!on)
             {
                 tried = false;
-                if (inst != null) { inst.Restore(); Destroy(inst.gameObject); inst = null; }
+                if (inst != null) { inst.EndLive(); inst.Restore(); Destroy(inst.gameObject); inst = null; }
                 return;
             }
-            if (inst != null || tried) return;
+            if (inst != null || tried || stopped) return;
             tried = true;
             if (Application.isBatchMode && SystemInfo.graphicsDeviceType == UnityEngine.Rendering.GraphicsDeviceType.Null) return;
             var go = new GameObject("Menu Scene");
             inst = go.AddComponent<MenuScene>();
             bool ok = false;
-            try { ok = inst.Build(); }
-            catch (System.Exception e) { Debug.LogWarning("[MenuScene] " + e.Message); }
+            // the real machines on the real dirt if there's room on the dirt field; else the stand-in models
+            try { ok = inst.BuildLive(); }
+            catch (System.Exception e) { Debug.LogWarning("[MenuScene] live: " + e); inst.EndLive(); }
+            if (!ok)
+            {
+                inst.Restore();
+                try { ok = inst.Build(); }
+                catch (System.Exception e) { Debug.LogWarning("[MenuScene] " + e.Message); }
+            }
             if (!ok) { inst.Restore(); Destroy(go); inst = null; }
         }
 
@@ -218,6 +231,18 @@ namespace FPSBase.UI
             stream = Mound("Pour", root, Vector3.zero, Vector3.one);
             stream.gameObject.SetActive(false);
 
+            MakeCamera(main, new Vector3(truckX * 0.35f, 0f, pileAt.z * 0.5f + 4f));
+            foreach (var t in GetComponentsInChildren<Transform>(true)) t.gameObject.layer = 0;
+            t0 = Time.unscaledTime;
+            ready = true;
+            StartCoroutine(Digger());
+            if (dz != null) StartCoroutine(Dozer());
+            return true;
+        }
+
+        /// <summary>The menu's own camera, drifting slowly round `mid` (in the scene's frame), standing in for the player's.</summary>
+        void MakeCamera(Camera main, Vector3 mid)
+        {
             // the camera: out to the side and in front, a little above, looking across the work
             var cgo = new GameObject("Menu Camera");
             cgo.transform.SetParent(transform, false);
@@ -241,20 +266,12 @@ namespace FPSBase.UI
             vol.sharedProfile = profile;
             // the work in the left half of the picture (the menu is on the right)
             // from the side, low: the dozer and its pile to the left, the excavator, the trucks coming in to the right
-            Vector3 mid = new Vector3(truckX * 0.35f, 0f, pileAt.z * 0.5f + 4f);
             camBase = mid + new Vector3(-28f, 6.5f, -5f);
             Vector3 view = (mid - camBase); view.y = 0f; view.Normalize();
             camLook = mid + Vector3.Cross(Vector3.up, view) * 5.5f + Vector3.up * 2.4f;
             cgo.tag = "MainCamera"; // (stands in for the player's camera while the menu is up)
             hidden = main; main.enabled = false;
             MoveCamera(0f);
-
-            foreach (var t in GetComponentsInChildren<Transform>(true)) t.gameObject.layer = 0;
-            t0 = Time.unscaledTime;
-            ready = true;
-            StartCoroutine(Digger());
-            if (dz != null) StartCoroutine(Dozer());
-            return true;
         }
 
         void Restore()
@@ -582,6 +599,7 @@ namespace FPSBase.UI
         void Update()
         {
             if (!ready) return;
+            if (live) { LiveUpdate(); MoveCamera(Time.unscaledTime - t0); return; }
             float dt = Dt;
             // the trucks: drive up, wait in line, load, drive off; round again empty
             for (int i = 0; i < trucks.Count; i++)

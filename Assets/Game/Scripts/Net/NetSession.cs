@@ -217,6 +217,7 @@ namespace FPSBase.Net
         /// <summary>Join the local test game (the host on this PC).</summary>
         public void JoinLan()
         {
+            FPSBase.UI.MenuScene.Stop(); // (the machines behind the menu packed up and their ground put back before any is sent)
             if (!LanMode || InSession || lan != null) return;
             if (GameUI.Instance != null && !GameUI.Instance.InMainMenu) { lanJoinAfterReload = true; GameUI.Instance.ReturnToMainMenu("Joining…"); return; }
             LanStart(false);
@@ -227,6 +228,7 @@ namespace FPSBase.Net
 
         public void Host()
         {
+            FPSBase.UI.MenuScene.Stop(); // (the machines behind the menu packed up and their ground put back before any is sent)
             if (LanMode) { if (!InSession && lan == null) LanStart(true); return; }
             if (!SteamOk || InSession || creating) return;
             creating = true;
@@ -247,6 +249,7 @@ namespace FPSBase.Net
 
         public void Join(CSteamID id)
         {
+            FPSBase.UI.MenuScene.Stop(); // (the machines behind the menu packed up and their ground put back before any is sent)
             if (!SteamOk || !id.IsValid()) return;
             if (InSession && id == lobby) return;
             // in a world (yours, or another friend's): close it first, so you get the host's world as it is

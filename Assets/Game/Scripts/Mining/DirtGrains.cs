@@ -293,6 +293,8 @@ namespace FPSBase.Mining
         readonly Collider[] overlaps = new Collider[12];
 
         public static int Live => inst == null ? 0 : inst.count;
+        /// <summary>Every clod gone at once, without landing anywhere (the menu's machines packing up).</summary>
+        public static void ClearAll() { if (inst != null) inst.count = 0; }
         /// <summary>Clods from a friend's blade, shown on this screen (their game has the real ones).</summary>
         public static int LivePushedVisual { get { if (inst == null) return 0; int n = 0; for (int i = 0; i < inst.count; i++) if (inst.g[i].visual && inst.g[i].pushed) n++; return n; } }
         /// <summary>Real clods a blade is pushing on this game.</summary>

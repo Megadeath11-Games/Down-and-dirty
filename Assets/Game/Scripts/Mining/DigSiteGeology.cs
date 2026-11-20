@@ -336,6 +336,7 @@ namespace FPSBase.Mining
         /// <summary>Boulders whose top half has been dug clear come out as real rocks.</summary>
         void CheckBoulders(Vector3 c, float r)
         {
+            if (InScratch(c)) return; // (the menu's machines leave the rocks buried for the game)
             for (float gx = c.x - r; gx <= c.x + r + GridSize; gx += GridSize)
                 for (float gz = c.z - r; gz <= c.z + r + GridSize; gz += GridSize)
                 {
@@ -387,6 +388,7 @@ namespace FPSBase.Mining
         /// <summary>Takes finds near a point that the dirt over them has been dug away from.</summary>
         public void TakeExposed(Vector3 c, float radius, List<BuriedFind> into)
         {
+            if (InScratch(c)) return; // (and the gold)
             FindsNear(c, radius, tmpFinds);
             foreach (var f in tmpFinds)
             {

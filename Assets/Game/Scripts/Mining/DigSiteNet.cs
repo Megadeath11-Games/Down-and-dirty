@@ -21,6 +21,7 @@ namespace FPSBase.Mining
         {
             if (applyingNet || orig == null) return;
             int i = z * res + x;
+            scratchTouched?.Add(i); // (changed by this game's own machines during a scratch)
             everChanged.Add(i);
             netChanged.Add(i);
         }

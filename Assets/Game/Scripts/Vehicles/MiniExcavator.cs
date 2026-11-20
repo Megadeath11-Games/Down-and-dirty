@@ -743,6 +743,11 @@ namespace FPSBase.Vehicles
         /// <summary>Dirt the blade moved last frame (m^3).</summary>
         public float LastBladeMoved { get; private set; }
         public float BladeAngle => bladeAngle;
+        /// <summary>The arm's angles now (deg): for something driving the controls by itself (the menu's machines).</summary>
+        public float BoomAngle => boom;
+        public float StickAngle => stick;
+        public float BucketAngle => bucket;
+        public float SwingAngle => swing;
 
         string TipGround
         {

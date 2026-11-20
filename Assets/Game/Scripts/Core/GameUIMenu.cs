@@ -46,6 +46,7 @@ namespace FPSBase.Core
 
         void MenuAwake()
         {
+            FPSBase.UI.MenuScene.Allow();
             menuOpen = !Application.isBatchMode || FPSBase.Net.NetSession.LanMode; // the automated tests start straight in the world
             screen = MenuScreen.Main;
             if (pendingMenuMessage != null) { menuMessage = pendingMenuMessage; pendingMenuMessage = null; screen = MenuScreen.Multi; }
@@ -113,7 +114,7 @@ namespace FPSBase.Core
             for (int i = 0; i < 90; i++) yield return null;
             // the machines at work behind the menu, without the menu, a few seconds apart
             menuBare = true;
-            for (int k = 0; k < 4; k++) { yield return Shot($"menu_scene{k}.png"); float until = Time.unscaledTime + 3.5f; while (Time.unscaledTime < until) yield return null; }
+            for (int k = 0; k < 6; k++) { yield return Shot($"menu_scene{k}.png"); float until = Time.unscaledTime + 7f; while (Time.unscaledTime < until) yield return null; }
             menuBare = false;
             yield return Shot("menu_main.png");
             Debug.Log($"[Music] now playing: {MusicPlayer.NowPlaying ?? "(nothing)"}");
@@ -365,6 +366,7 @@ namespace FPSBase.Core
 
         void CloseMenu()
         {
+            FPSBase.UI.MenuScene.Want(false); // (straight away: the game starts on untouched ground)
             menuOpen = false;
             menuMessage = null;
             paused = false;
@@ -601,6 +603,7 @@ namespace FPSBase.Core
         void LoadWorld(SaveGame.Info info, bool host)
         {
             loading = true; hostAfterLoad = host; menuMessage = null;
+            FPSBase.UI.MenuScene.Want(false); // (the machines behind the menu packed up and their ground put back first)
             StartCoroutine(SaveGame.Load(info.path, err =>
             {
                 loading = false;

@@ -13,6 +13,10 @@ namespace FPSBase.Core
         /// <summary>Newest first.</summary>
         public static readonly Post[] Blog =
         {
+            new Post { date = "Update 29  ·  Nov 20, 2026", title = "A real dig site behind the main menu",
+                body =
+                "• The main menu now shows the real game: a 20 t excavator digging a trench and loading a haul truck, the truck tipping its load, and a dozer pushing a berm, all with the same dirt as when you play (the bucket cuts and scoops, clods fall and roll, piles slump).\n" +
+                "• When you start or load a game, the machines pack up and every bit of ground they touched goes back as it was. Nothing they dig carries into your world, and no gold or rocks get uncovered." },
             new Post { date = "Update 28  ·  Nov 20, 2026", title = "Pressing down, no spikes, wide pours, quick invites",
                 body =
                 "• Pressing the bucket down flat (to take the weight off the tracks and turn) no longer shoves the dirt round and round under it, which lagged the game. It packs the dirt and lifts the machine.\n" +
@@ -267,11 +271,13 @@ namespace FPSBase.Core
                 "• Dozer berms build up properly in front of the blade." },
         };
 
-        public const string TestListVersion = "2026-11-20e";
+        public const string TestListVersion = "2026-11-20f";
 
         /// <summary>What's new in this build to try out.</summary>
         public static readonly string[] TestList =
         {
+            "Main menu: watch the machines behind it for a minute: the excavator digs and loads the truck, the truck tips, the dozer pushes dirt",
+            "Main menu: start a new game and walk over to where the menu machines were working: the ground is untouched",
             "Excavator: hold the boom down with the bucket flat on dug dirt: the machine lifts so you can turn, no lag, the dirt doesn't get shoved about",
             "Excavator (try the 90 t): dig a few buckets: no spikes of dirt left standing in front of the bucket",
             "Skid steer: dump a full bucket: it pours out along the whole edge, not one stream from the middle",

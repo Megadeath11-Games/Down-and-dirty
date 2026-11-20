@@ -854,7 +854,7 @@ namespace FPSBase.Mining
                 return (((x / detail) * 7 + (z / detail) * 13) & 3) == 0 ? LooseB : LooseA;
             }
             float cut = orig[z, x] - native[z, x];
-            if (cut > 0.08f)
+            if (cut > 0.03f) // (a few cm shaved off, by a grader: the grass is gone, it's dirt)
             {
                 score = 2;
                 if (native[z, x] <= Floor(x, z) + 0.05f && InClaim(origin.x + x * cell, origin.z + z * cell)) return Bedrock;
@@ -1037,7 +1037,8 @@ namespace FPSBase.Mining
                     catBuf[k] = Category(x, z, out scoreBuf[k]);
                     // dug and dumped dirt is lumpy, not glassy-smooth: a few cm up or down at each point (only how it's
                     // drawn: what you drive on and dig is unchanged), so every small facet catches the light its own way
-                    if (scoreBuf[k] > 0) v.y += Rough(x, z) * (scoreBuf[k] == 3 ? 0.05f : scoreBuf[k] == 2 ? 0.035f : 0.015f);
+                    // (ground that is actually smooth, a graded road or a trimmed floor, keeps its finish)
+                    if (scoreBuf[k] > 0) v.y += Rough(x, z) * (scoreBuf[k] == 3 ? 0.05f : scoreBuf[k] == 2 ? 0.035f : 0.015f) * Lumpy(x, z);
                     vBuf[k] = v;
                     if (v.y < minY) minY = v.y;
                     if (v.y > maxY) maxY = v.y;
@@ -1056,7 +1057,12 @@ namespace FPSBase.Mining
                 for (int px = 0; px < nxp - 1; px++)
                 {
                     int ka = pz * nxp + px, kb = ka + 1, kc = ka + nxp, kd = kc + 1;
-                    if (((px + pz + (xa + za) / st) & 1) == 0) { TriK(ka, kc, kd); TriK(ka, kd, kb); }
+                    // split each square along the diagonal whose corners are closest in height: a wall or the edge of a
+                    // cut then runs along the facets instead of zig-zagging across them (no saw teeth)
+                    float dAD = Mathf.Abs(vBuf[ka].y - vBuf[kd].y), dBC = Mathf.Abs(vBuf[kb].y - vBuf[kc].y);
+                    bool alongAD = Mathf.Abs(dAD - dBC) > 0.02f ? dAD < dBC : ((px + pz + (xa + za) / st) & 1) == 0;
+                    if (WallQuad(ka, kb, kc, kd)) continue;
+                    if (alongAD) { TriK(ka, kc, kd); TriK(ka, kd, kb); }
                     else { TriK(ka, kc, kb); TriK(kb, kc, kd); }
                 }
             // a coarse piece gets a short skirt round its edge, so no gap shows against a finer neighbour
@@ -1064,7 +1070,7 @@ namespace FPSBase.Mining
             {
                 for (int px = 0; px < nxp - 1; px++) { Skirt(px, px + 1); Skirt((nzp - 1) * nxp + px + 1, (nzp - 1) * nxp + px); }
                 for (int pz = 0; pz < nzp - 1; pz++) { Skirt((pz + 1) * nxp, pz * nxp); Skirt(pz * nxp + nxp - 1, (pz + 1) * nxp + nxp - 1); }
-                minY -= 0.6f;
+                minY -= 2f;
             }
             long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
             mesh.Clear();
@@ -1110,10 +1116,61 @@ namespace FPSBase.Mining
             Tri(vBuf[a], vBuf[b], vBuf[c], cat);
         }
 
+        /// <summary>
+        /// A ground square that's a tall wall (the side of a cut, 45 cm or more top to bottom): drawn as flat bands
+        /// about 35 cm high instead of two long slivers, and, dug into the ground, each band coloured by the layer at
+        /// its own depth, so a pit wall shows the topsoil, clay and sand in bands instead of streaks.
+        /// Corners: a (x,z), b (x+1,z), c (x,z+1), d (x+1,z+1). False if it's not a wall (drawn the usual way).
+        /// </summary>
+        bool WallQuad(int ka, int kb, int kc, int kd)
+        {
+            Vector3 A = vBuf[ka], B = vBuf[kb], C = vBuf[kc], D = vBuf[kd];
+            float lo = Mathf.Min(Mathf.Min(A.y, B.y), Mathf.Min(C.y, D.y)), hi = Mathf.Max(Mathf.Max(A.y, B.y), Mathf.Max(C.y, D.y));
+            int best = Mathf.Max(Mathf.Max(scoreBuf[ka], scoreBuf[kb]), Mathf.Max(scoreBuf[kc], scoreBuf[kd]));
+            if (hi - lo < 0.45f || best == 0) return false;
+            int k = scoreBuf[ka] == best ? ka : scoreBuf[kb] == best ? kb : scoreBuf[kc] == best ? kc : kd;
+            int cat = catBuf[k];
+            int n = Mathf.Clamp(Mathf.CeilToInt((hi - lo) / 0.35f), 2, 16);
+            // the wall falls across x (a-b, c-d differ) or across z (a-c, b-d differ): the bands run the other way
+            bool acrossZ = Mathf.Abs(A.y - C.y) + Mathf.Abs(B.y - D.y) >= Mathf.Abs(A.y - B.y) + Mathf.Abs(C.y - D.y);
+            for (int i = 0; i < n; i++)
+            {
+                float t0 = i / (float)n, t1 = (i + 1) / (float)n;
+                Vector3 p0, q0, p1, q1; // p = the a side, q = the other: the band from t0 to t1
+                if (acrossZ) { p0 = Vector3.Lerp(A, C, t0); p1 = Vector3.Lerp(A, C, t1); q0 = Vector3.Lerp(B, D, t0); q1 = Vector3.Lerp(B, D, t1); }
+                else { p0 = Vector3.Lerp(A, B, t0); p1 = Vector3.Lerp(A, B, t1); q0 = Vector3.Lerp(C, D, t0); q1 = Vector3.Lerp(C, D, t1); }
+                int bc = best >= 2 ? WallCat((p0 + p1 + q0 + q1) * 0.25f, cat) : cat;
+                // (same winding as the plain square: a-c-d and a-d-b)
+                if (acrossZ) { Tri(p0, p1, q1, bc); Tri(p0, q1, q0, bc); }
+                else { Tri(p0, q0, q1, bc); Tri(p0, q1, p1, bc); }
+            }
+            return true;
+        }
+
+        /// <summary>The colour of the ground dug into at a point of a wall (local to the field): the layer at its depth.</summary>
+        int WallCat(Vector3 local, int fallback)
+        {
+            int x = Mathf.Clamp(Mathf.RoundToInt(local.x / cell), 0, res - 1), z = Mathf.Clamp(Mathf.RoundToInt(local.z / cell), 0, res - 1);
+            float y = local.y + baseY, cut = orig[z, x] - y;
+            if (cut < 0.03f) return fallback;
+            if (y <= Floor(x, z) + 0.05f && InClaim(origin.x + x * cell, origin.z + z * cell)) return Bedrock;
+            if (cut < overburdenDepth) return Topsoil;
+            switch (LayerAt(origin.x + x * cell, origin.z + z * cell, cut - 0.05f).kind)
+            {
+                case SoilKind.Clay: return ClayCat;
+                case SoilKind.Sand: return SandCat;
+                case SoilKind.PayGravel: return Paydirt;
+                case SoilKind.Gravel: return GravelCat;
+                default: return Topsoil;
+            }
+        }
+
         void Skirt(int a, int b)
         {
-            Vector3 pa = vBuf[a], pb = vBuf[b], da = pa + Vector3.down * 0.6f, db = pb + Vector3.down * 0.6f;
+            // (deep enough to cover the seam at a tall cut wall, and drawn as dirt: it's the side of the ground)
+            Vector3 pa = vBuf[a], pb = vBuf[b], da = pa + Vector3.down * 2f, db = pb + Vector3.down * 2f;
             int cat = scoreBuf[a] >= scoreBuf[b] ? catBuf[a] : catBuf[b];
+            if (Mathf.Max(scoreBuf[a], scoreBuf[b]) == 0) cat = Topsoil;
             Tri(pa, db, da, cat); Tri(pa, pb, db, cat);
         }
 
@@ -1132,6 +1189,15 @@ namespace FPSBase.Mining
         }
 
         /// <summary>A steady -1..1 for each point (the same every time and on every game).</summary>
+        /// <summary>0 where the ground is smooth (a graded road), 1 where it is broken up: how lumpy to draw it.</summary>
+        float Lumpy(int x, int z)
+        {
+            if (x < 1 || z < 1 || x >= res - 1 || z >= res - 1) return 1f;
+            float c = Surf(x, z) * 2f;
+            float d = Mathf.Abs(Surf(x - 1, z) + Surf(x + 1, z) - c) + Mathf.Abs(Surf(x, z - 1) + Surf(x, z + 1) - c);
+            return Mathf.Clamp01((d - 0.01f) / 0.04f);
+        }
+
         static float Rough(int x, int z)
         {
             uint h = (uint)(x * 73856093) ^ (uint)(z * 19349663) ^ 0x2545F491u;
@@ -1173,7 +1239,7 @@ namespace FPSBase.Mining
                 }
         }
 
-        bool IsGrass(int x, int z) => !trampled[z, x] && !hard[z, x] && loose[z, x] <= 0.005f && orig[z, x] - native[z, x] <= 0.08f;
+        bool IsGrass(int x, int z) => !trampled[z, x] && !hard[z, x] && loose[z, x] <= 0.005f && orig[z, x] - native[z, x] <= 0.03f;
 
         void DrawGrass()
         {

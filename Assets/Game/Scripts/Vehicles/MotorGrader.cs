@@ -41,6 +41,7 @@ namespace FPSBase.Vehicles
         float steerDeg, artic, lean, lift = 4f, roll, circleDeg = 30f, shiftM, pitchDeg = 5f, ripper;
         float[] spins;
         float cutRate, fxTimer, ripRate;
+        float smoothMid, smoothTilt; bool hasSmooth;
         Quaternion dRest, cRest, pRest, rRest;
         Vector3 sRest;
         Quaternion[] steerRest, leanRest, spinRest;
@@ -201,6 +202,17 @@ namespace FPSBase.Vehicles
             if (site == null || bladeEndL == null || bladeEndR == null) return;
             Vector3 a = bladeEndL.position, b = bladeEndR.position;
             float moved = 0f;
+            // the moldboard hangs between the front wheels and the rear tandems, so a bump under one set of wheels
+            // barely moves it: it cuts to the machine's height averaged over the last few metres, not every bob
+            if (v > 0.05f)
+            {
+                float midY = (a.y + b.y) * 0.5f, tiltY = a.y - b.y;
+                if (!hasSmooth) { smoothMid = midY; smoothTilt = tiltY; hasSmooth = true; }
+                float k = 1f - Mathf.Exp(-v * dt / 3f);
+                smoothMid = Mathf.Lerp(smoothMid, midY, k); smoothTilt = Mathf.Lerp(smoothTilt, tiltY, k);
+                a.y = smoothMid + smoothTilt * 0.5f; b.y = smoothMid - smoothTilt * 0.5f;
+            }
+            else hasSmooth = false;
             if (v > 0.05f)
             {
                 // the moldboard faces its own forward; dirt cut along it rolls toward the trailing end
@@ -218,6 +230,8 @@ namespace FPSBase.Vehicles
                     moved += site.BladePush(c, n, len / segs + 0.05f, c.y, 0.45f, out _);
                 }
                 site.BladeWidthHintSet(0f);
+                // the moldboard spreads what it carries into the low spots behind it: an even road
+                moved += site.GradeBehind(a, b, n, Mathf.Max(0.02f, v * len * 0.15f * dt));
             }
             cutRate = Mathf.Lerp(cutRate, moved / Mathf.Max(dt, 1e-4f), 1f - Mathf.Exp(-dt * 6f));
             if (moved > 0f && (fxTimer -= dt) <= 0f) { PourFx.Dig(Vector3.Lerp(a, b, 0.5f) + Vector3.up * 0.3f); fxTimer = 0.25f; }

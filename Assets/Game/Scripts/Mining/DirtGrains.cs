@@ -33,6 +33,7 @@ namespace FPSBase.Mining
             public bool pushed;   // cut by a blade: part of the heap rolling in front of it
             public float shoved;  // seconds since a blade last shoved it
             public bool onClod;   // sitting on other clods (last step)
+            public Vector3 born;  // where it started (for the tests)
         }
 
         // ------------------------------------------------------------------ blades pushing clods
@@ -373,9 +374,10 @@ namespace FPSBase.Mining
             var me = Instance;
             if (me.count >= MaxGrains - 200 || me.spraysThisFrame > 90) return;
             me.spraysThisFrame++;
+            at = OnTop(at, size);
             me.g[me.count++] = new Grain
             {
-                p = at, v = velocity, rot = Random.rotation, spinAxis = Random.onUnitSphere, spin = Random.Range(200f, 700f),
+                p = at, born = at, v = velocity, rot = Random.rotation, spinAxis = Random.onUnitSphere, spin = Random.Range(200f, 700f),
                 r = size, mu = 0.8f, bounce = 0.15f, settleTime = 0.05f, visual = true, cat = (byte)cat,
             };
         }
@@ -394,6 +396,7 @@ namespace FPSBase.Mining
             }
             var each = load.Scaled(1f / n);
             float r = RadiusOf(each.volume);
+            from = OnTop(from, r);
             for (int i = 0; i < n; i++)
             {
                 Vector2 d = Random.insideUnitCircle * spread;
@@ -518,6 +521,15 @@ namespace FPSBase.Mining
                         if (q.p.y - sink < s)
                         {
                             Vector3 n = site.SurfaceNormal(q.p);
+                            float lift = s + sink - q.p.y;
+                            if (lift > MaxLift && !q.visual) { MaxLift = lift; MaxLiftWhat = Describe(q); } // (show dirt that far under is just removed)
+                            // (a bit of show dirt that ended up buried, under a heap dumped on it: it's gone, it doesn't
+                            // shoot up out of the ground; a real one comes up without any speed)
+                            if (lift > Mathf.Max(0.3f, q.r * 3f))
+                            {
+                                if (q.visual) { g[i] = g[--count]; i--; continue; }
+                                q.v = Vector3.zero;
+                            }
                             q.p.y = s + sink;
                             float vn = Vector3.Dot(q.v, n);
                             if (vn < 0f)
@@ -562,10 +574,50 @@ namespace FPSBase.Mining
             if (pushers.Count > 0 || recent.Count > 0) ApplyPushers(dt);
             long t2 = System.Diagnostics.Stopwatch.GetTimestamp();
             CollideClods();
+            for (int i = 0; i < count; i++)
+                if (g[i].v.y > MaxUp) { MaxUp = g[i].v.y; MaxUpWhat = Describe(g[i]); }
+            if (count > MostLive) MostLive = count;
             long t3 = System.Diagnostics.Stopwatch.GetTimestamp();
             double f = 1000.0 / System.Diagnostics.Stopwatch.Frequency;
             PushersMs += (t2 - t1) * f; CollideMs += (t3 - t2) * f;
         }
+
+        /// <summary>A point under the dirt field's surface moved up onto it (dirt doesn't start inside the ground).</summary>
+        static Vector3 OnTop(Vector3 p, float r)
+        {
+            var site = DigSite.At(p);
+            if (site == null || !site.Contains(p)) return p;
+            float s = site.SurfaceY(p) + r;
+            if (p.y < s) p.y = s;
+            return p;
+        }
+
+        /// <summary>
+        /// Up to `volume` m^3 of the real clods a blade is pushing within `radius` of `center` (across the ground),
+        /// taken out of the air: a grader's moldboard spreads them into the low spots it passes over.
+        /// </summary>
+        public static MaterialLoad TakePushed(Vector3 center, float radius, float volume)
+        {
+            var got = new MaterialLoad();
+            if (inst == null || volume <= 0f) return got;
+            var me = inst;
+            float r2 = radius * radius;
+            for (int i = me.count - 1; i >= 0 && got.volume < volume; i--)
+            {
+                ref Grain q = ref me.g[i];
+                if (q.visual || !q.pushed) continue;
+                float dx = q.p.x - center.x, dz = q.p.z - center.z;
+                if (dx * dx + dz * dz > r2) continue;
+                got.Add(q.load);
+                me.g[i] = me.g[--me.count];
+            }
+            return got;
+        }
+
+        /// <summary>For the tests: the fastest a clod went up, the furthest one was lifted out of the ground in a step, most at once.</summary>
+        public static float MaxUp, MaxLift; public static string MaxUpWhat = "", MaxLiftWhat = ""; public static int MostLive;
+        public static void ResetStats() { MaxUp = MaxLift = 0f; MaxUpWhat = MaxLiftWhat = ""; MostLive = 0; }
+        static string Describe(in Grain q) => $"{(q.visual ? "show " : "")}{(q.pushed ? "pushed " : "")}{(q.clod ? "clod " : "grain ")}r {q.r:0.00} age {q.age:0.00} at {q.p}, started at {q.born}, going {q.v}";
 
         /// <summary>Coulomb-style friction: gravity along a slope steeper than atan(mu) keeps it sliding, gentler slopes stop it.</summary>
         static void Friction(ref Grain q, Vector3 n, float dt)

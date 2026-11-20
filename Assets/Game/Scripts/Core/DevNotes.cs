@@ -13,6 +13,14 @@ namespace FPSBase.Core
         /// <summary>Newest first.</summary>
         public static readonly Post[] Blog =
         {
+            new Post { date = "Update 25  ·  Nov 20, 2026", title = "Smooth graded roads and clean cut walls",
+                body =
+                "• The grader cuts real roads: the moldboard spreads the dirt it carries into the low spots behind it and cuts to the machine's height averaged over the last few metres (it hangs between the front wheels and the tandems), so one pass over lumps and holes leaves an even road with a windrow at the side. A shallow skim shows as dirt, not grass, and the fill is packed so your tyres don't rut it.\n" +
+                "• Smooth ground is drawn smooth: a graded road or a trimmed floor no longer gets the lumpy look of freshly dug dirt.\n" +
+                "• Cut walls look right: the walls of ditches, pits and dozer cuts are drawn as clean faces instead of saw teeth and long stretched streaks, and a deep pit wall shows its layers (topsoil, clay, sand) in bands. No more grass showing through at the corners.\n" +
+                "• Sitting in a machine on a slope, you lean with it instead of staying bolt upright (your friends too).\n" +
+                "• Fixed: bits of dirt shooting straight up out of the ground around a digging excavator (they were starting out under the dirt and popping up to the top).",
+            },
             new Post { date = "Update 24  ·  Nov 20, 2026", title = "Dozers bite in, and a friend's pushing doesn't lag you",
                 body =
                 "• Dozers cut properly: lower the blade and drive in and it takes the topsoil as deep as the blade is set, all the way along. Before, the heap building up in front of the blade held the cut up and the ground lifted the machine instead.\n" +
@@ -238,11 +246,16 @@ namespace FPSBase.Core
                 "• Dozer berms build up properly in front of the blade." },
         };
 
-        public const string TestListVersion = "2026-11-20a";
+        public const string TestListVersion = "2026-11-20b";
 
         /// <summary>What's new in this build to try out.</summary>
         public static readonly string[] TestList =
         {
+            "Grader: drop the blade to just touch and drive over rough ground: one pass leaves a smooth, even dirt road with a windrow at the side",
+            "Drive a truck over a graded road: it stays smooth, no deep ruts",
+            "Dig a deep pit and doze a cut: the walls are clean faces with layers in bands, no saw teeth, no long streaks, no grass at the corners",
+            "Excavator (try the 50 t): dig a big hole: no dirt shooting straight up out of the ground, no lag",
+            "Sit in an excavator or dozer on a slope: you lean with the machine; a friend in one leans too",
             "Dozer: lower the blade right down and drive into fresh topsoil: it cuts as deep as the blade's set and keeps cutting, the front doesn't ride up out of it",
             "Mining dozer: push a big heap a long way with the blade down: it keeps cutting, it doesn't climb up onto the ground",
             "Skid steer: tip the bucket down and drive into the dirt: it cuts in and fills; lift it out still tipped down and it pours",

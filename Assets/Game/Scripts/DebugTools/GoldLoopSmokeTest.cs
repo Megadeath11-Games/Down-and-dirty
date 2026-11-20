@@ -47,6 +47,7 @@ namespace FPSBase.DebugTools
                         case "save": yield return SaveTests(); break;
                         case "dozerblade": yield return DozerBladeTests(); break;
                         case "dozercut": yield return DozerCutTests(); break;
+                        case "grade": yield return GradeTests(); break;
                         case "fine": yield return FineGroundTests(); break;
                         case "dirtphys": yield return DirtPhysicsTests(DigSite.Instance, FindFirstObjectByType<DumpPickup>()); break;
                         case "hill": yield return PickupHillTests(); break;
@@ -427,6 +428,80 @@ namespace FPSBase.DebugTools
         }
 
         /// <summary>Dozer blades tilt (one end down) and swivel (angle): an angled blade rolls its dirt off to that side.</summary>
+        /// <summary>A grader with its blade on the ground drives over a rough strip (bumps and holes): it leaves it smooth.</summary>
+        IEnumerator GradeTests()
+        {
+            var site = DigSite.Instance;
+            var dealer = FindFirstObjectByType<VehicleDealer>();
+            var pf = Prefab0(dealer, "Grader");
+            if (pf == null) foreach (var l in dealer.listings) if (l.prefab != null && l.prefab.GetComponent<MotorGrader>() != null) pf = l.prefab;
+            if (pf == null) { Check(false, "a grader for sale"); yield break; }
+            Vector3 st = new Vector3(20f, 0f, -95f); st.y = site.SurfaceY(st);
+            // rough up a strip 3 m wide and 24 m long ahead of it: lumps of dumped dirt and dug holes
+            Random.InitState(7);
+            for (int i = 0; i < 70; i++)
+            {
+                Vector3 p = st + new Vector3(Random.Range(-1.6f, 1.6f), 0f, Random.Range(6f, 30f));
+                if (i % 2 == 0) site.Deposit(new Vector3(p.x, site.SurfaceY(p), p.z), MaterialLoad.Mix(Random.Range(0.03f, 0.09f), 0f, 0f, 0f, 0f), 0.35f);
+                else { p.y = site.SurfaceY(p) - 0.12f; site.Dig(p, 0.3f, 0.05f); }
+            }
+            site.SettleNow();
+            float Rough(out float mean)
+            {
+                // how far the strip's surface is from a straight, even road (RMS of each point vs a 3 m running average)
+                float sum = 0f, sumM = 0f; int n = 0;
+                for (float z = 10f; z <= 26f; z += site.Cell)
+                    for (float x = -0.8f; x <= 0.8f; x += site.Cell)
+                    {
+                        Vector3 p = st + new Vector3(x, 0f, z);
+                        float avg = 0f; int m = 0;
+                        for (float a = -1.5f; a <= 1.5f; a += 0.25f) for (float b = -0.75f; b <= 0.75f; b += 0.25f) { avg += site.SurfaceY(p + new Vector3(b, 0f, a)); m++; }
+                        avg /= m;
+                        float d = site.SurfaceY(p) - avg; sum += d * d; sumM += site.SurfaceY(p); n++;
+                    }
+                mean = sumM / Mathf.Max(1, n);
+                return Mathf.Sqrt(sum / Mathf.Max(1, n));
+            }
+            float before = Rough(out _);
+            var gr = Instantiate(pf, st + Vector3.up * 0.5f, Quaternion.identity).GetComponent<MotorGrader>();
+            for (int i = 0; i < 100; i++) yield return new WaitForFixedUpdate();
+            gr.fuel = gr.fuelCapacity;
+            // blade straight across (no angle), lowered until it just touches
+            gr.SetBlade(4f, 0f, 0f, 0f, 5f);
+            for (int i = 0; i < 400 && gr.EdgeHeight > -0.04f; i++) { gr.Operate(0f, -1f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0.02f); yield return new WaitForFixedUpdate(); }
+            float startEdge = gr.EdgeHeight;
+            gr.TestDrive(0.5f);
+            var path = new System.Text.StringBuilder();
+            float nextLog = 0f;
+            for (float t = 0f; t < 40f && Vector3.Dot(gr.transform.position - st, Vector3.forward) < 34f; t += Time.deltaTime)
+            {
+                gr.Operate(0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, Time.deltaTime);
+                if (t >= nextLog)
+                {
+                    nextLog += 1f;
+                    Vector3 ea = gr.bladeEndL.position, eb = gr.bladeEndR.position, em = (ea + eb) * 0.5f;
+                    path.Append($" [{em.z - st.z:0.0} m: edge {em.y - st.y:+0.00;-0.00} (ends {ea.y - eb.y:+0.00;-0.00}), pitch {Vector3.SignedAngle(Vector3.up, gr.transform.up, gr.transform.right):0.0}, cut {gr.CutRate:0.00}]");
+                }
+                yield return null;
+            }
+            log.AppendLine("INFO  grader blade path:" + path);
+            gr.TestDrive(0f);
+            for (int i = 0; i < 60; i++) yield return null;
+            DirtGrains.FastForward(); site.SettleNow();
+            float after = Rough(out _);
+            var prof = new System.Text.StringBuilder();
+            for (float z = 8f; z <= 28f; z += 1f)
+            {
+                Vector3 p = st + new Vector3(0f, 0f, z);
+                prof.Append($" {z:0}:{site.SurfaceY(p) - st.y:+0.00;-0.00}/{site.SurfaceY(p + Vector3.right * 0.6f) - st.y:+0.00;-0.00}/{site.SurfaceY(p - Vector3.right * 0.6f) - st.y:+0.00;-0.00}");
+            }
+            log.AppendLine("INFO  graded strip, height at the middle / 0.6 m right / left every metre:" + prof);
+            log.AppendLine($"INFO  grader over a rough strip: edge started {startEdge:+0.00;-0.00} m, drove to {Vector3.Dot(gr.transform.position - st, Vector3.forward):0.0} m, bumpiness {before * 100f:0.0} cm before, {after * 100f:0.0} cm after");
+            Check(after < before * 0.4f && after < 0.02f, $"the grader leaves a smooth road ({before * 100f:0.0} cm bumps before, {after * 100f:0.0} cm after)");
+            yield return ShotAt(st + new Vector3(3f, 2.5f, 4f), st + new Vector3(0f, 0f, 18f), "Screenshots/graded_road.png");
+            Destroy(gr.gameObject);
+        }
+
         /// <summary>Each dozer drives into fresh topsoil with its blade right down: it gets a real cut, as deep as the blade's set.</summary>
         IEnumerator DozerCutTests()
         {
@@ -3073,7 +3148,7 @@ namespace FPSBase.DebugTools
             if (mini != null) machines.Add(mini);
             if (dealer != null)
                 foreach (var l in dealer.listings)
-                    if (l.prefab != null && l.prefab.GetComponent<ExcavatorLinkage>() != null && (l.name.Contains("20") || l.name.Contains("90") || l.name.Contains("5 t")))
+                    if (l.prefab != null && l.prefab.GetComponent<ExcavatorLinkage>() != null && (l.name.Contains("20") || l.name.Contains("50") || l.name.Contains("90") || l.name.Contains("5 t")))
                     {
                         var go = Instantiate(l.prefab, new Vector3(0f, -50f, 0f), Quaternion.identity);
                         made.Add(go); machines.Add(go.GetComponent<MiniExcavator>());
@@ -3091,6 +3166,7 @@ namespace FPSBase.DebugTools
                 for (int i = 0; i < 5; i++) yield return null;
                 var cc = e.GetComponent<ClumpContainer>();
                 float sp0 = cc != null ? cc.Spilled : 0f;
+                DirtGrains.ResetStats(); float worstMs = 0f; int fr0 = Time.frameCount; float tStart = Time.realtimeSinceStartup;
                 // 1. boom down until the teeth are in the ground
                 for (float t = 0f; t < 6f && !site.IsUnderground(e.bucketTip.position + Vector3.down * 0.25f * e.sizeScale); t += Time.deltaTime)
                 {
@@ -3121,6 +3197,8 @@ namespace FPSBase.DebugTools
                 e.TestControl(new MiniExcavator.Inputs());
                 Vector3 mw = cc != null ? e.bucketLoadVisual.parent.rotation * cc.mouth : Vector3.zero;
                 float kept = peak > 0f ? e.bucketLoad.volume / peak : 0f;
+                log.AppendLine($"INFO  dig cycle {e.displayName} clods: up to {DirtGrains.MostLive} at once, fastest up {DirtGrains.MaxUp:0.0} m/s ({DirtGrains.MaxUpWhat}), lifted out of the ground up to {DirtGrains.MaxLift:0.00} m in a step ({DirtGrains.MaxLiftWhat}), {(Time.frameCount - fr0) / Mathf.Max(0.01f, Time.realtimeSinceStartup - tStart):0} fps");
+                Check(DirtGrains.MaxUp < 6f && DirtGrains.MaxLift < 1f, $"{e.displayName}: digging doesn't fling clods up ({DirtGrains.MaxUp:0.0} m/s fastest, {DirtGrains.MaxLift:0.00} m jump)");
                 log.AppendLine($"INFO  dig cycle {e.displayName}: bucket shell {e.ShellPoints} points ({e.TeethPoints} at the teeth), {e.Stalls} stalls against the ground; peak {peak:0.000} m3 of {e.bucketCapacity:0.00}, kept {e.bucketLoad.volume:0.000}, spilled {(cc != null ? cc.Spilled - sp0 : 0f):0.000}, clumps {(cc != null ? cc.Count : 0)}, mouth {mw}");
                 Check(peak > e.bucketCapacity * 0.6f, $"{e.displayName}: a dig cycle fills the bucket ({peak / e.bucketCapacity * 100f:0}%)");
                 Check(kept > 0.85f, $"{e.displayName}: the dirt stays in the bucket while lifting and swinging ({kept * 100f:0}% kept)");

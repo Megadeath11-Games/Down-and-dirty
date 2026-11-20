@@ -108,9 +108,11 @@ namespace FPSBase.Player
             float dt = Time.deltaTime;
             if (pose == Pose.Sit && seat != null)
             {
-                Vector3 f = Vector3.ProjectOnPlane(seat.forward, Vector3.up);
-                if (f.sqrMagnitude < 1e-4f) f = Vector3.forward;
-                transform.rotation = Quaternion.LookRotation(f.normalized, Vector3.up);
+                // sat in the machine: tipped with it on a slope (its cab's up, not the sky's)
+                Vector3 up = (seat.parent != null ? seat.parent : seat).up;
+                Vector3 f = Vector3.ProjectOnPlane(seat.forward, up);
+                if (f.sqrMagnitude < 1e-4f) f = Vector3.ProjectOnPlane(Vector3.forward, up);
+                transform.rotation = Quaternion.LookRotation(f.normalized, up);
             }
 
             for (int i = 0; i < bones.Count; i++) bones[i].localRotation = bind[i];
@@ -151,7 +153,7 @@ namespace FPSBase.Player
                 Rot(head, R, 6f + Mathf.Sin(idleT * 0.7f) * 2f);
                 if (seat != null && head != null)
                 {
-                    Vector3 eye = seat.position - Vector3.up * 0.08f - F * (LimbsInView ? 0.1f : 0.04f);
+                    Vector3 eye = seat.position - U * 0.08f - F * (LimbsInView ? 0.1f : 0.04f);
                     // (with the neck folded away the head bone sits at the neck: use where it would be)
                     Vector3 headAt = head.position;
                     if (neckShrunk && neck != null) headAt = neck.position + U * neckLen;

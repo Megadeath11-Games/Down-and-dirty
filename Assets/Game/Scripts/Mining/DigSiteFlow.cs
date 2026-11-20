@@ -189,7 +189,7 @@ namespace FPSBase.Mining
                 {
                     float rx = origin.x + x * cell - at.x, rz = origin.z + z * cell - at.z;
                     if (rx * rx + rz * rz > radius * radius) continue;
-                    if (loose[z, x] < 0.02f) continue;
+                    if (loose[z, x] < 0.02f || packed[z, x] > 0.7f) continue; // (packed dirt, a graded road: it holds)
                     float s = Surf(x, z);
                     if (s <= target) continue;
                     float take = Mathf.Min(Mathf.Min(0.015f, s - target), loose[z, x]);
@@ -204,6 +204,80 @@ namespace FPSBase.Mining
                 }
             if (moved && Random.value < 0.3f)
                 DirtGrains.Spray(at + Vector3.up * 0.1f - f * radius, -f * 0.8f + Vector3.up * 1.2f + Random.insideUnitSphere * 0.4f);
+        }
+
+        /// <summary>
+        /// A grader's moldboard from `a` to `b` (the cutting edge's ends), its face toward `forward`: the low spots in
+        /// the strip it just passed over are filled up to the edge with the dirt it's carrying (loose dirt in front of
+        /// it, then the clods rolling ahead of it), packed down. Its cut already took off what stood above the edge,
+        /// so what's left behind is the line of the edge: an even road. Returns m^3 spread.
+        /// </summary>
+        public float GradeBehind(Vector3 a, Vector3 b, Vector3 forward, float maxVolume)
+        {
+            forward.y = 0f;
+            if (forward.sqrMagnitude < 1e-6f || maxVolume <= 0f) return 0f;
+            forward.Normalize();
+            Vector3 mid = (a + b) * 0.5f;
+            Vector3 ab = b - a; ab.y = 0f;
+            float len = ab.magnitude;
+            if (len < 0.2f) return 0f;
+            Vector3 dir = ab / len;
+            float reach = len * 0.5f + 1.5f;
+            Range(mid, reach, out int x0, out int z0, out int x1, out int z1);
+            // what the strip behind needs
+            float need = 0f;
+            for (int z = z0; z <= z1; z++)
+                for (int x = x0; x <= x1; x++)
+                {
+                    if (!InStrip(x, z, out float edgeY, out bool behind) || !behind) continue;
+                    float s = Surf(x, z);
+                    if (s < edgeY - 0.005f) need += (edgeY - s) * cellArea;
+                }
+            need = Mathf.Min(need, maxVolume);
+            if (need <= 1e-5f) return 0f;
+            // what it is carrying: loose dirt standing in front of the edge, then its rolling clods
+            var carry = new MaterialLoad();
+            for (int z = z0; z <= z1 && carry.volume < need; z++)
+                for (int x = x0; x <= x1 && carry.volume < need; x++)
+                {
+                    if (!InStrip(x, z, out float edgeY, out bool behind, 1.2f) || behind) continue;
+                    float s = Surf(x, z);
+                    if (s <= edgeY || loose[z, x] <= 0.002f) continue;
+                    var m = Remove(x, z, Mathf.Min(s - edgeY, (need - carry.volume) / cellArea), edgeY);
+                    if (!m.IsEmpty) { carry.Add(m); Touch(x, z); }
+                }
+            if (carry.volume < need)
+                carry.Add(DirtGrains.TakePushed(mid + forward * 0.8f, reach, need - carry.volume));
+            if (carry.volume <= 1e-5f) return 0f;
+            // spread it into the low spots (each gets its share of what there is)
+            float share = Mathf.Clamp01(carry.volume / need), spread = 0f;
+            for (int z = z0; z <= z1; z++)
+                for (int x = x0; x <= x1; x++)
+                {
+                    if (!InStrip(x, z, out float edgeY, out bool behind) || !behind) continue;
+                    float s = Surf(x, z);
+                    if (s >= edgeY - 0.005f) continue;
+                    float v = (edgeY - s) * cellArea * share;
+                    var part = carry.Take(Mathf.Min(v, carry.volume));
+                    if (part.IsEmpty) continue;
+                    AddLoose(x, z, part);
+                    packed[z, x] = Mathf.Max(packed[z, x], 0.85f); // rolled flat under the moldboard: it holds, no ruts
+                    spread += part.volume;
+                }
+            if (!carry.IsEmpty) AddLoose(Mathf.RoundToInt((mid.x - origin.x) / cell), Mathf.RoundToInt((mid.z - origin.z) / cell), carry);
+            return spread;
+
+            // is square x,z in the moldboard strip: `behind` it (up to 45 cm back) or in front (up to `ahead`)?
+            bool InStrip(int x, int z, out float edgeY, out bool behind, float ahead = 0f)
+            {
+                Vector3 p = new Vector3(origin.x + x * cell, 0f, origin.z + z * cell);
+                Vector3 d = p - mid; d.y = 0f;
+                float lat = Vector3.Dot(d, dir), lon = Vector3.Dot(d, forward);
+                edgeY = Mathf.Lerp(a.y, b.y, Mathf.InverseLerp(-len * 0.5f, len * 0.5f, lat));
+                behind = lon < 0f;
+                if (Mathf.Abs(lat) > len * 0.5f - cell * 0.5f) return false;
+                return behind ? lon > -0.45f : lon < ahead;
+            }
         }
 
         [Tooltip("How much a machine's weight presses its tracks / tyres into undisturbed ground (0 = never).")]

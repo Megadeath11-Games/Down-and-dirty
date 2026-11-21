@@ -28,7 +28,8 @@ namespace FPSBase.Mining
         /// <summary>m^3 of wall that has caved in so far.</summary>
         public float CollapsedVolume { get; private set; }
 
-        Vector3 CellPos(int x, int z) => new Vector3(origin.x + x * cell, Surf(x, z), origin.z + z * cell);
+        /// <summary>The middle of a square, at the height of its surface.</summary>
+        public Vector3 CellPos(int x, int z) => new Vector3(origin.x + x * cell, Surf(x, z), origin.z + z * cell);
 
         /// <summary>Up-facing normal of the dirt surface at a world X/Z.</summary>
         public Vector3 SurfaceNormal(Vector3 p)

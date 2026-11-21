@@ -13,6 +13,14 @@ namespace FPSBase.Core
         /// <summary>Newest first.</summary>
         public static readonly Post[] Blog =
         {
+            new Post { date = "Update 34  ·  Nov 20, 2026", title = "Build your own houses: plans, setting out, levelling the pad and digging the footings",
+                body =
+                "• Build your own houses, part 1: your phone has a new Build a house tab with ten house plans, from a 5 x 10 m tiny home to a U-shaped ranch and a two-storey duplex. Each has its own footprint, its own footings and how deep they go.\n" +
+                "• Pick a plan and set it out on open ground on the town's or the claim's dig field: it follows where you look. Q / E or the mouse wheel turns it, Page Up / Page Down raises or lowers the pad 10 cm at a time, Enter or a click sets it down (the plans and permit cost $450 to $2,800), Backspace or a right click puts the plans away. It goes red, with the reason, where it can't go: off the dig ground, over a street or a house, on top of another of your sites, on ground that drops more than 2 m across it, or with something in the way.\n" +
+                "• Set down, a blue outline shows the work: the pad, levelled to one height, and the footing trenches round the outside and under the load-bearing inside walls, dug to a depth below the pad.\n" +
+                "• As you work, each metre of pad turns green once it's level (to within 7.5 cm), and patches still standing too high show orange on top of the dirt. Each stretch of footing turns green once it's dug down to depth (to within 8 cm, deeper is fine). You don't have to get every last spot: 92% of the pad and 90% of the footings will do.\n" +
+                "• Over the site you see how far along it is, and up close where the pad still needs work. The Build tab shows the same with progress bars. Once the pad and the footings pass, the site is ready for concrete. The concrete truck, the concrete plant, pouring and the house itself come in the next updates.\n" +
+                "• Your construction sites are saved with your game. In multiplayer they're only on the game that set them out, for now." },
             new Post { date = "Update 33  ·  Nov 20, 2026", title = "Chain crash fixed, and set-down blocks stay put",
                 body =
                 "• The game no longer crashes when you let the excavator's chain down (H). Just let down, the chain is a few millimetres long with no link to draw yet, and asking the graphics card to draw no links at all crashed the game.\n" +
@@ -305,11 +313,16 @@ namespace FPSBase.Core
                 "• Dozer berms build up properly in front of the blade." },
         };
 
-        public const string TestListVersion = "2026-11-20j";
+        public const string TestListVersion = "2026-11-20k";
 
         /// <summary>What's new in this build to try out.</summary>
         public static readonly string[] TestList =
         {
+            "Phone (P), Build a house tab: ten plans, each with a drawing of its footprint and footings, its size, depths and price",
+            "Set out a plan: it follows where you look; Q/E or the wheel turns it, Page Up/Down moves the pad, it goes red with the reason over a street, a house or a steep slope, Enter or a click sets it down and charges you",
+            "Dig the footings with an excavator: each stretch turns green once it is deep enough",
+            "Level the pad with a dozer or loader: orange patches (too high) turn green as you cut them down; the label over the site and the Build tab count it up",
+            "Pad and footings done: the site says ready for concrete; save and load: the site is still there",
             "Excavator chain: press H in the excavator: the chain runs out and the game keeps running",
             "Concrete block: set one down, then dump and push dirt round and onto it: it does not move",
             "Concrete block: drive a dozer or loader into a set-down block: it gets pushed",

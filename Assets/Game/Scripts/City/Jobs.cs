@@ -82,7 +82,12 @@ namespace FPSBase.City
 
         public const int ActAccept = 0, ActDecline = 1, ActCancel = 2, ActFinish = 3, ActDamage = 4;
 
-        void Awake() { Instance = this; nextText = firstText; }
+        void Awake()
+        {
+            Instance = this; nextText = firstText;
+            // building houses lives next to the jobs (the phone's Build tab)
+            if (GetComponent<Construction>() == null) gameObject.AddComponent<Construction>();
+        }
 
         // ------------------------------------------------------------------ multiplayer
 
@@ -711,9 +716,12 @@ namespace FPSBase.City
 
         public const string PhoneTitle = "Phone";
         int chatWith = -1;   // house index of the open conversation
-        int phoneTab;        // 0 = messages, 1 = jobs
+        int phoneTab;        // 0 = messages, 1 = jobs, 2 = building houses
         Vector2 listScroll, chatScroll;
         bool scrollToEnd;
+
+        /// <summary>Switch the phone to a tab (0 messages, 1 jobs, 2 building houses).</summary>
+        public void ShowTab(int tab) => phoneTab = Mathf.Clamp(tab, 0, 2);
 
         public void OpenPhone(House h)
         {
@@ -740,6 +748,13 @@ namespace FPSBase.City
             int unread = Unread, active = 0; foreach (var j in jobs) if (j.state == JobState.Accepted) active++;
             if (GUI.Button(new Rect(area.x, area.y, listW / 2 - 4, 36), $"Messages{(unread > 0 ? $"  ({unread} new)" : "")}", phoneTab == 0 ? ShopTheme.TabOn : ShopTheme.Tab)) phoneTab = 0;
             if (GUI.Button(new Rect(area.x + listW / 2 + 4, area.y, listW / 2 - 4, 36), $"Jobs  ({active})", phoneTab == 1 ? ShopTheme.TabOn : ShopTheme.Tab)) phoneTab = 1;
+            var con = Construction.Instance;
+            if (con != null)
+            {
+                int building = con.Sites.Count;
+                if (GUI.Button(new Rect(area.x + listW + gap, area.y, 220, 36), building > 0 ? $"Build a house  ({building})" : "Build a house", phoneTab == 2 ? ShopTheme.TabOn : ShopTheme.Tab)) phoneTab = 2;
+                if (phoneTab == 2) { con.DrawPhone(new Rect(area.x, area.y + 46, area.width, area.height - 46)); return; }
+            }
 
             // left: conversations or jobs
             var list = new Rect(area.x, area.y + 46, listW, area.height - 46);

@@ -39,6 +39,7 @@ namespace FPSBase.DebugTools
                         case "loader": yield return LoaderDigTests(); break;
                         case "sway": yield return TrailerSwayTests(); break;
                         case "blockdirt": yield return BlockDirtTests(); break;
+                        case "house": yield return HouseSiteTests(); break;
                         case "bucket": yield return BucketTests(); break;
                         case "multi": yield return MultiControlTests(); break;
                         case "fleet2": yield return Fleet2Tests(); break;
@@ -292,6 +293,7 @@ namespace FPSBase.DebugTools
             yield return LoaderDigTests();
             yield return TrailerSwayTests();
             yield return BlockDirtTests();
+            yield return HouseSiteTests();
             yield return BucketTests();
             yield return MultiControlTests();
             yield return SaveTests();
@@ -3711,6 +3713,89 @@ namespace FPSBase.DebugTools
                 Destroy(d.gameObject);
             }
             Destroy(blk.gameObject);
+            yield return null;
+        }
+
+        IEnumerator HouseSiteTests()
+        {
+            var plans = FPSBase.City.HousePlan.All;
+            bool plansOk = plans.Count == 10;
+            foreach (var p in plans) plansOk &= p.outline.Length >= 4 && p.ConcreteVolume > 0.5f && p.footingDepth > 0.3f && p.Area > 30f;
+            Check(plansOk, $"10 house plans, each with a footprint, footings and a concrete volume ({plans.Count} plans)");
+            var con = FPSBase.City.Construction.Instance;
+            Check(con != null, "building houses is there (next to the jobs)");
+            if (con == null || plans.Count < 3) yield break;
+            var site = DigSite.Instance;
+            var plan = FPSBase.City.HousePlan.Find("Bungalow") ?? plans[2];
+            // a spot it can go: flat open ground on the claim's dig field
+            Vector3 at = default; float avg = 0f; bool found = false; string why = "";
+            foreach (var c in new[] { new Vector2(40f, -140f), new Vector2(55f, -120f), new Vector2(20f, -125f), new Vector2(70f, -150f), new Vector2(-20f, -140f), new Vector2(0f, -110f) })
+            {
+                Vector3 p = new Vector3(c.x, 0f, c.y); p.y = site.SurfaceY(p);
+                if (con.Check(plan, site, p, 0f, out why, out avg)) { at = p; found = true; break; }
+                log.AppendLine($"INFO  house spot {c}: {why}");
+            }
+            Check(found, $"there's open ground for a {plan.title} on the dig field");
+            if (!found) yield break;
+            Check(!con.Check(plan, site, new Vector3(-5000f, 0f, -5000f), 0f, out string offWhy, out _), $"off the dig ground it can't go ({offWhy})");
+            // (the pad set 30 cm down: it has to be cut, not just found level)
+            float padY = Mathf.Round(avg / 0.05f) * 0.05f - 0.3f;
+            var s = con.Place(plan, site, at, 0f, padY);
+            yield return null;
+            Check(s.State == FPSBase.City.SiteState.BlueprintPlaced && s.TrenchDone < 0.05f && s.PadDone < 0.2f && s.PadHigh > 100, $"set out 30 cm down, it waits for digging ({s.State}, footings {s.TrenchDone * 100f:0}%, pad {s.PadDone * 100f:0}%, {s.PadHigh} squares too high: {s.PadHint()})");
+            Vector3 eye = s.Center + new Vector3(-9f, 9f, -12f);
+            yield return ShotAt(eye, s.Center + Vector3.down * 0.5f, "Screenshots/house_setout.png");
+            int drawn = 0; foreach (var mf in s.GetComponentsInChildren<MeshFilter>()) if (mf.sharedMesh != null) drawn += mf.sharedMesh.vertexCount;
+            Check(drawn > 1000, $"the blue outline is drawn ({drawn} vertices)");
+            Check(!con.Check(plan, site, at + new Vector3(3f, 0f, 2f), 0f, out string onWhy, out _), $"a second plan can't go on top of it ({onWhy})");
+            // dig it the way a machine would: the footings down to depth, the pad cut and filled to the outline
+            float floor = padY - plan.footingDepth - 0.06f;
+            for (int pass = 0; pass < 4; pass++)
+            {
+                foreach (var (a, b) in plan.Footings())
+                {
+                    float len = Vector2.Distance(a, b);
+                    for (float t = 0f; t <= len; t += 0.2f)
+                    {
+                        Vector2 q = Vector2.Lerp(a, b, len > 0f ? t / len : 0f);
+                        Vector2 side = new Vector2(b.y - a.y, a.x - b.x).normalized;
+                        foreach (float k in new[] { -0.6f, 0f, 0.6f })
+                        {
+                            Vector3 tip = s.ToWorld(q + side * (plan.footingWidth * 0.5f * k)); tip.y = floor;
+                            site.Dig(tip, 0.2f, 2f);
+                        }
+                    }
+                }
+                var bb = plan.Bounds;
+                for (float z = bb.yMin; z <= bb.yMax; z += 0.4f)
+                    for (float x = bb.xMin; x <= bb.xMax; x += 0.4f)
+                    {
+                        var q = new Vector2(x, z);
+                        if (!plan.Inside(q) || plan.FootingDistance(q, out _) < plan.footingWidth * 0.5f + 0.2f) continue;
+                        Vector3 w = s.ToWorld(q);
+                        float y = site.SurfaceY(w);
+                        if (y > padY + 0.03f) { w.y = padY; site.Dig(w, 0.3f, 2f); }
+                        else if (y < padY - 0.05f) site.Deposit(new Vector3(w.x, y, w.z), MaterialLoad.Mix(Mathf.Min(0.5f, (padY - y) * 0.16f), 0f, 0f, 0f, 0f), 0.2f);
+                    }
+                for (int i = 0; i < 30; i++) yield return new WaitForFixedUpdate();
+                s.Check();
+                log.AppendLine($"INFO  house dig pass {pass + 1}: {s.State}, pad {s.PadDone * 100f:0}% ({s.PadHigh} squares high, {s.PadLow} low), footings {s.TrenchDone * 100f:0}%");
+                if (pass == 0) yield return ShotAt(eye, s.Center + Vector3.down * 0.5f, "Screenshots/house_dug1.png");
+                if (s.State == FPSBase.City.SiteState.ReadyForConcrete) break;
+            }
+            Check(s.TrenchDone >= plan.needTrench, $"the footings dug to {plan.footingDepth:0.0#} m count as dug ({s.TrenchDone * 100f:0}%)");
+            Check(s.State == FPSBase.City.SiteState.ReadyForConcrete, $"pad level and footings dug: ready for concrete ({s.State}; {s.Status})");
+            yield return ShotAt(eye, s.Center + Vector3.down * 0.5f, "Screenshots/house_ready.png");
+            // saved and loaded back
+            var ms = new MemoryStream();
+            con.Write(new BinaryWriter(ms));
+            ms.Position = 0;
+            con.Read(new BinaryReader(ms));
+            yield return null;
+            var back = con.Sites.Count == 1 ? con.Sites[0] : null;
+            Check(back != null && back.Plan == plan && Mathf.Abs(back.PadY - padY) < 0.001f && back.State == FPSBase.City.SiteState.ReadyForConcrete,
+                $"a site is saved and loaded back as it was ({(back != null ? $"{back.Plan.title}, {back.State}, pad {back.PadY:0.00}" : "missing")})");
+            foreach (var x in new System.Collections.Generic.List<FPSBase.City.ConstructionSite>(con.Sites)) con.Remove(x);
             yield return null;
         }
 

@@ -334,6 +334,10 @@ namespace FPSBase.Core
                 jobsC.OpenPhone(h);
                 for (int i = 0; i < 5; i++) yield return null;
                 yield return Shot("phone.png");
+                jobsC.ShowTab(2);
+                for (int i = 0; i < 5; i++) yield return null;
+                yield return Shot("phone_build.png");
+                jobsC.ShowTab(0);
                 ClosePanel();
                 MapView.Instance?.BakeAll();
                 yield return Shot("town_hud.png");

@@ -1,0 +1,40 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7a7b3b9305bb8b64fa5d2344fb41ef90, type: 3}
+  m_Name: 08 Two-Story Colonial
+  m_EditorClassIdentifier: Assembly-CSharp::FPSBase.City.HousePlan
+  order: 8
+  title: Two-Story Colonial
+  description: 'Two full floors: heavy, so its footings go a metre down, with a cross
+    of inside footings.'
+  shape: Rectangle
+  floors: 2
+  price: 2400
+  outline:
+  - {x: -5.5, y: -6.5}
+  - {x: 5.5, y: -6.5}
+  - {x: 5.5, y: 6.5}
+  - {x: -5.5, y: 6.5}
+  innerFootings:
+  - a: {x: -5.5, y: 0}
+    b: {x: 5.5, y: 0}
+  - a: {x: 0, y: -6.5}
+    b: {x: 0, y: 6.5}
+  footingWidth: 0.65
+  footingDepth: 1
+  slab: 0
+  slabThickness: 0.1
+  padTolerance: 0.075
+  trenchTolerance: 0.08
+  needPad: 0.92
+  needTrench: 0.9
+  housePrefab: {fileID: 0}

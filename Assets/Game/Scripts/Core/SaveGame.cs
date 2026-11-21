@@ -94,6 +94,7 @@ namespace FPSBase.Core
                     WritePlants(w);
                     WriteTown(w);
                     WriteBlocks(w);
+                    WriteSites(w);
                 }
                 if (File.Exists(path)) File.Delete(path);
                 File.Move(tmp, path);
@@ -237,6 +238,24 @@ namespace FPSBase.Core
             int n = r.ReadInt32();
             for (int i = 0; i < n; i++) { int k = r.ReadByte(); var p = RV3(r); var q = RQ(r); bool c = r.ReadBoolean(); list.Add((k, p, q, c)); }
             return list;
+        }
+
+        const int SitesTag = 0x53495445; // "SITE": the houses being built (which plan, where, the pad height, the stage). Older saves end before it.
+
+        static void WriteSites(BinaryWriter w)
+        {
+            var ms = new MemoryStream();
+            FPSBase.City.Construction.Instance?.Write(new BinaryWriter(ms));
+            w.Write(SitesTag); w.Write((int)ms.Length); w.Write(ms.GetBuffer(), 0, (int)ms.Length);
+        }
+
+        static void ReadSites(BinaryReader r)
+        {
+            if (r.BaseStream.Length - r.BaseStream.Position < 8) return;
+            long at = r.BaseStream.Position;
+            if (r.ReadInt32() != SitesTag) { r.BaseStream.Position = at; return; }
+            var bytes = r.ReadBytes(r.ReadInt32());
+            if (bytes.Length > 0) FPSBase.City.Construction.Instance?.Read(new BinaryReader(new MemoryStream(bytes)));
         }
 
         static void ReadTown(BinaryReader r, int version)
@@ -390,6 +409,7 @@ namespace FPSBase.Core
                 ReadPlants(r);
                 ReadTown(r, info.version);
                 blocks = ReadBlocks(r);
+                ReadSites(r);
             }
             catch (Exception e) { error = "The save is damaged: " + e.Message; }
 

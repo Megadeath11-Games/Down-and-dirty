@@ -42,6 +42,8 @@ namespace FPSBase.Core
         Hook,
         // the chain's length
         ChainLonger, ChainShorter,
+        // setting out a house plan
+        PlanRotateLeft, PlanRotateRight, PlanRaise, PlanLower, PlanPlace, PlanCancel,
     }
 
     /// <summary>Controller inputs (Xbox names; a PlayStation pad is the same places: A = Cross, B = Circle, X = Square, Y = Triangle).</summary>
@@ -123,6 +125,12 @@ namespace FPSBase.Core
             new(GameAction.Hook, "Excavator chain", "Bucket chain: let it down / hook a block / let go", Key.H),
             new(GameAction.ChainLonger, "Excavator chain", "Let the chain out longer", Key.Y),
             new(GameAction.ChainShorter, "Excavator chain", "Take the chain in shorter", Key.U),
+            new(GameAction.PlanRotateLeft, "Setting out a house", "Turn the plan left", Key.Q),
+            new(GameAction.PlanRotateRight, "Setting out a house", "Turn the plan right", Key.E),
+            new(GameAction.PlanRaise, "Setting out a house", "Pad higher (10 cm)", Key.PageUp),
+            new(GameAction.PlanLower, "Setting out a house", "Pad lower (10 cm)", Key.PageDown),
+            new(GameAction.PlanPlace, "Setting out a house", "Set the plan down here", Key.Enter),
+            new(GameAction.PlanCancel, "Setting out a house", "Put the plans away", Key.Backspace),
 
             new(GameAction.GraderBladeUp, "Motor grader", "Blade up (both lift rams)", Key.E),
             new(GameAction.GraderBladeDown, "Motor grader", "Blade down (both lift rams)", Key.Q),

@@ -118,6 +118,13 @@ namespace FPSBase.Core
             // close by the excavator's trench, a few seconds apart (the dirt it digs and leaves)
             FPSBase.UI.MenuScene.CloseUp = true;
             for (int k = 0; k < 6; k++) { yield return Shot($"menu_dig{k}.png"); float until = Time.unscaledTime + 4f; while (Time.unscaledTime < until) yield return null; }
+            // the excavator's lifting chain let down, hook and all (drawn by the real player's renderer, not the editor's)
+            int chains = 0;
+            foreach (var ch in FPSBase.Vehicles.BucketChain.All) if (ch != null && !ch.Out) { ch.Toggle(); chains++; }
+            for (int k = 0; k < 2; k++) { yield return Shot($"menu_chain{k}.png"); float until = Time.unscaledTime + 2f; while (Time.unscaledTime < until) yield return null; }
+            float paid = 0f; foreach (var ch in FPSBase.Vehicles.BucketChain.All) if (ch != null) paid = Mathf.Max(paid, ch.PaidOut);
+            Debug.Log($"[MenuShot] chain let down on {chains} excavator(s), {paid:0.00} m paid out, drawn with its hook");
+            foreach (var ch in FPSBase.Vehicles.BucketChain.All) if (ch != null && ch.Out && ch.Held == null) ch.Toggle();
             FPSBase.UI.MenuScene.CloseUp = false;
             menuBare = false;
             yield return Shot("menu_main.png");

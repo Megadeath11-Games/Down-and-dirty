@@ -1381,6 +1381,7 @@ namespace FPSBase.Mining
                 receiveShadows = true,
                 worldBounds = bounds,
             };
+            if (instances == null || instances.Count == 0) return; // (an empty instanced draw crashes the D3D12 player)
             Graphics.RenderMeshInstanced(rp, mesh, 0, instances);
         }
     }

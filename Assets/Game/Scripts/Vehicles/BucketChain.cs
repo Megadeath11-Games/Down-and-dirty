@@ -295,14 +295,10 @@ namespace FPSBase.Vehicles
         {
             if (!Out && Held == null && payout <= 0.01f) return;
             if (link == null) link = BuildLink();
-            if (steel == null)
-            {
-                var sh = Shader.Find("HDRP/Lit") ?? Shader.Find("Standard");
-                steel = new Material(sh) { name = "Chain steel", color = new Color(0.23f, 0.23f, 0.25f), enableInstancing = true };
-                if (steel.HasProperty("_Metallic")) steel.SetFloat("_Metallic", 0.7f);
-                if (steel.HasProperty("_Smoothness")) steel.SetFloat("_Smoothness", 0.45f);
-            }
+            if (steel == null) steel = Paint(this, "Chain steel", new Color(0.23f, 0.23f, 0.25f), 0.7f, 0.45f);
+            if (steel == null) return;
             Vector3 a = Shackle, b = HookEnd;
+            if (!Finite(a) || !Finite(b)) { rope = null; return; } // (never hand the renderer a broken chain; it restarts at the shackle)
             bool free = Held == null && rope != null;
             float d = Vector3.Distance(a, b);
             // slack chain sags in the middle
@@ -325,22 +321,51 @@ namespace FPSBase.Vehicles
                 prev = p;
             }
             var rp = new RenderParams(steel) { shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On, receiveShadows = true, worldBounds = new Bounds((a + b) * 0.5f, Vector3.one * (length * 2f + 2f)) };
-            Graphics.RenderMeshInstanced(rp, link, 0, mats, m);
+            // (never an empty draw: just let down, the chain is a few millimetres long and has no link to draw yet,
+            // and asking for zero instances crashed the D3D12 player in ConstantBuffersD3D12::ResizeConstantBuffers)
+            if (m > 0) Graphics.RenderMeshInstanced(rp, link, 0, mats, m);
             // the hook: a big safety-yellow hook you can see from the cab, its eye on the last link
             if (hookMesh == null) hookMesh = BuildHook();
-            if (hookPaint == null)
-            {
-                var sh = Shader.Find("HDRP/Lit") ?? Shader.Find("Standard");
-                hookPaint = new Material(sh) { name = "Hook paint", color = new Color(1f, 0.78f, 0.05f) };
-                if (hookPaint.HasProperty("_Smoothness")) hookPaint.SetFloat("_Smoothness", 0.35f);
-            }
+            if (hookPaint == null) hookPaint = Paint(this, "Hook paint", new Color(1f, 0.78f, 0.05f), 0f, 0.35f);
+            if (hookPaint == null) return;
             Vector3 before = free ? RopeAt(Mathf.Clamp01(1f - pitch * 2f / Mathf.Max(0.05f, payout))) : Vector3.Lerp(a, b, 0.9f);
             Vector3 hup = (before - b).sqrMagnitude > 1e-6f ? (before - b).normalized : Vector3.up;
             Vector3 hfw = Vector3.ProjectOnPlane(transform.right, hup);
             if (hfw.sqrMagnitude < 1e-4f) hfw = Vector3.ProjectOnPlane(Vector3.forward, hup);
             var hrp = new RenderParams(hookPaint) { shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On, receiveShadows = true, worldBounds = new Bounds(b, Vector3.one * 2f) };
-            Graphics.RenderMesh(hrp, hookMesh, 0, Matrix4x4.TRS(b, Quaternion.LookRotation(hfw, hup), Vector3.one * s * 1.25f));
+            hookMat[0] = Matrix4x4.TRS(b, Quaternion.LookRotation(hfw, hup), Vector3.one * s * 1.25f);
+            Graphics.RenderMeshInstanced(hrp, hookMesh, 0, hookMat, 1);
         }
+
+        /// <summary>
+        /// A paint for the chain, copied from a material the machine already wears (its track shoes, drawn the same
+        /// instanced way, or else any lit part of it) and recoloured. A material made from scratch out of
+        /// Shader.Find("HDRP/Lit") has none of HDRP's set-up, and drawing it crashed the D3D12 player (in
+        /// ConstantBuffersD3D12::ResizeConstantBuffers) the moment the chain was let down; the editor drew it fine.
+        /// </summary>
+        static Material Paint(BucketChain c, string name, Color col, float metal, float smooth)
+        {
+            Material src = null;
+            var ta = c.GetComponentInChildren<TrackAnimator>(true);
+            if (ta != null && ta.shoeMaterial != null) src = ta.shoeMaterial;
+            if (src == null)
+                foreach (var r in c.GetComponentsInChildren<MeshRenderer>(true))
+                {
+                    var m = r.sharedMaterial;
+                    if (m != null && m.shader != null && m.shader.name == "HDRP/Lit") { src = m; break; }
+                }
+            if (src == null) return null; // (nothing safe to copy: no chain drawn rather than a crash)
+            var p = new Material(src) { name = name, enableInstancing = true };
+            foreach (var t in new[] { "_BaseColorMap", "_MaskMap", "_NormalMap", "_DetailMap", "_EmissiveColorMap" })
+                if (p.HasProperty(t)) p.SetTexture(t, null);
+            if (p.HasProperty("_BaseColor")) p.SetColor("_BaseColor", col);
+            p.color = col;
+            if (p.HasProperty("_Metallic")) p.SetFloat("_Metallic", metal);
+            if (p.HasProperty("_Smoothness")) p.SetFloat("_Smoothness", smooth);
+            return p;
+        }
+
+        static bool Finite(Vector3 v) => float.IsFinite(v.x) && float.IsFinite(v.y) && float.IsFinite(v.z);
 
         /// <summary>A point along the free chain, 0 = the shackle … 1 = the hook.</summary>
         Vector3 RopeAt(float t)
@@ -352,6 +377,7 @@ namespace FPSBase.Vehicles
 
         static Mesh hookMesh;
         static Material hookPaint;
+        static readonly Matrix4x4[] hookMat = new Matrix4x4[1];
 
         /// <summary>
         /// A lifting hook (about 26 cm tall at scale 1) hanging from its eye at the origin: a ring eye, a shank, a thick

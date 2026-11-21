@@ -129,6 +129,7 @@ namespace FPSBase.City
         {
             if (s == null) return;
             sites.Remove(s);
+            s.ReleaseGround();
             Destroy(s.gameObject);
         }
 
@@ -263,8 +264,17 @@ namespace FPSBase.City
                 ShopTheme.Fill(new Rect(bar.x + bar.width * need - 1, bar.y - 3, 2, bar.height + 6), ShopTheme.Cream);
                 yy += 50;
             }
-            Bar("Pad level", s.PadDone, s.Plan.needPad);
-            Bar("Footings dug", s.TrenchDone, s.Plan.needTrench);
+            if (s.State >= SiteState.PouringConcrete)
+            {
+                Bar($"Concrete in ({s.ConcretePoured:0.0} of {s.ConcreteNeeded:0.0} m³)", s.ConcreteDone, ConstructionSite.NeedConcrete);
+                if (s.Curing || s.State >= SiteState.ReadyForHouse)
+                    Bar(s.Curing ? $"Curing ({s.CureText()} left)" : "Cured", s.Curing ? 1f - s.CureLeft / ConstructionSite.CureSeconds : 1f, 1f);
+            }
+            else
+            {
+                Bar("Pad level", s.PadDone, s.Plan.needPad);
+                Bar("Footings dug", s.TrenchDone, s.Plan.needTrench);
+            }
             GUI.Label(new Rect(right.x, yy, right.width, right.yMax - yy + 60), s.Status, ShopTheme.Small);
             if (GUI.Button(new Rect(inner.x, inner.yMax - 56, inner.width * 0.3f, 52), "Map", ShopTheme.PlainButton)) GameUI.Instance.OpenMap();
             int idx = sites.IndexOf(s);
@@ -279,8 +289,8 @@ namespace FPSBase.City
         {
             SiteState.BlueprintPlaced => "Set out: level the pad and dig the footings",
             SiteState.Excavating => $"Digging: pad {s.PadDone * 100f:0}% level, footings {s.TrenchDone * 100f:0}% dug",
-            SiteState.ReadyForConcrete => "Ready for concrete",
-            SiteState.PouringConcrete => "Pouring concrete",
+            SiteState.ReadyForConcrete => "Ready for concrete: bring a mixer truck",
+            SiteState.PouringConcrete => s.Curing ? $"Curing: {s.CureText()} left" : $"Pouring concrete: {s.ConcreteDone * 100f:0}% in",
             SiteState.ReadyForHouse => "Ready for the house",
             _ => "Finished",
         };
@@ -340,8 +350,10 @@ namespace FPSBase.City
                 Vector3 sp = cam.WorldToScreenPoint(top);
                 if (sp.z <= 0f) continue;
                 string text = s.State == SiteState.ReadyForConcrete ? $"{s.Plan.title}  ·  ready for concrete ({s.Plan.ConcreteVolume:0.#} m³)"
+                    : s.State >= SiteState.PouringConcrete ? $"{s.Plan.title}  ·  {StageText(s)}" +
+                        (s.State == SiteState.PouringConcrete && !s.Curing ? $" ({s.ConcretePoured:0.0} of {s.ConcreteNeeded:0.0} m³)" + (d < 35f && s.PourSide.Length > 0 ? $"\nStill to fill: mostly the {s.PourSide} side" : "") : "")
                     : $"{s.Plan.title}  ·  pad {s.PadDone * 100f:0}% level  ·  footings {s.TrenchDone * 100f:0}% dug ({s.Plan.footingDepth:0.0#} m)";
-                if (d < 35f && s.State != SiteState.ReadyForConcrete && s.PadHigh + s.PadLow > 0 && s.PadDone < s.Plan.needPad) text += "\n" + s.PadHint();
+                if (d < 35f && s.State < SiteState.ReadyForConcrete && s.PadHigh + s.PadLow > 0 && s.PadDone < s.Plan.needPad) text += "\n" + s.PadHint();
                 var gc = new GUIContent(text);
                 float w = Mathf.Min(520f, label.CalcSize(gc).x + 16f);
                 float h = label.CalcHeight(gc, w);
@@ -353,6 +365,7 @@ namespace FPSBase.City
 
         public void Write(BinaryWriter w)
         {
+            w.Write(-2); // version 2: each site has its concrete after it
             w.Write(nextId);
             w.Write(sites.Count);
             foreach (var s in sites) s.Write(w);
@@ -362,7 +375,8 @@ namespace FPSBase.City
         {
             foreach (var s in sites) if (s != null) Destroy(s.gameObject);
             sites.Clear();
-            nextId = r.ReadInt32();
+            int first = r.ReadInt32(), version = 1;
+            if (first < 0) { version = -first; nextId = r.ReadInt32(); } else nextId = first;
             int n = r.ReadInt32();
             for (int i = 0; i < n; i++)
             {
@@ -371,12 +385,17 @@ namespace FPSBase.City
                 var plan = HousePlan.Find(title);
                 var at = new Vector3(x, pad, z);
                 var site = DigSite.At(at);
-                if (plan == null || site == null) continue;
+                if (plan == null || site == null)
+                {
+                    if (version >= 2) { r.ReadSingle(); int k = r.ReadInt32(); for (int j = 0; j < k; j++) { r.ReadInt32(); r.ReadSingle(); r.ReadSingle(); } }
+                    continue;
+                }
                 var go = new GameObject($"Construction site: {plan.title}");
                 var s = go.AddComponent<ConstructionSite>();
                 s.Id = id;
                 s.Setup(plan, site, at, yw, pad, false);
                 s.RestoreState(state, start);
+                if (version >= 2) s.ReadConcrete(r);
                 sites.Add(s);
             }
         }

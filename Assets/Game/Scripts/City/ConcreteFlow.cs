@@ -8,7 +8,7 @@ namespace FPSBase.City
     public interface IConcreteReceiver
     {
         /// <summary>Take `m3` of concrete landing at `at` (the ground under the chute). Return how much it took.</summary>
-        float TakeConcrete(Vector3 at, float m3);
+        float TakeConcrete(Vector3 at, float m3, Material mat);
     }
 
     /// <summary>
@@ -48,7 +48,7 @@ namespace FPSBase.City
             foreach (var r in Receivers)
             {
                 if (r == null) continue;
-                m3 -= Mathf.Max(0f, r.TakeConcrete(at, m3));
+                m3 -= Mathf.Max(0f, r.TakeConcrete(at, m3, mat));
                 if (m3 <= 1e-6f) return;
             }
             Wasted += m3;

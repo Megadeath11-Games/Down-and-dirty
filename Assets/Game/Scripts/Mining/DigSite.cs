@@ -262,7 +262,7 @@ namespace FPSBase.Mining
 
         bool InClaim(float wx, float wz) => claimRect.Contains(new Vector2(wx, wz));
 
-        float Floor(int x, int z) => hard[z, x] ? orig[z, x] : orig[z, x] - (InClaim(origin.x + x * cell, origin.z + z * cell) ? bedrockDepth : offClaimDigDepth);
+        float Floor(int x, int z) => solidFloor != null && !float.IsNaN(solidFloor[z, x]) ? solidFloor[z, x] : hard[z, x] ? orig[z, x] : orig[z, x] - (InClaim(origin.x + x * cell, origin.z + z * cell) ? bedrockDepth : offClaimDigDepth);
 
         void OnDestroy()
         {

@@ -13,6 +13,14 @@ namespace FPSBase.Core
         /// <summary>Newest first.</summary>
         public static readonly Post[] Blog =
         {
+            new Post { date = "Update 36  ·  Nov 21, 2026", title = "Pouring the foundation",
+                body =
+                "• Build your own houses, part 3: pour the foundation. Once your site says ready for concrete, bring a loaded mixer truck, swing the chute over the site and hold E.\n" +
+                "• The concrete runs to the lowest spots near where it lands that still need it: the footing trenches fill first, then the slab, levelling off at the top of the footings and the slab. Move the truck round the site to reach it all; anything that lands where the forms are already full runs off onto the ground.\n" +
+                "• The blue outline gives way to the concrete as it goes in. The label over the site and the Build tab on your phone show how many m³ are in out of how many it takes (it works it out from how you dug it), and which side still needs filling. A Bungalow takes about 30 m³: four truckloads.\n" +
+                "• Concrete in the ground is solid: machines drive on it, and a bucket or a blade stops at it. Dirt dropped on it sits on top.\n" +
+                "• Once 97% is in, it cures for 3 minutes (it goes from dark and wet to light grey), and then the site's ready for the house. The house itself comes next update.\n" +
+                "• The concrete in your sites is saved with your game. Give up a site and its concrete stays where it is, but you can dig it out again." },
             new Post { date = "Update 35  ·  Nov 20, 2026", title = "The concrete mixer truck and the concrete plant",
                 body =
                 "• Build your own houses, part 2: the concrete mixer truck and the concrete plant. The truck's on the end of the dealer's Trucks list ($135,000): a tandem-axle ready-mix truck with an 8 m³ drum.\n" +
@@ -321,11 +329,15 @@ namespace FPSBase.Core
                 "• Dozer berms build up properly in front of the blade." },
         };
 
-        public const string TestListVersion = "2026-11-20l";
+        public const string TestListVersion = "2026-11-21a";
 
         /// <summary>What's new in this build to try out.</summary>
         public static readonly string[] TestList =
         {
+            "A dug site (ready for concrete): pour from the mixer over the footings: it fills the trenches first, the label counts the m3 up",
+            "Move round the site and fill the slab: the label says which side still needs it; at 97% it says curing (3 minutes) and turns light grey",
+            "Drive a machine onto the poured concrete: it holds you up; try digging it with a bucket: it won't dig",
+            "Cured: the site says ready for the house; save and load: the concrete is still there",
             "Dealer, Trucks: buy the Concrete Mixer Truck (on the end of the list)",
             "Concrete plant (east of the block yard, on the map): back the hopper in under the chute, press R in the cab, order a load: you pay and the drum fills while it turns fast",
             "Drive a loaded mixer: drum turning slowly, it feels heavy; the cab shows the workable time counting down",

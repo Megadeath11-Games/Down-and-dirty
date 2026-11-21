@@ -3731,9 +3731,16 @@ namespace FPSBase.DebugTools
             var m = go.GetComponent<MixerTruck>();
             Check(m != null && m.drum != null && m.hopper != null && m.chuteEnd != null, "the mixer truck has its drum, hopper and chute");
             if (m == null) { Destroy(go); yield break; }
-            Vector3 off = ch - m.hopper.position; off.y = 0f;
-            go.transform.position += off;
-            for (int i = 0; i < 90; i++) yield return new WaitForFixedUpdate();
+            // set it down, let it settle on its springs, and nudge it back under the chute until it stays there
+            for (int tries = 0; tries < 3; tries++)
+            {
+                Vector3 off = ch - m.hopper.position; off.y = 0f;
+                if (tries > 0 && off.magnitude < 0.3f) break;
+                if (tries > 0) log.AppendLine($"INFO  mixer settled {off.magnitude:0.00} m off the chute: set it back");
+                go.transform.position += off;
+                var body = go.GetComponent<Rigidbody>(); body.linearVelocity = Vector3.zero; body.angularVelocity = Vector3.zero;
+                for (int i = 0; i < 90; i++) yield return new WaitForFixedUpdate();
+            }
             var rb = go.GetComponent<Rigidbody>();
             float empty = rb.mass;
             log.AppendLine($"INFO  mixer under the chute: hopper {m.hopper.position.y:0.00} m up, chute {ch.y:0.00} m, {Vector2.Distance(new Vector2(ch.x, ch.z), new Vector2(m.hopper.position.x, m.hopper.position.z)):0.00} m off; {empty:0} kg empty");
@@ -3887,8 +3894,85 @@ namespace FPSBase.DebugTools
             var back = con.Sites.Count == 1 ? con.Sites[0] : null;
             Check(back != null && back.Plan == plan && Mathf.Abs(back.PadY - padY) < 0.001f && back.State == FPSBase.City.SiteState.ReadyForConcrete,
                 $"a site is saved and loaded back as it was ({(back != null ? $"{back.Plan.title}, {back.State}, pad {back.PadY:0.00}" : "missing")})");
+            if (back != null) yield return PourSiteTests(con, back, eye);
             foreach (var x in new System.Collections.Generic.List<FPSBase.City.ConstructionSite>(con.Sites)) con.Remove(x);
             yield return null;
+        }
+
+        /// <summary>Pour a dug site the way a chute moving round it would: footings and slab fill, it goes solid, cures, saves.</summary>
+        IEnumerator PourSiteTests(FPSBase.City.Construction con, FPSBase.City.ConstructionSite s, Vector3 eye)
+        {
+            var plan = s.Plan; var site = s.Site;
+            var mat = FPSBase.City.ConcretePlant.Instance != null ? FPSBase.City.ConcretePlant.Instance.concreteMaterial : null;
+            Check(s.ConcreteCells > 100, $"the footings and slab are mapped for concrete ({s.ConcreteCells} squares)");
+            float wasted0 = FPSBase.City.ConcreteFlow.Wasted, given = 0f;
+            // pour points: along every footing, and over the slab
+            var points = new System.Collections.Generic.List<Vector2>();
+            foreach (var (a, b) in plan.Footings())
+            {
+                float len = Vector2.Distance(a, b);
+                for (float t = 0f; t <= len; t += 2f) points.Add(Vector2.Lerp(a, b, len > 0f ? t / len : 0f));
+            }
+            var bb = plan.Bounds;
+            if (plan.slab)
+                for (float z = bb.yMin + 1.5f; z < bb.yMax; z += 2.5f)
+                    for (float x = bb.xMin + 1.5f; x < bb.xMax; x += 2.5f)
+                        if (plan.Inside(new Vector2(x, z))) points.Add(new Vector2(x, z));
+            bool firstChecked = false;
+            for (int pass = 0; pass < 12 && s.State != FPSBase.City.SiteState.ReadyForHouse && !s.Curing; pass++)
+            {
+                for (int k = 0; k < points.Count; k++)
+                {
+                    Vector3 from = s.ToWorld(points[k]) + Vector3.up * 2.5f;
+                    FPSBase.City.ConcreteFlow.Pour(from, 0.12f, mat, null);
+                    given += 0.12f;
+                    if (k % 12 == 11) yield return null;
+                    if (s.Curing) break;
+                }
+                yield return null;
+                s.Check();
+                if (!firstChecked)
+                {
+                    firstChecked = true;
+                    Check(s.State == FPSBase.City.SiteState.PouringConcrete && s.ConcretePoured > 1f && s.ConcreteSquares > 50,
+                        $"concrete poured on a dug site goes into it ({s.State}, {s.ConcretePoured:0.0} of {s.ConcreteNeeded:0.0} m³, {s.ConcreteSquares} squares; the plan says about {plan.ConcreteVolume:0.0} m³)");
+                    // it fills from the bottom: the footings take it before the slab
+                    float lowest = float.MaxValue, highest = float.MinValue;
+                    for (int i = 0; s.ConcreteSample(i, out Vector3 w); i++) { lowest = Mathf.Min(lowest, w.y); highest = Mathf.Max(highest, w.y); }
+                    log.AppendLine($"INFO  first pass: concrete tops {lowest - s.PadY:0.00} to {highest - s.PadY:0.00} m from the pad");
+                    yield return ShotAt(eye, s.Center + Vector3.down * 0.5f, "Screenshots/house_pouring.png");
+                }
+                log.AppendLine($"INFO  pour pass {pass + 1}: {s.ConcretePoured:0.0} of {s.ConcreteNeeded:0.0} m³ ({s.ConcreteDone * 100f:0}%), {s.Status}");
+            }
+            float wasted = FPSBase.City.ConcreteFlow.Wasted - wasted0;
+            Check(s.Curing && s.ConcreteDone >= FPSBase.City.ConstructionSite.NeedConcrete,
+                $"poured all round, it's done and curing ({s.ConcretePoured:0.0} of {s.ConcreteNeeded:0.0} m³, {s.CureText()} to cure)");
+            Check(wasted < given * 0.15f, $"little of it ran off the site ({wasted:0.00} of {given:0.0} m³ on the ground)");
+            // solid: the ground's up to the concrete, and a bucket can't dig it
+            s.ConcreteSample(s.ConcreteSquares / 2, out Vector3 cw);
+            float before = site.SurfaceY(cw);
+            site.Dig(cw + Vector3.down * 0.4f, 0.3f, 2f);
+            site.Dig(cw + Vector3.down * 0.4f, 0.3f, 2f);
+            float after = site.SurfaceY(cw);
+            Check(Mathf.Abs(before - cw.y) < 0.05f && after > cw.y - 0.02f, $"the ground's up to the concrete and digging stops at it (ground {before - cw.y:+0.00;-0.00} m, after digging {after - cw.y:+0.00;-0.00} m)");
+            float w0 = FPSBase.City.ConcreteFlow.Wasted;
+            FPSBase.City.ConcreteFlow.Pour(s.Center + Vector3.up * 2.5f, 0.5f, mat, null);
+            Check(FPSBase.City.ConcreteFlow.Wasted - w0 > 0.49f, "once it's poured, more concrete runs off onto the ground");
+            yield return ShotAt(eye, s.Center + Vector3.down * 0.5f, "Screenshots/house_poured.png");
+            s.TestCure();
+            for (int i = 0; i < 5; i++) yield return null;
+            Check(s.State == FPSBase.City.SiteState.ReadyForHouse, $"cured, it's ready for the house ({s.State}; {s.Status})");
+            // saved and loaded back
+            int squares = s.ConcreteSquares; float poured = s.ConcretePoured;
+            var ms = new MemoryStream();
+            con.Write(new BinaryWriter(ms));
+            ms.Position = 0;
+            con.Read(new BinaryReader(ms));
+            yield return null;
+            var back = con.Sites.Count == 1 ? con.Sites[0] : null;
+            Check(back != null && back.State == FPSBase.City.SiteState.ReadyForHouse && back.ConcreteSquares == squares && Mathf.Abs(back.ConcretePoured - poured) < 0.05f,
+                $"the poured foundation is saved and loaded back ({(back != null ? $"{back.State}, {back.ConcreteSquares} of {squares} squares, {back.ConcretePoured:0.0} m³" : "missing")})");
+            foreach (var q in new System.Collections.Generic.List<FPSBase.City.ConcretePuddle>(FPSBase.City.ConcretePuddle.All)) if (q != null) Destroy(q.gameObject);
         }
 
         IEnumerator MenuDigTests()

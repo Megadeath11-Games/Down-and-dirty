@@ -14,7 +14,7 @@ namespace FPSBase.City
     /// standing proud shows orange on top of the dirt), and once the pad and the footings pass, it's ready for
     /// concrete. Stages: BlueprintPlaced → Excavating → ReadyForConcrete → PouringConcrete → ReadyForHouse → Completed.
     /// </summary>
-    public class ConstructionSite : MonoBehaviour
+    public partial class ConstructionSite : MonoBehaviour
     {
         public HousePlan Plan { get; private set; }
         public DigSite Site { get; private set; }
@@ -52,8 +52,8 @@ namespace FPSBase.City
         float checkTimer;
         MapMarker marker;
 
-        void OnEnable() { if (!all.Contains(this)) all.Add(this); }
-        void OnDisable() => all.Remove(this);
+        void OnEnable() { if (!all.Contains(this)) all.Add(this); OnEnableConcrete(); }
+        void OnDisable() { all.Remove(this); OnDisableConcrete(); }
 
         // ------------------------------------------------------------------ setting out
 
@@ -91,6 +91,7 @@ namespace FPSBase.City
         void Survey()
         {
             padCells.Clear(); trenchCells.Clear(); padTileOf.Clear(); trenchPieceOf.Clear();
+            ClearConcreteCells();
             MakeTilesAndPieces();
             var b = Plan.Bounds;
             float w = Plan.footingWidth * 0.5f;
@@ -111,9 +112,11 @@ namespace FPSBase.City
                     int idx = Site.CellIndex(cx, cz);
                     Vector2 pl = ToPlan(cp);
                     float d = Plan.FootingDistance(pl, out _);
+                    SurveyConcreteCell(idx, pl, d);
                     if (d <= checkW) { trenchCells.Add(idx); trenchPieceOf.Add(NearestPiece(pl)); }
                     else if (d > padKeep && Plan.Inside(pl)) { padCells.Add(idx); padTileOf.Add(NearestTile(pl)); }
                 }
+            InitConcrete();
         }
 
         void MakeTilesAndPieces()
@@ -158,6 +161,7 @@ namespace FPSBase.City
         void Update()
         {
             if (Preview || Plan == null || Site == null) return;
+            ConcreteUpdate(Time.deltaTime);
             if ((checkTimer -= Time.deltaTime) > 0f) return;
             checkTimer = 0.5f;
             Check();
@@ -167,6 +171,8 @@ namespace FPSBase.City
         public void Check()
         {
             if (Preview || Plan == null || Site == null) return;
+            // the concrete's going in: the digging's done with (the trenches are filling up)
+            if (State >= SiteState.PouringConcrete) { ConcreteCheck(); return; }
             System.Array.Clear(tileOk, 0, tileOk.Length); System.Array.Clear(tileHigh, 0, tileHigh.Length);
             System.Array.Clear(tileLow, 0, tileLow.Length); System.Array.Clear(tileN, 0, tileN.Length);
             System.Array.Clear(pieceOk, 0, pieceOk.Length); System.Array.Clear(pieceN, 0, pieceN.Length);
@@ -273,8 +279,9 @@ namespace FPSBase.City
             float w = Plan.footingWidth, depth = Plan.footingDepth;
             const float above = 0.3f; // the trench boxes stand up out of the grass so you see them
             bool bad = Preview && !PreviewValid;
+            bool poured = State >= SiteState.PouringConcrete; // (the concrete shows where it's gone: just the outline)
             // the footings
-            if (!Preview)
+            if (!Preview && !poured)
             for (int i = 0; i < pieces.Count; i++)
             {
                 var (a, b) = pieces[i];
@@ -289,7 +296,7 @@ namespace FPSBase.City
                     AddBox(bad ? Layer.Bad : Layer.Blue, (a + b) * 0.5f, b - a, (top - depth) * 0.5f, Vector2.Distance(a, b) + w, w, depth + top);
                 }
             // the pad, patch by patch: level (green, at the pad), still to fill (blue, at the pad), standing proud (orange, on top of the dirt)
-            if (!Preview)
+            if (!Preview && !poured)
             for (int i = 0; i < tiles.Count; i++)
             {
                 var t = tiles[i];
@@ -382,6 +389,7 @@ namespace FPSBase.City
         {
             w.Write(Id); w.Write(Plan.title); w.Write((byte)State);
             w.Write(Center.x); w.Write(Center.z); w.Write(Yaw); w.Write(PadY); w.Write(startPad);
+            WriteConcrete(w);
         }
 
         public void RestoreState(SiteState s, float start) { State = s; startPad = start; Check(); }

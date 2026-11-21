@@ -38,6 +38,8 @@ namespace FPSBase.Vehicles
         public Vector2 ripperRange = new Vector2(-18f, 22f); // deg, + = down
         public float ripperSpeed = 15f, ripRadius = 0.25f;
 
+        /// <summary>Test switch: off = the old springs spread along the body.</summary>
+        public static bool UseBeams = true;
         float steerDeg, artic, lean, lift = 4f, roll, circleDeg = 30f, shiftM, pitchDeg = 5f, ripper;
         float[] spins;
         float cutRate, fxTimer, ripRate;
@@ -56,6 +58,11 @@ namespace FPSBase.Vehicles
             spins = new float[wheelSpins != null ? wheelSpins.Length : 0];
             ripper = ripperRange.x;
             Apply();
+            // a real grader's running gear: the front axle rocks on a centre pin, each rear tandem rocks on its drive
+            // case, so it rests on three points and the frame (and the blade under it) stays steady over rough ground.
+            // Wheels 0-1 = left tandem, 2-3 = right tandem, 4-5 = the front axle (as the builder makes them).
+            if (UseBeams && wheelSpins != null && wheelSpins.Length >= 6)
+                suspension.UseWheels(wheelRadius, new[] { wheelSpins[4], wheelSpins[5] }, new[] { wheelSpins[0], wheelSpins[1] }, new[] { wheelSpins[2], wheelSpins[3] });
         }
 
         static Quaternion[] Rest(Transform[] ts)

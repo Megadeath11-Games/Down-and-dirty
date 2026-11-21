@@ -29,7 +29,7 @@ namespace FPSBase.Vehicles
         [System.NonSerialized] public System.Func<Collider, bool> ignore;
 
         public int Touching { get; private set; }
-        public int Contacts => pts?.Length ?? 0;
+        public int Contacts => beams != null ? wheelCount : pts?.Length ?? 0;
         public Vector3 GroundNormal { get; private set; } = Vector3.up;
         public float Clearance { get; private set; }
 
@@ -88,6 +88,110 @@ namespace FPSBase.Vehicles
             b.size = new Vector3(s.x, y1 - y0, s.z * lengthFraction);
         }
 
+        // ------------------------------------------------------------------ wheels on rocking beams
+
+        /// <summary>A set of wheels on one beam that rocks on a centre pin (a grader's front axle, a tandem).</summary>
+        class Beam { public Transform[] wheels; public Vector3[] rest; public float[] x; public float stop; }
+        Beam[] beams;
+        int wheelCount;
+        float wheelR;
+        /// <summary>How far each beam rocks either way (deg).</summary>
+        public float beamSwing = 15f;
+        /// <summary>The last step: how far each beam is rocked (m, end to end difference of its wheels) and how hard it's loaded (N).</summary>
+        public float[] BeamTilt { get; private set; }
+        public float[] BeamForce { get; private set; }
+
+        /// <summary>
+        /// Stand on real wheels instead of springs spread along the body: each group of wheels is on a beam that
+        /// rocks on a pin at its middle (a grader's front axle on its centre pin, each rear tandem on its drive case).
+        /// A bump under one wheel tips its beam, and the frame only feels half of it, at the pin: the machine rests
+        /// on three points (the front pin, the two tandem pins) and keeps level over rough ground.
+        /// </summary>
+        public void UseWheels(float radius, params Transform[][] groups)
+        {
+            wheelR = Mathf.Max(0.1f, radius);
+            var list = new List<Beam>();
+            wheelCount = 0;
+            foreach (var g in groups)
+            {
+                var ws = new List<Transform>();
+                if (g != null) foreach (var w in g) if (w != null) ws.Add(w);
+                if (ws.Count == 0) continue;
+                Vector3 c = Vector3.zero;
+                foreach (var w in ws) c += t.InverseTransformPoint(w.position);
+                c /= ws.Count;
+                float span = 0f;
+                foreach (var w in ws) span = Mathf.Max(span, (t.InverseTransformPoint(w.position) - c).magnitude);
+                var rest = new Vector3[ws.Count];
+                for (int i = 0; i < rest.Length; i++) rest[i] = ws[i].localPosition;
+                list.Add(new Beam { wheels = ws.ToArray(), rest = rest, x = new float[ws.Count], stop = span * Mathf.Sin(beamSwing * Mathf.Deg2Rad) * 2f });
+                wheelCount += ws.Count;
+            }
+            beams = list.Count > 0 ? list.ToArray() : null;
+            BeamTilt = new float[list.Count]; BeamForce = new float[list.Count];
+        }
+
+        /// <summary>How far the ground pushes into the tyre at `hub` (m; below 0 = clear of it), felt across its tread.</summary>
+        float TyreIn(Vector3 hub, Vector3 up, Vector3 fwd, float sagEff, out Vector3 normal)
+        {
+            const float above = 0.45f;
+            float best = float.NegativeInfinity; normal = Vector3.up;
+            for (int j = -1; j <= 1; j++)
+            {
+                float dx = j * 0.6f * wheelR;
+                float under = Mathf.Sqrt(wheelR * wheelR - dx * dx); // (the tyre's round: a step ahead is met higher up)
+                if (!Cast(hub + fwd * dx + up * above, -up, above + under + 0.6f, out RaycastHit hit)) continue;
+                float x = above + under + sagEff - hit.distance;
+                if (x > best) { best = x; normal = hit.normal; }
+            }
+            return best;
+        }
+
+        void StepWheels(float m, float g, ref Vector3 nsum)
+        {
+            int n = beams.Length;
+            float sagEff = sag * (1f + Heft * 1.4f);
+            float k = m * g / (n * sagEff);
+            float cDamp = 2f * Mathf.Min(1.2f, dampingRatio + Heft * 0.35f) * Mathf.Sqrt(k * m / n);
+            Vector3 up = t.up, fwd = t.forward;
+            for (int b = 0; b < n; b++)
+            {
+                var beam = beams[b];
+                Vector3 pin = Vector3.zero; float sum = 0f, hi = float.NegativeInfinity, lo = float.PositiveInfinity;
+                int wn = beam.wheels.Length, down = 0;
+                Vector3 nb = Vector3.zero;
+                for (int i = 0; i < wn; i++)
+                {
+                    var w = beam.wheels[i];
+                    Vector3 hub = w.parent != null ? w.parent.TransformPoint(beam.rest[i]) : beam.rest[i]; // (where it sits with the beam level)
+                    pin += hub;
+                    float x = TyreIn(hub, up, fwd, sagEff, out Vector3 nrm);
+                    if (float.IsNegativeInfinity(x)) x = -(wheelR + 0.6f);
+                    beam.x[i] = x;
+                    sum += x; hi = Mathf.Max(hi, x); lo = Mathf.Min(lo, x);
+                    if (x > 0f) { down++; nb += nrm; }
+                }
+                pin /= wn;
+                // the beam rocks until its wheels share the load, as far as its stops let it
+                float X = Mathf.Max(sum / wn, hi - beam.stop * 0.5f);
+                BeamTilt[b] = hi - lo; BeamForce[b] = 0f;
+                // and the wheels are seen to rock with it: up over the bump, down into the dip
+                for (int i = 0; i < wn; i++)
+                {
+                    var w = beam.wheels[i];
+                    float d = Mathf.Clamp(beam.x[i] - X, -beam.stop * 0.5f, beam.stop * 0.5f);
+                    w.localPosition = beam.rest[i] + (w.parent != null ? w.parent.InverseTransformVector(up * d) : up * d);
+                }
+                if (X <= 0f) continue;
+                float v = Vector3.Dot(rb.GetPointVelocity(pin), up);
+                float f = Mathf.Clamp(k * X - cDamp * v, 0f, m * g * 1.5f);
+                rb.AddForceAtPosition(up * f, pin, ForceMode.Force);
+                BeamForce[b] = f;
+                Touching += Mathf.Max(1, down);
+                nsum += down > 0 ? nb : up;
+            }
+        }
+
         Vector3 lastSet; bool hasLast;
         /// <summary>
         /// Tracks grip: the velocity along the ground becomes `along` (blended by Grip), the part across the ground
@@ -115,6 +219,16 @@ namespace FPSBase.Vehicles
             if (rb == null || pts == null || rb.isKinematic) { Touching = 0; return; }
             rb.AddForce(Physics.gravity * (gravityScale - 1f), ForceMode.Acceleration);
             float m = rb.mass, g = -Physics.gravity.y * gravityScale;
+            if (beams != null)
+            {
+                Touching = 0;
+                Vector3 ns = Vector3.zero;
+                StepWheels(m, g, ref ns);
+                Vector3 nw = Touching > 0 ? ns.normalized : Vector3.up;
+                GroundNormal = Touching > 0 && Heft > 0.01f ? Vector3.Slerp(GroundNormal, nw, 1f - Mathf.Exp(-Time.fixedDeltaTime / (Heft * 0.12f))) : nw;
+                Hold();
+                return;
+            }
             int bearing = pts.Length - 4; // the four idler contacts normally carry nothing
             // heavier = a longer, slower, better damped ride (a 66 t dozer wallows, a 1 t loader chatters)
             float sagEff = sag * (1f + Heft * 1.4f);
@@ -182,6 +296,11 @@ namespace FPSBase.Vehicles
         /// <summary>Contact points in world space (for trampling grass).</summary>
         public IEnumerable<Vector3> WorldContacts()
         {
+            if (beams != null)
+            {
+                foreach (var b in beams) foreach (var w in b.wheels) if (w != null) yield return w.position - t.up * wheelR;
+                yield break;
+            }
             if (pts == null) yield break;
             for (int i = 0; i < pts.Length; i++) if (lift[i] == 0f) yield return t.TransformPoint(pts[i]);
         }

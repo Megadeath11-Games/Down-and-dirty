@@ -68,6 +68,7 @@ namespace FPSBase.DebugTools
                         case "town": yield return TownTests(); break;
                         case "hitch": yield return DumpHitchTests(); break;
                         case "lip": yield return BucketLipTests(); break;
+                        case "graderride": yield return GraderRideTests(); break;
                         case "slosh": yield return SloshTests(DigSite.Instance, FindFirstObjectByType<DumpPickup>()); break;
                         case "materials": yield return MaterialsTests(DigSite.Instance, Economy.Instance, FindFirstObjectByType<WashPlant>(), FindFirstObjectByType<DumpPickup>()); break;
                         default: log.AppendLine($"INFO  unknown quick test '{part}'"); break;
@@ -3559,6 +3560,116 @@ namespace FPSBase.DebugTools
         /// wheels with the tractor), and tip it out; the loaders steer by bending in the middle (arms, bucket and
         /// Z-bar going with it) and dig, fill, carry and scrape like the old loader.
         /// </summary>
+        /// <summary>
+        /// The grader on a hard pad over bumps: one under the left wheels only (the front axle and the left tandem
+        /// rock over it, the frame stays near level and the blade hardly moves), and a windrow down the middle
+        /// (it straddles it, nothing lifts). Run the old way first for comparison.
+        /// </summary>
+        IEnumerator GraderRideTests()
+        {
+            var dealer = FindFirstObjectByType<VehicleDealer>();
+            var pf = Prefab0(dealer, "Grader");
+            if (pf == null) { Check(false, "the dealer sells a grader"); yield break; }
+            Vector3 padAt = new Vector3(-300f, 400f, -300f);
+            var made = new System.Collections.Generic.List<GameObject>();
+            GameObject Block(Vector3 at, Vector3 size, Quaternion r)
+            {
+                var b = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                b.name = "Test bump"; b.transform.SetPositionAndRotation(at, r); b.transform.localScale = size;
+                made.Add(b); return b;
+            }
+            Block(padAt + Vector3.down * 0.5f, new Vector3(120f, 1f, 120f), Quaternion.identity);
+            // lane 1: a 25 cm ridge under the left wheels only; lane 2: a 45 cm windrow down the middle, between the wheels
+            const float bump = 0.247f;
+            Vector3 lane1 = padAt + new Vector3(-20f, 0f, -30f), lane2 = padAt + new Vector3(20f, 0f, -30f);
+            Block(lane1 + new Vector3(-1.09f, 0f, 10f), new Vector3(0.7f, 0.35f, 0.35f), Quaternion.Euler(45f, 0f, 0f));
+            Block(lane2 + new Vector3(0f, 0.225f, 12f), new Vector3(0.8f, 0.45f, 8f), Quaternion.identity);
+            // lane 3: a 60 cm mound across the whole path, 15 degree ramps up and down
+            Vector3 lane3 = padAt + new Vector3(0f, 0f, 20f);
+            {
+                const float hM = 0.6f, ang = 15f;
+                float ramp = hM / Mathf.Sin(ang * Mathf.Deg2Rad), run = hM / Mathf.Tan(ang * Mathf.Deg2Rad);
+                float z0 = 9f;
+                Block(lane3 + new Vector3(0f, hM * 0.5f - 0.3f * Mathf.Cos(ang * Mathf.Deg2Rad), z0 + run * 0.5f + 0.3f * Mathf.Sin(ang * Mathf.Deg2Rad)), new Vector3(5f, 0.6f, ramp), Quaternion.Euler(-ang, 0f, 0f));
+                Block(lane3 + new Vector3(0f, hM * 0.5f, z0 + run + 2f), new Vector3(5f, hM, 4f), Quaternion.identity);
+                Block(lane3 + new Vector3(0f, hM * 0.5f - 0.3f * Mathf.Cos(ang * Mathf.Deg2Rad), z0 + run + 4f + run * 0.5f - 0.3f * Mathf.Sin(ang * Mathf.Deg2Rad)), new Vector3(5f, 0.6f, ramp), Quaternion.Euler(ang, 0f, 0f));
+            }
+            Physics.SyncTransforms();
+            for (int pass = 0; pass < 2; pass++)
+            {
+                MotorGrader.UseBeams = pass == 1;
+                string how = pass == 1 ? "now" : "the old way";
+                for (int lane = 0; lane < 3; lane++)
+                {
+                    Vector3 st = lane == 0 ? lane1 : lane == 1 ? lane2 : lane3;
+                    var gr = Instantiate(pf, st + Vector3.up * 0.3f, Quaternion.identity).GetComponent<MotorGrader>();
+                    gr.fuel = gr.fuelCapacity;
+                    for (int i = 0; i < 120; i++) yield return new WaitForFixedUpdate();
+                    gr.SetBlade(gr.liftRange.y, 0f, 0f, 0f, 5f);
+                    for (int i = 0; i < 30; i++) yield return new WaitForFixedUpdate();
+                    float y0 = gr.transform.position.y;
+                    float b0 = (gr.bladeEndL.position.y + gr.bladeEndR.position.y) * 0.5f;
+                    float maxRoll = 0f, maxBlade = 0f, maxBody = 0f, minRear = float.MaxValue, frontGap = 0f;
+                    string gapWhere = "";
+                    gr.TestDrive(0.4f);
+                    for (float t = 0f; t < 30f && gr.transform.position.z - st.z < 20f; t += Time.deltaTime)
+                    {
+                        gr.Operate(0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, Time.deltaTime);
+                        maxRoll = Mathf.Max(maxRoll, Mathf.Abs(Mathf.Asin(Mathf.Clamp(gr.transform.right.y, -1f, 1f)) * Mathf.Rad2Deg));
+                        maxBlade = Mathf.Max(maxBlade, Mathf.Abs((gr.bladeEndL.position.y + gr.bladeEndR.position.y) * 0.5f - b0));
+                        maxBody = Mathf.Max(maxBody, gr.transform.position.y - y0);
+                        var bf = gr.Suspension.BeamForce;
+                        if (bf != null && bf.Length == 3) minRear = Mathf.Min(minRear, Mathf.Min(bf[1], bf[2]));
+                        // how far the front tyres are off the ground (the lower of the two: an axle that rocks keeps one down at least)
+                        float gap = float.MaxValue;
+                        for (int w = 4; w < 6 && w < gr.wheelSpins.Length; w++)
+                        {
+                            Vector3 hub = gr.wheelSpins[w].position;
+                            foreach (var gh in Physics.RaycastAll(hub, Vector3.down, 3f, ~0, QueryTriggerInteraction.Ignore))
+                                if (gh.collider.attachedRigidbody == null) gap = Mathf.Min(gap, gh.distance - gr.wheelRadius);
+                        }
+                        if (gap < float.MaxValue && gap > frontGap)
+                        {
+                            frontGap = gap;
+                            var gd = new System.Text.StringBuilder();
+                            for (int w = 4; w < 6 && w < gr.wheelSpins.Length; w++)
+                            {
+                                Vector3 hub = gr.wheelSpins[w].position; float gg = 9f; string on = "";
+                                foreach (var gh in Physics.RaycastAll(hub, Vector3.down, 3f, ~0, QueryTriggerInteraction.Ignore))
+                                    if (gh.collider.attachedRigidbody == null && gh.distance - gr.wheelRadius < gg) { gg = gh.distance - gr.wheelRadius; on = gh.collider.name; }
+                                gd.Append($" wheel {w} {gg * 100f:0} cm over {on} at x {hub.x - st.x:0.00} z {hub.z - st.z:0.00};");
+                            }
+                            gapWhere = $" (worst at {gr.transform.position.z - st.z:0.0} m:{gd})";
+                        }
+                        yield return null;
+                    }
+                    gr.TestDrive(0f);
+                    float went = gr.transform.position.z - st.z;
+                    string rear = minRear < float.MaxValue ? $", least load on a tandem {minRear / (gr.GetComponent<Rigidbody>().mass * 9.81f) * 100f:0}% of the weight" : "";
+                    string what = lane == 0 ? $"a {bump * 100f:0} cm ridge under the left wheels" : lane == 1 ? "a 45 cm windrow down the middle" : "a 60 cm mound";
+                    log.AppendLine($"INFO  grader over {what}, {how}: drove {went:0.0} m, frame rolled up to {maxRoll:0.0}°, blade moved up to {maxBlade * 100f:0} cm, body rose up to {maxBody * 100f:0} cm, front tyres up to {frontGap * 100f:0} cm off the ground{gapWhere}{rear}");
+                    if (pass == 1)
+                    {
+                        Check(went > 15f, $"the grader drives over {what} ({went:0.0} m)");
+                        if (lane == 0)
+                        {
+                            Check(maxRoll < 4f, $"over {what} the frame stays near level: the front axle and tandem rock instead ({maxRoll:0.0}°)");
+                            Check(maxBlade < bump * 0.75f, $"over {what} the blade moves less than the bump ({maxBlade * 100f:0} cm for a {bump * 100f:0} cm bump)");
+                        }
+                        else if (lane == 1) Check(maxBody < 0.06f && maxBlade < 0.08f, $"the grader straddles {what}: nothing lifts (body {maxBody * 100f:0} cm, blade {maxBlade * 100f:0} cm)");
+                        // (a sharp ridge hit at speed hops the front a moment, as it would a real one: that lane is only logged)
+                        if (lane != 0) Check(frontGap < 0.1f, $"over {what} the front tyres stay on the ground (up to {frontGap * 100f:0} cm off it)");
+                        Check(minRear > 0f, $"over {what} both rear tandems stay on the ground");
+                        if (lane == 0) yield return ShotAt(gr.transform.position + new Vector3(-9f, 3f, 8f), gr.transform.position + Vector3.up, "Screenshots/grader_ride.png");
+                    }
+                    Destroy(gr.gameObject);
+                    yield return null;
+                }
+            }
+            MotorGrader.UseBeams = true;
+            foreach (var b in made) Destroy(b);
+        }
+
         /// <summary>
         /// Every excavator, its bucket full and tipped slowly out to the dump angle: the dirt that slides out rides
         /// over the lip plate and teeth and drops off their end; none falls down through the steel.

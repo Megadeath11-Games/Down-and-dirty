@@ -13,6 +13,11 @@ namespace FPSBase.Core
         /// <summary>Newest first.</summary>
         public static readonly Post[] Blog =
         {
+            new Post { date = "Update 41  ·  Nov 21, 2026", title = "Grader running gear like the real thing",
+                body =
+                "• The motor grader now stands on its wheels the way a real one does: the front axle rocks on a centre pin, and each pair of rear wheels (the tandems) rocks too. It rests on three points, so a bump under one wheel tips that axle or tandem, not the whole machine, and you can see the wheels ride up and down over it.\n" +
+                "• Before, it stood on springs spread along the body, and one of them sat out ahead of the front tyres: driving up onto a mound or a bank lifted the front end before the wheels got there, up to a metre in the air, blade and all. In our test over a 60 cm mound the front tyres now stay on the ground and the blade rises less than half as much.\n" +
+                "• Multiplayer: the download now includes steam_appid.txt next to the game, which Steam needs to start. Without it a friend's copy said Steam wasn't running even with Steam open." },
             new Post { date = "Update 40  ·  Nov 21, 2026", title = "Autosave, and dirt stays on the bucket lip",
                 body =
                 "• The game now saves itself every 5 minutes while you play (a small \"Autosaved\" note pops up), and it saves when you close the game or go back to the main menu. It saves into the world you loaded or last saved; a brand new world saves under the name you gave it.\n" +
@@ -356,11 +361,15 @@ namespace FPSBase.Core
                 "• Dozer berms build up properly in front of the blade." },
         };
 
-        public const string TestListVersion = "2026-11-21e";
+        public const string TestListVersion = "2026-11-21f";
 
         /// <summary>What's new in this build to try out.</summary>
         public static readonly string[] TestList =
         {
+            "Grader: drive the front wheels up onto a dirt pile or bank: the front tyres stay on the ground and climb it, the front end doesn't jump up ahead of them",
+            "Grader: drive with one side's wheels over a bump: the front axle and the rear tandem on that side rock over it and the cab stays near level",
+            "Grader: grade a rough strip as before: it still leaves a smooth road",
+            "Multiplayer with a friend who downloaded the zip: with Steam open, the game finds Steam and you can join each other",
             "Play for 5 minutes: an \"Autosaved\" note shows; quit and reload: the world is as you left it",
             "Close the game window (or Quit) without saving: start it again and load the world: your last changes are there",
             "Pause, Main Menu: it saves before it leaves; the world is in the Single Player list",

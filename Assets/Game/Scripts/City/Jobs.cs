@@ -753,10 +753,10 @@ namespace FPSBase.City
             {
                 int building = con.Sites.Count;
                 if (GUI.Button(new Rect(area.x + listW + gap, area.y, 220, 36), building > 0 ? $"Build a house  ({building})" : "Build a house", phoneTab == 2 ? ShopTheme.TabOn : ShopTheme.Tab)) phoneTab = 2;
-                if (phoneTab == 2) { con.DrawPhone(new Rect(area.x, area.y + 46, area.width, area.height - 46)); return; }
             }
             int loose = LooseBlocks().Count;
             if (GUI.Button(new Rect(area.x + listW + gap + 228, area.y, 190, 36), loose > 0 ? $"Clean up  ({loose})" : "Clean up", phoneTab == 3 ? ShopTheme.TabOn : ShopTheme.Tab)) { phoneTab = 3; confirmCollect = false; }
+            if (phoneTab == 2 && con != null) { con.DrawPhone(new Rect(area.x, area.y + 46, area.width, area.height - 46)); return; }
             if (phoneTab == 3) { DrawCleanup(new Rect(area.x, area.y + 46, area.width, area.height - 46)); return; }
 
             // left: conversations or jobs
@@ -800,7 +800,7 @@ namespace FPSBase.City
             GUI.EndScrollView();
 
             // right: the conversation
-            var chat = new Rect(area.x + listW + gap, area.y, area.width - listW - gap, area.height);
+            var chat = new Rect(area.x + listW + gap, area.y + 46, area.width - listW - gap, area.height - 46); // (under the Build a house / Clean up tabs)
             Card(chat, ShopTheme.TexCard);
             if (chatWith < 0 || chatWith >= House.All.Count)
             {

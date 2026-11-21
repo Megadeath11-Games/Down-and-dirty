@@ -13,6 +13,9 @@ namespace FPSBase.Core
         /// <summary>Newest first.</summary>
         public static readonly Post[] Blog =
         {
+            new Post { date = "Update 44  ·  Nov 21, 2026", title = "The house tab is back on the phone",
+                body =
+                "• The phone's Build a house and Clean up tabs were hidden behind the messages on the Messages and Jobs pages, so you couldn't find them. They now sit in a row along the top next to Messages and Jobs, on every page." },
             new Post { date = "Update 43  ·  Nov 21, 2026", title = "Not buried when it isn't",
                 body =
                 "• A machine that had dirt round it once stayed \"buried\" until almost all the dirt all the way round was gone, so a truck you'd dug out on one side, or backed up to a bank, still wouldn't let you reposition it or call a tow. Now a machine only counts as buried with dirt banked up against every side, and digging one side clear (down to its wheels or tracks) frees it.\n" +
@@ -372,11 +375,12 @@ namespace FPSBase.Core
                 "• Dozer berms build up properly in front of the blade." },
         };
 
-        public const string TestListVersion = "2026-11-21h";
+        public const string TestListVersion = "2026-11-21i";
 
         /// <summary>What's new in this build to try out.</summary>
         public static readonly string[] TestList =
         {
+            "Phone (P): Messages, Jobs, Build a house and Clean up tabs all show along the top, on every page",
             "Mixer truck (or any machine) parked in the dirt field against a bank or in a dug hole: look at it: Reposition and Call a tow truck are there to use",
             "Backfill dirt all round a machine, then dig one side clear down to its wheels: it's free (Reposition works, it drives out)",
             "Block yard: drive a semi with its lowboy off the end of West Ave along the yard's south lane: it fits, stops in the painted bay, and drives on out past the concrete plant",

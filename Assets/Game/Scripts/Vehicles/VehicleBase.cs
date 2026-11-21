@@ -181,6 +181,7 @@ namespace FPSBase.Vehicles
             if (!hullKnown) FindHull();
             // sample the ground just outside the machine's footprint, all the way round
             float sum = 0f; int deep = 0, n = 0;
+            int[] sideN = new int[4], sideDeep = new int[4];
             Vector3 lo = hullMin - new Vector3(0.3f, 0f, 0.3f), hi = hullMax + new Vector3(0.3f, 0f, 0.3f);
             for (int i = 0; i < 12; i++)
             {
@@ -191,11 +192,13 @@ namespace FPSBase.Vehicles
                 Vector3 p = transform.TransformPoint(new Vector3(x, hullMinY, z));
                 if (!site.Contains(p)) continue;
                 float d = site.SurfaceY(p) - p.y;
-                sum += Mathf.Max(0f, d); n++;
-                if (d > 0.15f) deep++;
+                sum += Mathf.Max(0f, d); n++; sideN[side]++;
+                if (d > 0.15f) { deep++; sideDeep[side]++; }
             }
             BuryDepth = n > 0 ? sum / n : 0f;
+            // dirt up against every side: backed up to a bank or parked down in a pit with one side open isn't buried
             bool surrounded = n > 0 && deep >= n * 0.65f;
+            for (int k = 0; k < 4; k++) if (sideN[k] > 0 && sideDeep[k] * 2 < sideN[k]) surrounded = false;
             if (body == null) body = GetComponent<Rigidbody>();
             if (!Buried)
             {
@@ -204,8 +207,8 @@ namespace FPSBase.Vehicles
             }
             else
             {
-                // dug out, or (with someone in it) only shallow enough to drive out of
-                if (BuryDepth < BuryAt * 0.5f || (Occupied && BuryDepth < hullHeight * 0.4f)) Unbury();
+                // dug out (or one side dug clear to drive out of), or (with someone in it) only shallow enough to drive out of
+                if (BuryDepth < BuryAt * 0.5f || !surrounded || (Occupied && BuryDepth < hullHeight * 0.4f)) Unbury();
                 else if (body != null && !body.isKinematic)
                 {
                     // something released it (a script, the test, a respawn): when it's dug out, it stays a physics body
@@ -303,14 +306,14 @@ namespace FPSBase.Vehicles
             {
                 label = "Reposition   (unstick it / set it upright nearby)",
                 enabled = !friend && !Occupied && !(Buried && BuryDepth > hullHeight * 0.4f),
-                note = friend ? "a friend is in it" : "it's buried: dig it out first",
+                note = friend ? "a friend is in it" : $"it's buried ({BuryDepth:0.0} m of dirt round it): dig one side clear first",
                 run = p => Reposition(),
             });
             list.Add(new InteractOption
             {
                 label = "Call a tow truck   (pick a spot on the map, you ride along)",
                 enabled = !friend && !Occupied && !Buried,
-                note = friend ? "a friend is in it" : "it's buried: dig it out first",
+                note = friend ? "a friend is in it" : $"it's buried ({BuryDepth:0.0} m of dirt round it): dig one side clear first",
                 run = p => GameUI.Instance.OpenTow(this),
             });
         }

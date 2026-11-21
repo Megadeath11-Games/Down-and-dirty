@@ -71,6 +71,7 @@ namespace FPSBase.DebugTools
                         case "lip": yield return BucketLipTests(); break;
                         case "graderride": yield return GraderRideTests(); break;
                         case "blockyard": yield return BlockYardTests(); break;
+                        case "mixerpit": yield return MixerPitTests(); break;
                         case "slosh": yield return SloshTests(DigSite.Instance, FindFirstObjectByType<DumpPickup>()); break;
                         case "materials": yield return MaterialsTests(DigSite.Instance, Economy.Instance, FindFirstObjectByType<WashPlant>(), FindFirstObjectByType<DumpPickup>()); break;
                         default: log.AppendLine($"INFO  unknown quick test '{part}'"); break;
@@ -3568,6 +3569,126 @@ namespace FPSBase.DebugTools
         /// let go by a set-down block snap into a wall off it (end to end, on top over the joint, at a corner);
         /// a block on the chain turns with the keys; the phone's clean up collects only the loose ones.
         /// </summary>
+        /// <summary>A mixer truck parked down in a dug pit, a little spilled dirt round its wheels: not buried, it can be repositioned.</summary>
+        IEnumerator MixerPitTests()
+        {
+            var site = DigSite.Instance;
+            var dealer = FindFirstObjectByType<VehicleDealer>();
+            int li = dealer != null ? System.Array.FindIndex(dealer.listings, l => l.name == "Concrete Mixer Truck") : -1;
+            Check(site != null && li >= 0, "a dig site and the mixer truck at the dealer");
+            if (site == null || li < 0) yield break;
+            Vector3 at = new Vector3(70f, 0f, -150f); at.y = site.SurfaceY(at);
+            Check(site.Contains(at), $"the test spot is in the dig site ({at})");
+            var go = Instantiate(dealer.listings[li].prefab, at + Vector3.up * 0.6f, Quaternion.identity);
+            var v = go.GetComponent<VehicleBase>();
+            for (int i = 0; i < 50 * 3; i++) yield return new WaitForFixedUpdate();
+            var opts = new System.Collections.Generic.List<InteractOption>();
+            bool CanReposition() { opts.Clear(); v.GetOptions(opts); var o = opts.Find(x => x.label.StartsWith("Reposition")); return o != null && o.enabled; }
+            log.AppendLine($"INFO  mixer on flat dirt: buried {v.Buried} {v.BuryDepth:0.00} m, {v.BuryDebug}");
+            Check(!v.Buried && CanReposition(), $"on flat dirt the mixer isn't buried and can be repositioned ({v.BuryDepth:0.00} m)");
+
+            // dig a pit round it, a metre and a half deep and a little bigger than the truck, and let it settle in
+            var lb = v.LocalBounds;
+            Vector3 c = v.transform.TransformPoint(lb.center);
+            for (int pass = 0; pass < 6; pass++)
+            {
+                for (float x = -lb.extents.x - 1.2f; x <= lb.extents.x + 1.2f; x += 0.5f)
+                    for (float z = -lb.extents.z - 1.2f; z <= lb.extents.z + 1.2f; z += 0.5f)
+                    {
+                        Vector3 q = new Vector3(c.x + x, at.y - 1.5f, c.z + z);
+                        if (site.SurfaceY(q) > q.y + 0.05f) DigSite.DigAnywhere(q + Vector3.up * 0.25f, 0.5f, 5f);
+                    }
+                site.SettleNow();
+                for (int i = 0; i < 25; i++) yield return new WaitForFixedUpdate();
+            }
+            // spilled dirt round the back wheels
+            foreach (float sx in new[] { -1f, 1f })
+                for (float z = -lb.extents.z; z < -lb.extents.z + 2.5f; z += 0.6f)
+                {
+                    Vector3 q = v.transform.TransformPoint(new Vector3(sx * (lb.extents.x + 0.4f), 0f, lb.center.z + z));
+                    q.y = site.SurfaceY(q) + 0.3f;
+                    MaterialTransfer.PourInstant(q, MaterialLoad.Mix(0.12f, 0f, 0f, 0f, 0f), null);
+                }
+            site.SettleNow();
+            for (int i = 0; i < 50 * 4; i++) yield return new WaitForFixedUpdate();
+            log.AppendLine($"INFO  mixer in the pit: {v.transform.position.y - at.y:+0.00;-0.00} m down, buried {v.Buried} {v.BuryDepth:0.00} m, {v.BuryDebug}");
+            Check(!v.Buried && CanReposition(), $"parked down in a dug pit with dirt spilled round its wheels, the mixer isn't buried and can be repositioned ({v.BuryDepth:0.00} m, {v.transform.position.y - at.y:+0.00;-0.00} m down)");
+
+            // backed into a dug bay: dirt banked high behind it and along both sides, only the front open
+            for (int layer = 0; layer < 14; layer++)
+            {
+                for (float x = -lb.extents.x - 0.6f; x <= lb.extents.x + 0.6f; x += 0.6f)
+                {
+                    Vector3 q = v.transform.TransformPoint(new Vector3(x, 0f, lb.min.z - 0.7f)); q.y = site.SurfaceY(q) + 0.3f;
+                    MaterialTransfer.PourInstant(q, MaterialLoad.Mix(0.3f, 0f, 0f, 0f, 0f), null);
+                }
+                foreach (float sx in new[] { lb.min.x - 0.7f, lb.max.x + 0.7f })
+                    for (float z = lb.min.z; z <= lb.max.z - 1.5f; z += 0.7f)
+                    {
+                        Vector3 q = v.transform.TransformPoint(new Vector3(sx, 0f, z)); q.y = site.SurfaceY(q) + 0.3f;
+                        MaterialTransfer.PourInstant(q, MaterialLoad.Mix(0.3f, 0f, 0f, 0f, 0f), null);
+                    }
+                site.SettleNow();
+                for (int i = 0; i < 20; i++) yield return new WaitForFixedUpdate();
+            }
+            for (int i = 0; i < 50 * 3; i++) yield return new WaitForFixedUpdate();
+            Vector3 behind = v.transform.TransformPoint(new Vector3(0f, 0f, lb.min.z - 0.5f));
+            log.AppendLine($"INFO  mixer against the bank: bank {site.SurfaceY(behind) - v.transform.position.y:0.00} m above it, buried {v.Buried} {v.BuryDepth:0.00} m");
+            var tow = opts.Find(x => x.label.StartsWith("Call a tow"));
+            Check(!v.Buried && CanReposition() && tow != null && tow.enabled, $"backed into a dug bay (banks behind and both sides, the front open), the mixer isn't buried and can be repositioned ({v.BuryDepth:0.00} m of dirt round it on average)");
+            yield return ShotAt(v.transform.position + new Vector3(9f, 6f, -9f), v.transform.position, "Screenshots/mixer_pit.png");
+
+            // now really bury it, on fresh flat ground: dirt in rings all round, over the wheels
+            Vector3 fresh = at + new Vector3(0f, 0f, 22f); fresh.y = site.SurfaceY(fresh);
+            var vrb = v.GetComponent<Rigidbody>();
+            vrb.isKinematic = false;
+            v.transform.SetPositionAndRotation(fresh + Vector3.up * 0.6f, Quaternion.identity);
+            vrb.linearVelocity = Vector3.zero; vrb.angularVelocity = Vector3.zero;
+            Physics.SyncTransforms();
+            for (int i = 0; i < 50 * 3; i++) yield return new WaitForFixedUpdate();
+            Vector3 mc = v.transform.TransformPoint(lb.center);
+            for (int layer = 0; layer < 24 && !v.Buried; layer++)
+            {
+                // (evenly all the way round the long rectangle of it)
+                float ex = lb.extents.x + 0.6f, ez = lb.extents.z + 0.6f, per = 4f * (ex + ez);
+                for (float u = 0f; u < per; u += 0.7f)
+                {
+                    float w = u; Vector3 o;
+                    if (w < 2f * ex) o = new Vector3(-ex + w, 0f, ez);
+                    else if ((w -= 2f * ex) < 2f * ez) o = new Vector3(ex, 0f, ez - w);
+                    else if ((w -= 2f * ez) < 2f * ex) o = new Vector3(ex - w, 0f, -ez);
+                    else { w -= 2f * ex; o = new Vector3(-ex, 0f, -ez + w); }
+                    Vector3 q = mc + v.transform.right * o.x + v.transform.forward * o.z;
+                    q.y = site.SurfaceY(q) + 0.3f;
+                    MaterialTransfer.PourInstant(q, MaterialLoad.Mix(0.3f, 0f, 0f, 0f, 0f), null);
+                }
+                site.SettleNow();
+                for (int i = 0; i < 40; i++) yield return new WaitForFixedUpdate();
+            }
+            string Sides() { var sb = new StringBuilder(); foreach (var o in new[] { new Vector3(0f, 0f, lb.max.z + 0.3f), new Vector3(lb.max.x + 0.3f, 0f, lb.center.z), new Vector3(0f, 0f, lb.min.z - 0.3f), new Vector3(lb.min.x - 0.3f, 0f, lb.center.z) }) sb.Append($" {site.SurfaceY(v.transform.TransformPoint(o)) - v.transform.position.y:+0.00;-0.00}"); return sb.ToString(); }
+            log.AppendLine($"INFO  mixer backfilled: buried {v.Buried} {v.BuryDepth:0.00} m, dirt front/right/back/left:{Sides()}");
+            Check(v.Buried, $"backfilled all round, the mixer counts as buried ({v.BuryDepth:0.00} m of dirt round it)");
+            // dig just the front clear, down to its wheels: it can drive out that way, so it's not buried any more
+            float wheelY = v.transform.position.y;
+            for (int pass = 0; pass < 6; pass++)
+            {
+                for (float x = -lb.extents.x - 1.5f; x <= lb.extents.x + 1.5f; x += 0.5f)
+                    for (float z = 0.1f; z < 4f; z += 0.5f)
+                    {
+                        Vector3 q = v.transform.TransformPoint(new Vector3(x, 0f, lb.max.z + z)); q.y = wheelY - 0.3f;
+                        DigSite.DigAnywhere(q, 0.5f, 5f);
+                    }
+                site.SettleNow();
+                for (int i = 0; i < 20; i++) yield return new WaitForFixedUpdate();
+            }
+            for (int i = 0; i < 50 * 2; i++) yield return new WaitForFixedUpdate();
+            log.AppendLine($"INFO  mixer with its front dug clear: buried {v.Buried} {v.BuryDepth:0.00} m, dirt front/right/back/left:{Sides()}");
+            Check(!v.Buried && CanReposition(), $"with its front dug clear, the mixer isn't buried any more and can be repositioned ({v.BuryDepth:0.00} m of dirt round the rest)");
+            yield return ShotAt(v.transform.position + new Vector3(9f, 6f, 9f), v.transform.position, "Screenshots/mixer_dugout.png");
+            Destroy(go);
+            yield return null;
+        }
+
         IEnumerator BlockYardTests()
         {
             var yard = BlockYard.Instance;
@@ -4223,7 +4344,7 @@ namespace FPSBase.DebugTools
             Check(plant != null && plant.chute != null, "the concrete plant is there, with its loading chute");
             var dealer = FindFirstObjectByType<VehicleDealer>();
             int li = dealer != null ? System.Array.FindIndex(dealer.listings, l => l.name == "Concrete Mixer Truck") : -1;
-            Check(li >= 0 && li == dealer.listings.Length - 1 && dealer.listings[li].prefab != null, $"the mixer truck is on the end of the dealer's list ({li} of {(dealer != null ? dealer.listings.Length : 0)})");
+            Check(li >= 0 && dealer.listings[li].prefab != null, $"the dealer sells the mixer truck ({li} of {(dealer != null ? dealer.listings.Length : 0)})");
             if (plant == null || li < 0 || dealer.listings[li].prefab == null) yield break;
             Vector3 ch = plant.chute.position;
             var go = Instantiate(dealer.listings[li].prefab, VehicleDealer.GroundAt(ch) + Vector3.up * 0.5f, Quaternion.identity);

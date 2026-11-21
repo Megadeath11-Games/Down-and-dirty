@@ -13,6 +13,10 @@ namespace FPSBase.Core
         /// <summary>Newest first.</summary>
         public static readonly Post[] Blog =
         {
+            new Post { date = "Update 43  ·  Nov 21, 2026", title = "Not buried when it isn't",
+                body =
+                "• A machine that had dirt round it once stayed \"buried\" until almost all the dirt all the way round was gone, so a truck you'd dug out on one side, or backed up to a bank, still wouldn't let you reposition it or call a tow. Now a machine only counts as buried with dirt banked up against every side, and digging one side clear (down to its wheels or tracks) frees it.\n" +
+                "• When it really is buried, the greyed-out Reposition and Tow say how deep the dirt round it is." },
             new Post { date = "Update 42  ·  Nov 21, 2026", title = "Block walls that snap together, and a drive-through block yard",
                 body =
                 "• Concrete blocks now build a proper wall. Set the first one down where you want the wall, and every block you let go off the excavator's chain near it squares up to it and slides into place: on the end of it, beside it, or on top across the joint like brickwork. Let one go away from the others and it stays where you put it, as the start of a new wall.\n" +
@@ -368,11 +372,13 @@ namespace FPSBase.Core
                 "• Dozer berms build up properly in front of the blade." },
         };
 
-        public const string TestListVersion = "2026-11-21g";
+        public const string TestListVersion = "2026-11-21h";
 
         /// <summary>What's new in this build to try out.</summary>
         public static readonly string[] TestList =
         {
+            "Mixer truck (or any machine) parked in the dirt field against a bank or in a dug hole: look at it: Reposition and Call a tow truck are there to use",
+            "Backfill dirt all round a machine, then dig one side clear down to its wheels: it's free (Reposition works, it drives out)",
             "Block yard: drive a semi with its lowboy off the end of West Ave along the yard's south lane: it fits, stops in the painted bay, and drives on out past the concrete plant",
             "Block yard: with a trailer in the bay, press Buy on lock blocks five or six times fast: they load in neat rows, none fly off",
             "Excavator chain: lift a block, set it down, then let the next go near its end: it squares up and butts on; one over the joint sits on top across it",

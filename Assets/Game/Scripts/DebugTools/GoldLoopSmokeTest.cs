@@ -1867,6 +1867,16 @@ namespace FPSBase.DebugTools
             for (int i = 0; i < 60; i++) yield return new WaitForFixedUpdate();
             ex.TestControl(new MiniExcavator.Inputs());
             for (int i = 0; i < 150; i++) yield return new WaitForFixedUpdate();
+            {
+                string under = "";
+                foreach (var hh in Physics.RaycastAll(blk.transform.position + Vector3.up * 0.3f, Vector3.down, 1.5f, ~0, QueryTriggerInteraction.Ignore))
+                    if (!hh.collider.transform.IsChildOf(blk.transform)) under += $" {hh.collider.name}@{hh.distance - 0.3f:0.00}";
+                var hb = blk.Size * 0.5f + Vector3.one * 0.05f;
+                foreach (var oc in Physics.OverlapBox(blk.transform.position + blk.transform.up * (blk.Size.y * 0.5f), hb, blk.transform.rotation, ~0, QueryTriggerInteraction.Ignore))
+                    if (!oc.transform.IsChildOf(blk.transform)) under += $" touching {oc.name}({(oc.attachedRigidbody != null ? oc.attachedRigidbody.name + (oc.attachedRigidbody.isKinematic ? " kin" : "") : "static")})";
+                under += $" up {blk.transform.up.y:0.00} last touch {FPSBase.City.ConcreteBlock.LastTouch}";
+                log.AppendLine($"INFO  let go block: under it{under}; pinned {blk.Pinned}, kinematic {blk.Body.isKinematic}, speed {blk.Body.linearVelocity.magnitude:0.00}, surface {site.SurfaceY(blk.transform.position):0.00}, y {blk.transform.position.y:0.00}");
+            }
             Check(blk.Registered, $"set down on the dig ground, it holds the ground it stands on ({(blk.Registered ? "yes" : "no")}, {blk.transform.position.y - site.SurfaceY(blk.transform.position):0.00} m up)");
             ex.TestControl(null);
             Destroy(blk.gameObject); Destroy(ex.gameObject);
@@ -3652,6 +3662,54 @@ namespace FPSBase.DebugTools
             site.Deposit(top, MaterialLoad.Mix(0.4f, 0f, 0f, 0f, 0f), 0.3f);
             float under1 = site.SurfaceY(at), beside1 = site.LooseVolume(at, 2.2f, out _);
             Check(under1 - under0 < 0.01f && beside1 - beside0 > 0.3f, $"dirt poured on a block slides off beside it, not into the ground under it ({(under1 - under0) * 100f:0} cm under, {beside1 - beside0:0.00} of 0.40 m³ beside)");
+            // clods rained on it and against its sides, and dirt heaped up round it: it stays where it was set down
+            for (int i = 0; i < 50; i++) yield return new WaitForFixedUpdate();
+            Check(blk.Pinned, "a block set down on the ground is pinned there");
+            Vector3 p0 = blk.transform.position; Quaternion r0 = blk.transform.rotation;
+            for (int k = 0; k < 12; k++)
+            {
+                Vector3 side = Quaternion.Euler(0f, k * 30f, 0f) * Vector3.right;
+                DirtGrains.Pour(blk.transform.position + side * 1.6f + Vector3.up * 1.8f, MaterialLoad.Mix(0.25f, 0f, 0f, 0f, 0.5f), null, -side * 5f + Vector3.down * 2f);
+                DirtGrains.Pour(blk.transform.position + Vector3.up * (blk.Size.y + 1.5f), MaterialLoad.Mix(0.15f, 0f, 0f, 0f, 0f), null, Vector3.down * 3f);
+                site.Deposit(blk.transform.position + side * 0.75f + Vector3.up * 0.5f, MaterialLoad.Mix(0.3f, 0f, 0f, 0f, 0f), 0.5f);
+                for (int i = 0; i < 10; i++) yield return new WaitForFixedUpdate();
+            }
+            for (int i = 0; i < 50 * 4; i++) yield return new WaitForFixedUpdate();
+            float moved = Vector3.Distance(blk.transform.position, p0), turned = Quaternion.Angle(blk.transform.rotation, r0);
+            log.AppendLine($"INFO  set-down barrier block under clods and heaped dirt: moved {moved * 100f:0.0} cm, turned {turned:0.0}°, pinned {blk.Pinned}");
+            Check(moved < 0.02f && turned < 1f, $"clods and dirt heaped round a set-down block don't shove it ({moved * 100f:0.0} cm, {turned:0.0}°)");
+            // a machine does move it: a dozer driven into it, blade up (on firm ground, clear of the loose bed above)
+            var dealer = FindFirstObjectByType<VehicleDealer>();
+            GameObject dzPrefab = null;
+            foreach (var l in dealer.listings) if (dzPrefab == null && l.prefab != null && l.prefab.GetComponent<Bulldozer>() != null) dzPrefab = l.prefab;
+            if (dzPrefab != null)
+            {
+                Vector3 bAt = at + Vector3.right * 12f; bAt.y = site.SurfaceY(bAt);
+                var blk2 = FPSBase.City.BlockYard.Spawn(5, bAt + Vector3.up * 0.05f, Quaternion.identity);
+                for (int i = 0; i < 50 * 3; i++) yield return new WaitForFixedUpdate();
+                Check(blk2.Pinned, "a block set down on firm ground is pinned there too");
+                Destroy(blk.gameObject); blk = blk2;
+                Vector3 bp = blk.transform.position;
+                Vector3 from = bp + Vector3.back * 9f; from.y = site.SurfaceY(from);
+                var d = Instantiate(dzPrefab, new Vector3(0f, -50f, 0f), Quaternion.identity).GetComponent<Bulldozer>();
+                var drb = d.GetComponent<Rigidbody>();
+                drb.isKinematic = true;
+                d.transform.SetPositionAndRotation(from + Vector3.up * 0.3f, Quaternion.identity);
+                d.SetBlade(d.bladeRange.y);
+                Physics.SyncTransforms();
+                yield return null;
+                drb.isKinematic = false;
+                for (int i = 0; i < 80; i++) yield return new WaitForFixedUpdate();
+                d.fuel = d.fuelCapacity;
+                d.TestDrive(1f);
+                int sh0 = FPSBase.City.ConcreteBlock.Shoves; float closest = 99f; FPSBase.City.ConcreteBlock.LastTouch = "";
+                for (int i = 0; i < 50 * 10; i++) { d.SetBlade(d.bladeRange.y); yield return new WaitForFixedUpdate(); closest = Mathf.Min(closest, Vector3.Distance(d.transform.position, bp)); }
+                d.TestDrive(0f);
+                float shoved = Vector3.Distance(new Vector3(blk.transform.position.x, 0f, blk.transform.position.z), new Vector3(bp.x, 0f, bp.z));
+                log.AppendLine($"INFO  dozer driven into the set-down block: block moved {shoved:0.00} m, knocked loose {FPSBase.City.ConcreteBlock.Shoves - sh0} times, last touch {FPSBase.City.ConcreteBlock.LastTouch}, dozer closest {closest:0.0} m");
+                Check(shoved > 0.3f, $"a machine driven into a set-down block pushes it ({shoved:0.00} m)");
+                Destroy(d.gameObject);
+            }
             Destroy(blk.gameObject);
             yield return null;
         }

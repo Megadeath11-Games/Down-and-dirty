@@ -211,14 +211,95 @@ namespace FPSBase.City
         /// <summary>How far the loose dirt under it went down when it was last set down (m, for the test).</summary>
         public float LastSink { get; private set; }
 
+        // ------------------------------------------------------------------ set down, it stays put
+
+        /// <summary>
+        /// Set down on the ground it's pinned where it stands: dirt and clods landing round it, the ground rising beside
+        /// it, a block knocked against it don't shift it. Only equipment moves it (a machine pushing it, a block on a
+        /// chain swung into it, hooking it), or the ground going from under it.
+        /// </summary>
+        public bool Pinned { get; private set; }
+        float pinCheck;
+
+        void Pin()
+        {
+            if (Pinned || !NetMine || HookedBy != null || ChainedTo != null) return;
+            var body = Body;
+            body.linearVelocity = Vector3.zero; body.angularVelocity = Vector3.zero;
+            body.isKinematic = true;
+            Pinned = true;
+        }
+
+        void Unpin()
+        {
+            if (!Pinned) return;
+            Pinned = false;
+            if (ChainedTo == null) { Body.isKinematic = !NetMine; Body.WakeUp(); }
+        }
+
+        /// <summary>Is this collider part of a machine (or something on one's chain)? Those move a set-down block.</summary>
+        static bool IsEquipment(Collider c)
+        {
+            if (c == null) return false;
+            if (c.GetComponentInParent<VehicleBase>() != null || c.GetComponentInParent<Trailer>() != null) return true;
+            var b = c.GetComponentInParent<ConcreteBlock>();
+            return b != null && (b.HookedBy != null || b.ChainedTo != null);
+        }
+
+        static readonly Collider[] near = new Collider[32];
+        bool TouchingEquipment()
+        {
+            Vector3 h = Size * 0.5f + Vector3.one * 0.06f;
+            int n = Physics.OverlapBoxNonAlloc(transform.position + transform.up * (Size.y * 0.5f), h, near, transform.rotation, ~0, QueryTriggerInteraction.Ignore);
+            for (int i = 0; i < n; i++) if (!near[i].transform.IsChildOf(transform) && IsEquipment(near[i])) return true;
+            return false;
+        }
+
+        void OnCollisionEnter(Collision c) => Shoved(c);
+        void OnCollisionStay(Collision c) => Shoved(c);
+        void Shoved(Collision c)
+        {
+            if (c.collider != null) LastTouch = $"{c.collider.name} ({(c.collider.attachedRigidbody != null ? c.collider.attachedRigidbody.name : "static")}), pinned {Pinned}";
+            if (!Pinned || !IsEquipment(c.collider)) return;
+            Unpin(); Unregister(); still = 0f; Shoves++;
+        }
+        /// <summary>How many times equipment has knocked a set-down block loose (for the test).</summary>
+        public static int Shoves;
+        /// <summary>What last touched a block (for the test).</summary>
+        public static string LastTouch = "";
+
+        /// <summary>Pinned: the ground dug (or slumped) from under it lets it drop.</summary>
+        void PinGround(float dt)
+        {
+            if ((pinCheck -= dt) > 0f) return;
+            pinCheck = 0.25f;
+            var site = restSite ?? DigSite.At(transform.position);
+            if (site == null || OnABlock()) return;
+            // the ground under its corners (whichever way up it lies) against its lowest corner
+            Vector3 h = Size * 0.5f;
+            float hi = float.MinValue, lowY = float.MaxValue;
+            for (int i = 0; i < 8; i++)
+            {
+                Vector3 p = transform.TransformPoint(new Vector3((i & 1) == 0 ? -h.x : h.x, (i & 2) == 0 ? 0f : Size.y, (i & 4) == 0 ? -h.z : h.z));
+                lowY = Mathf.Min(lowY, p.y);
+                if (site.Contains(p)) hi = Mathf.Max(hi, site.SurfaceY(p));
+            }
+            if (hi > float.MinValue && hi < lowY - 0.12f) { Unpin(); Unregister(); still = 0f; }
+        }
+
         void RestCheck(float dt)
         {
+            if (Pinned && (HookedBy != null || ChainedTo != null || !NetMine)) Unpin();
+            if (Pinned) PinGround(dt);
             bool moving = (transform.position - lastPos).sqrMagnitude > 1e-6f || Quaternion.Angle(transform.rotation, lastRot) > 0.05f;
             lastPos = transform.position; lastRot = transform.rotation;
             // holding the ground, it lets go only when it's really moved (lifted, shoved, toppled), not for a
             // millimetre of settling: let go, the dirt round it ran in under it and kept nudging it
             if (Registered && HookedBy == null && ChainedTo == null)
             {
+                // pinned once nothing of a machine is against it (a block pinned against a bucket or a track would
+                // be an immovable lump the machine jolts off)
+                if (!Pinned && NetMine && (pinCheck -= dt) <= 0f) { pinCheck = 0.3f; if (!TouchingEquipment()) Pin(); }
                 if ((transform.position - regPos).sqrMagnitude > 0.0009f || Quaternion.Angle(transform.rotation, regRot) > 2f) { Unregister(); still = 0f; }
                 return;
             }
@@ -233,9 +314,16 @@ namespace FPSBase.City
             var site = DigSite.At(transform.position);
             if (site == null || !site.Contains(transform.position)) return;
             // only standing on the dirt (or on blocks that do): resting on a machine or a heap of something else it holds nothing
-            if (transform.position.y - site.SurfaceY(transform.position) > 0.25f && !OnABlock()) { still = -2f; return; }
-            restCells.Clear();
+            // (measured from its lowest corner, so a block knocked over onto its side still holds its ground)
             Vector3 h = Size * 0.5f;
+            Vector3 low = transform.position; float lowY = float.MaxValue;
+            for (int i = 0; i < 8; i++)
+            {
+                Vector3 c = transform.TransformPoint(new Vector3((i & 1) == 0 ? -h.x : h.x, (i & 2) == 0 ? 0f : Size.y, (i & 4) == 0 ? -h.z : h.z));
+                if (c.y < lowY) { lowY = c.y; low = c; }
+            }
+            if (lowY - site.SurfaceY(low) > 0.25f && !OnABlock()) { still = -2f; return; }
+            restCells.Clear();
             float top = float.MinValue;
             var b = new Bounds(transform.position, Vector3.zero);
             for (int i = 0; i < 8; i++)
@@ -270,6 +358,7 @@ namespace FPSBase.City
                     regPos = transform.position;
                 }
             }
+            pinCheck = 0f; // (set down: pinned as soon as no machine is against it; only equipment moves it then)
         }
 
         bool OnABlock()
@@ -285,6 +374,7 @@ namespace FPSBase.City
 
         void Unregister()
         {
+            Unpin();
             if (restSite == null) return;
             restSite.RemoveSolid(this);
             restSite = null;

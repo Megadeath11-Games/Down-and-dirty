@@ -13,6 +13,12 @@ namespace FPSBase.Core
         /// <summary>Newest first.</summary>
         public static readonly Post[] Blog =
         {
+            new Post { date = "Update 33  ·  Nov 20, 2026", title = "Chain crash fixed, and set-down blocks stay put",
+                body =
+                "• The game no longer crashes when you let the excavator's chain down (H). Just let down, the chain is a few millimetres long with no link to draw yet, and asking the graphics card to draw no links at all crashed the game.\n" +
+                "• A concrete block set down on the ground stays where you put it. Clods landing on it or rolling against it, dirt heaped up round it and the ground rising beside it no longer shove it about.\n" +
+                "• Only equipment moves a set-down block: drive a machine into it and it pushes, swing a block on the chain into it, or hook it and lift it. Dig the ground out from under it and it drops.\n" +
+                "• A block knocked over onto its side still holds back the dirt round it." },
             new Post { date = "Update 32  ·  Nov 20, 2026", title = "Loader wheels and bucket, trailer grip and sway, blocks, the lifting chain, and smooth layers in cut walls",
                 body =
                 "• The wheel loader has its front wheels back. Both left wheels were saved under one name, so the rear one took the front one's tyre away.\n" +
@@ -299,11 +305,14 @@ namespace FPSBase.Core
                 "• Dozer berms build up properly in front of the blade." },
         };
 
-        public const string TestListVersion = "2026-11-20i";
+        public const string TestListVersion = "2026-11-20j";
 
         /// <summary>What's new in this build to try out.</summary>
         public static readonly string[] TestList =
         {
+            "Excavator chain: press H in the excavator: the chain runs out and the game keeps running",
+            "Concrete block: set one down, then dump and push dirt round and onto it: it does not move",
+            "Concrete block: drive a dozer or loader into a set-down block: it gets pushed",
             "Wheel loader: all four wheels are there",
             "Wheel loader: bucket flat on the ground, drive into a heap: it fills across its width, curl back to top it up, raise and carry it to a truck without spilling",
             "Wheel loader: arms right down on flat ground and drive: it scrapes up a load and stays on its wheels",

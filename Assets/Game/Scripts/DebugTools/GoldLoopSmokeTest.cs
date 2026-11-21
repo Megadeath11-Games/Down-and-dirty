@@ -3973,6 +3973,70 @@ namespace FPSBase.DebugTools
             Check(back != null && back.State == FPSBase.City.SiteState.ReadyForHouse && back.ConcreteSquares == squares && Mathf.Abs(back.ConcretePoured - poured) < 0.05f,
                 $"the poured foundation is saved and loaded back ({(back != null ? $"{back.State}, {back.ConcreteSquares} of {squares} squares, {back.ConcretePoured:0.0} m³" : "missing")})");
             foreach (var q in new System.Collections.Generic.List<FPSBase.City.ConcretePuddle>(FPSBase.City.ConcretePuddle.All)) if (q != null) Destroy(q.gameObject);
+            if (back != null) yield return BuildHouseTests(con, back, eye);
+        }
+
+        /// <summary>The house on the cured foundation: order it, the crew puts it up, it gets an address, sell it, save it.</summary>
+        IEnumerator BuildHouseTests(FPSBase.City.Construction con, FPSBase.City.ConstructionSite s, Vector3 eye)
+        {
+            var plan = s.Plan; var eco = Economy.Instance;
+            int houses0 = FPSBase.City.House.All.Count;
+            Check(plan.BuildCost > 0 && plan.SalePrice > plan.price + plan.BuildCost + plan.ConcreteVolume * 145f,
+                $"the house sells for more than it cost (permit ${plan.price:N0} + concrete ${plan.ConcreteVolume * 145f:N0} + build ${plan.BuildCost:N0}, sells for ${plan.SalePrice:N0})");
+            float m0 = eco.Money;
+            bool ordered = s.OrderHouse(out string why);
+            Check(ordered && s.HouseStarted && s.HouseObject != null && (eco.Unlimited || Mathf.Abs(m0 - eco.Money - plan.BuildCost) < 1f),
+                $"the house is ordered and paid for ({(ordered ? $"${m0 - eco.Money:N0} spent{(eco.Unlimited ? ", unlimited money" : "")}" : why)})");
+            Check(!s.OrderHouse(out _), "it can't be ordered twice");
+            // the walls go up first
+            float t0 = Time.time;
+            while (s.HouseProgress < 0.3f && Time.time - t0 < plan.BuildSeconds) yield return null;
+            var walls = s.HouseObject != null ? s.HouseObject.transform.Find("Walls") : null;
+            var roof = s.HouseObject != null ? s.HouseObject.transform.Find("Roof") : null;
+            Check(walls != null && roof != null && walls.localScale.y > 0.2f && walls.localScale.y < 0.95f && !roof.gameObject.activeSelf,
+                $"the walls are going up, no roof yet ({s.HouseProgress * 100f:0}%, walls {(walls != null ? walls.localScale.y : 0f):0.00}, roof {(roof != null && roof.gameObject.activeSelf ? "on" : "off")})");
+            yield return ShotAt(eye, s.Center + Vector3.up * 1.5f, "Screenshots/house_going_up.png");
+            s.TestFinishHouse();
+            yield return null; yield return null;
+            var h = s.HouseHere;
+            Check(s.State == FPSBase.City.SiteState.Completed && h != null && h.playerBuilt && roof != null && roof.gameObject.activeSelf,
+                $"the crew finishes it: walls and roof ({s.State}; {s.Status})");
+            Check(h != null && h.Address.Length > 3 && s.Address == h.Address && FPSBase.City.House.All.Count == houses0 && !System.Linq.Enumerable.Contains(FPSBase.City.House.All, h),
+                $"it has an address and isn't one of the customers' houses ({(h != null ? h.Address : "none")}, {FPSBase.City.House.All.Count} town houses)");
+            // you can look at it
+            var col = s.HouseObject.GetComponentInChildren<Collider>();
+            var link = col != null ? col.GetComponent<FPSBase.City.HouseLink>() : null;
+            Check(link != null && link.Prompt.Contains(s.Address), $"looking at it says whose it is ({(link != null ? link.Prompt : "nothing to look at")})");
+            // the house stands on the slab
+            float floor = s.HouseObject.transform.position.y;
+            Check(Mathf.Abs(floor - s.FloorY) < 0.01f && s.Site.SurfaceY(s.Center) <= floor + 0.05f, $"the house stands on the slab (floor {floor - s.PadY:+0.00;-0.00} m from the pad, ground {s.Site.SurfaceY(s.Center) - s.PadY:+0.00;-0.00} m)");
+            yield return ShotAt(eye, s.Center + Vector3.up * 2f, "Screenshots/house_built.png");
+            // sell it
+            float m1 = eco.Money;
+            bool sold = s.SellHouse(out why);
+            Check(sold && s.Sold && Mathf.Abs(eco.Money - m1 - plan.SalePrice) < 1f && s.Buyer.Length > 2 && h.Owner.Contains(s.Buyer.Split(' ')[0]),
+                $"sold for ${eco.Money - m1:N0} to {s.Buyer} ({(sold ? h.Owner : why)})");
+            Check(!s.SellHouse(out _), "it can't be sold twice");
+            // saved and loaded back
+            string addr = s.Address, buyer = s.Buyer;
+            var ms = new MemoryStream();
+            con.Write(new BinaryWriter(ms));
+            ms.Position = 0;
+            con.Read(new BinaryReader(ms));
+            yield return null;
+            var back = con.Sites.Count == 1 ? con.Sites[0] : null;
+            Check(back != null && back.State == FPSBase.City.SiteState.Completed && back.Sold && back.Buyer == buyer && back.Address == addr && back.HouseObject != null && back.HouseHere != null,
+                $"the sold house is saved and loaded back ({(back != null ? $"{back.State}, {back.Address}, {back.Buyer}" : "missing")})");
+            // a friend's game: the sites merge by id (a copy that's behind catches up, one they gave up goes)
+            if (back != null)
+            {
+                var ms2 = new MemoryStream();
+                con.WriteNet(new BinaryWriter(ms2));
+                ms2.Position = 0;
+                con.ReadNet(new BinaryReader(ms2));
+                yield return null;
+                Check(con.Sites.Count == 1 && con.Sites[0] == back && back.Sold, $"a friend's copy of the same sites merges in without doubling them ({con.Sites.Count} site{(con.Sites.Count == 1 ? "" : "s")})");
+            }
         }
 
         IEnumerator MenuDigTests()

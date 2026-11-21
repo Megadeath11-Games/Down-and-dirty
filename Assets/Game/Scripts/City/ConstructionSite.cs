@@ -162,6 +162,7 @@ namespace FPSBase.City
         {
             if (Preview || Plan == null || Site == null) return;
             ConcreteUpdate(Time.deltaTime);
+            HouseUpdate(Time.deltaTime);
             if ((checkTimer -= Time.deltaTime) > 0f) return;
             checkTimer = 0.5f;
             Check();
@@ -312,9 +313,9 @@ namespace FPSBase.City
                 // the whole pad in one colour while it's being moved about
                 foreach (var t in PreviewTiles()) AddBox(bad ? Layer.Bad : Layer.Blue, t, Vector2.right, 0.03f, 0.96f, 0.96f, 0.05f);
             }
-            // the outline round the pad, and corner posts so you can find it in tall grass
+            // the outline round the pad, and corner posts so you can find it in tall grass (gone once the house goes up)
             var o = Plan.outline;
-            for (int i = 0; i < o.Length; i++)
+            for (int i = 0; i < o.Length && !HouseStarted; i++)
             {
                 Vector2 a = o[i], b = o[(i + 1) % o.Length];
                 AddBox(bad ? Layer.Bad : Layer.Line, (a + b) * 0.5f, b - a, 0.12f, Vector2.Distance(a, b) + 0.08f, 0.08f, 0.08f);
@@ -390,8 +391,25 @@ namespace FPSBase.City
             w.Write(Id); w.Write(Plan.title); w.Write((byte)State);
             w.Write(Center.x); w.Write(Center.z); w.Write(Yaw); w.Write(PadY); w.Write(startPad);
             WriteConcrete(w);
+            WriteHouse(w);
         }
 
         public void RestoreState(SiteState s, float start) { State = s; startPad = start; Check(); }
+
+        /// <summary>A friend's copy is further on: take their stage (stages only go forward).</summary>
+        public void MergeState(SiteState s)
+        {
+            if (s <= State) return;
+            // (the house itself finishes the site: a friend's Completed comes with their house's progress)
+            State = s > SiteState.ReadyForHouse ? SiteState.ReadyForHouse : s;
+            Check(); Redraw();
+        }
+
+        /// <summary>Skip a site's saved concrete and house (its plan or ground isn't in this game).</summary>
+        public static void SkipData(System.IO.BinaryReader r, int version)
+        {
+            if (version >= 2) { r.ReadSingle(); int k = r.ReadInt32(); for (int j = 0; j < k; j++) { r.ReadInt32(); r.ReadSingle(); r.ReadSingle(); } }
+            if (version >= 3) { r.ReadSingle(); r.ReadBoolean(); r.ReadString(); r.ReadString(); }
+        }
     }
 }

@@ -88,6 +88,13 @@ namespace FPSBase.City
             }
         }
 
+        /// <summary>What the crew charges to put the house up on the finished foundation.</summary>
+        public int BuildCost => Mathf.RoundToInt(Area * Mathf.Max(1, floors) * 220f / 100f) * 100;
+        /// <summary>What the finished house sells for: well over what it cost you (permit, concrete and the build).</summary>
+        public int SalePrice => Mathf.RoundToInt((price + ConcreteVolume * 145f + BuildCost) * 1.7f / 100f) * 100;
+        /// <summary>How long the crew takes (seconds).</summary>
+        public float BuildSeconds => 60f + 30f * (Mathf.Max(1, floors) - 1);
+
         public string SizeText { get { var b = Bounds; return $"{b.width - footingWidth:0.#} × {b.height - footingWidth:0.#} m"; } }
 
         /// <summary>Is a point (plan metres) inside the footprint?</summary>

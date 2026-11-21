@@ -169,8 +169,9 @@ namespace FPSBase.City
             }
             Status = State switch
             {
-                SiteState.ReadyForHouse => $"Foundation poured and cured ({ConcretePoured:0.#} m³): ready for the house.",
-                SiteState.Completed => "Finished.",
+                SiteState.ReadyForHouse when HouseStarted => $"The crew's putting the house up: {HouseProgress * 100f:0}% ({HouseStage}).",
+                SiteState.ReadyForHouse => $"Foundation poured and cured ({ConcretePoured:0.#} m³): ready for the house. Have the crew build it for ${Plan.BuildCost:N0}; it sells for ${Plan.SalePrice:N0}.",
+                SiteState.Completed => Sold ? $"{Address}: sold to {Buyer} for ${Plan.SalePrice:N0}." : $"Built: {Address}. It's yours: sell it for ${Plan.SalePrice:N0}.",
                 _ when Curing => $"Poured ({ConcretePoured:0.#} m³). Curing: {CureText()} left.",
                 _ => $"Pouring concrete: {ConcretePoured:0.0} of {ConcreteNeeded:0.0} m³ in ({ConcreteDone * 100f:0}%, needs {NeedConcrete * 100f:0}%)." +
                      (PourSide.Length > 0 ? $"  Still to fill: mostly the {PourSide} side." : ""),
@@ -334,6 +335,31 @@ namespace FPSBase.City
             if (concTop == null) return;
             for (int i = 0; i < concCells.Count; i++)
                 if (!float.IsNaN(concTop[i])) { w.Write(i); w.Write(concBottom[i]); w.Write(concTop[i]); }
+        }
+
+        /// <summary>A friend's concrete: every square as full as either copy has it.</summary>
+        public void MergeConcrete(System.IO.BinaryReader r)
+        {
+            float cure = r.ReadSingle();
+            int n = r.ReadInt32();
+            bool any = false;
+            for (int k = 0; k < n; k++)
+            {
+                int i = r.ReadInt32(); float bot = r.ReadSingle(), top = r.ReadSingle();
+                if (concTop == null || i < 0 || i >= concCells.Count) continue;
+                if (!float.IsNaN(concTop[i]) && concTop[i] >= top - 0.001f) continue;
+                if (float.IsNaN(concBottom[i]) || bot < concBottom[i]) concBottom[i] = bot;
+                concTop[i] = top;
+                Site.CellXZ(concCells[i], out int x, out int z);
+                Site.SetSolid(x, z, top);
+                any = true;
+            }
+            // the curing clock: started by whoever finished the pour, and the furthest on wins
+            if (cure >= 0f && (CureLeft < 0f || cure < CureLeft) && State == SiteState.PouringConcrete) CureLeft = cure;
+            if (any) { concDirty = true; concRebuild = 0f; }
+            ConcreteCheck();
+            Redraw();
+            TintConcrete();
         }
 
         public void ReadConcrete(System.IO.BinaryReader r)

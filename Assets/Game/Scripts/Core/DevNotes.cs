@@ -13,6 +13,14 @@ namespace FPSBase.Core
         /// <summary>Newest first.</summary>
         public static readonly Post[] Blog =
         {
+            new Post { date = "Update 37  ·  Nov 21, 2026", title = "The house goes up",
+                body =
+                "• Build your own houses, part 4: the house. Once the foundation has cured, open the site on your phone (Build tab) and press Have the house built. The crew charges by the size of the house (about $220 a square metre a floor).\n" +
+                "• The crew puts it up on your slab while you watch: the walls rise first, then the roof goes on. A one-floor house takes about a minute, two floors a minute and a half. Each plan gets its own colours: siding, trim, a front door with a step and a canopy, windows round every floor, a gable roof over each wing and a chimney.\n" +
+                "• When it's built it gets an address on the nearest street and shows on your map. Walk up to it to see whose it is; press E and your phone opens on it.\n" +
+                "• Sell it from the phone: it sells for well over what it cost you (the permit, the concrete and the build). A family buys it and moves in; their name's on the house.\n" +
+                "• Your houses are saved with the game, built, half built or sold.\n" +
+                "• Multiplayer: your friends see your sites and the houses on them, with the concrete as poured and the house as far up as it is. Sites any of you set out appear for everyone, and given-up sites go for everyone." },
             new Post { date = "Update 36  ·  Nov 21, 2026", title = "Pouring the foundation",
                 body =
                 "• Build your own houses, part 3: pour the foundation. Once your site says ready for concrete, bring a loaded mixer truck, swing the chute over the site and hold E.\n" +
@@ -329,11 +337,15 @@ namespace FPSBase.Core
                 "• Dozer berms build up properly in front of the blade." },
         };
 
-        public const string TestListVersion = "2026-11-21a";
+        public const string TestListVersion = "2026-11-21b";
 
         /// <summary>What's new in this build to try out.</summary>
         public static readonly string[] TestList =
         {
+            "A cured foundation: phone, Build tab, your site: Have the house built: you pay, the walls rise, then the roof goes on (about a minute)",
+            "The finished house: it has an address on the nearest street and a map marker; walk up to it: it says it's yours; press E: the phone opens on it",
+            "Sell it from the phone: the money's well over what you spent; the buyer's name shows on the house; save and load: it's still there, sold",
+            "Multiplayer: a friend sees your site, the concrete in it and the house going up; sell it and it's sold for them too",
             "A dug site (ready for concrete): pour from the mixer over the footings: it fills the trenches first, the label counts the m3 up",
             "Move round the site and fill the slab: the label says which side still needs it; at 97% it says curing (3 minutes) and turns light grey",
             "Drive a machine onto the poured concrete: it holds you up; try digging it with a bucket: it won't dig",

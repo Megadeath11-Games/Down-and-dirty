@@ -118,10 +118,13 @@ namespace FPSBase.City
         {
             var go = new GameObject($"Construction site: {plan.title}");
             var s = go.AddComponent<ConstructionSite>();
-            s.Id = nextId++;
+            // (a random id: friends setting sites out at once don't get the same one)
+            do s.Id = Random.Range(1000, 1 << 30); while (ById(s.Id) != null || removedIds.Contains(s.Id));
+            nextId++;
             s.Setup(plan, site, center, yaw, padY, false);
             s.MarkStart();
             sites.Add(s);
+            MarkNetDirty();
             return s;
         }
 
@@ -129,8 +132,65 @@ namespace FPSBase.City
         {
             if (s == null) return;
             sites.Remove(s);
+            removedIds.Add(s.Id);
             s.ReleaseGround();
             Destroy(s.gameObject);
+            MarkNetDirty();
+        }
+
+        public ConstructionSite ById(int id) { foreach (var s in sites) if (s != null && s.Id == id) return s; return null; }
+
+        /// <summary>Open the phone on a site (looking at your house).</summary>
+        public void OpenSite(ConstructionSite s)
+        {
+            var j = Jobs.Instance;
+            if (j == null) return;
+            j.OpenPhone(null);
+            j.ShowTab(2);
+            int i = s != null ? sites.IndexOf(s) : -1;
+            if (i >= 0) { selPlan = -1 - i; confirmCancel = -1; }
+        }
+
+        // ------------------------------------------------------------------ multiplayer: every game's sites, merged by id
+
+        readonly HashSet<int> removedIds = new();
+        /// <summary>Something changed that friends should hear about now (a site set out or given up, the house ordered or sold).</summary>
+        public bool NetDirty { get; set; }
+        public void MarkNetDirty() => NetDirty = true;
+
+        /// <summary>A cheap fingerprint of the sites: when it changes (more concrete in, a stage on), friends get the sites again.</summary>
+        public int NetSignature()
+        {
+            unchecked
+            {
+                int h = sites.Count * 31 + removedIds.Count;
+                foreach (var s in sites)
+                {
+                    if (s == null) continue;
+                    h = h * 17 + s.Id; h = h * 17 + (int)s.State; h = h * 17 + s.ConcreteSquares; h = h * 17 + Mathf.RoundToInt(s.ConcretePoured * 10f);
+                    h = h * 17 + (s.HouseStarted ? 1 : 0) + (s.Sold ? 2 : 0) + (s.Curing ? 4 : 0);
+                }
+                return h;
+            }
+        }
+
+        public void WriteNet(BinaryWriter w)
+        {
+            w.Write(removedIds.Count);
+            foreach (var id in removedIds) w.Write(id);
+            Write(w);
+        }
+
+        /// <summary>A friend's sites: new ones appear, ones they gave up go, and each one is as far on as either game has it.</summary>
+        public void ReadNet(BinaryReader r)
+        {
+            int nr = r.ReadInt32();
+            for (int i = 0; i < nr; i++)
+            {
+                int id = r.ReadInt32();
+                if (removedIds.Add(id)) { var gone = ById(id); if (gone != null) { sites.Remove(gone); gone.ReleaseGround(); Destroy(gone.gameObject); } }
+            }
+            ReadSites(r, true);
         }
 
         /// <summary>Can `plan` go here? `groundAvg` = the ground's average height under it (the pad's starting height).</summary>
@@ -269,6 +329,7 @@ namespace FPSBase.City
                 Bar($"Concrete in ({s.ConcretePoured:0.0} of {s.ConcreteNeeded:0.0} m³)", s.ConcreteDone, ConstructionSite.NeedConcrete);
                 if (s.Curing || s.State >= SiteState.ReadyForHouse)
                     Bar(s.Curing ? $"Curing ({s.CureText()} left)" : "Cured", s.Curing ? 1f - s.CureLeft / ConstructionSite.CureSeconds : 1f, 1f);
+                if (s.HouseStarted) Bar(s.HouseProgress >= 1f ? "House built" : $"House going up ({s.HouseStage})", s.HouseProgress, 1f);
             }
             else
             {
@@ -277,9 +338,30 @@ namespace FPSBase.City
             }
             GUI.Label(new Rect(right.x, yy, right.width, right.yMax - yy + 60), s.Status, ShopTheme.Small);
             if (GUI.Button(new Rect(inner.x, inner.yMax - 56, inner.width * 0.3f, 52), "Map", ShopTheme.PlainButton)) GameUI.Instance.OpenMap();
+            var eco = Economy.Instance;
+            var act = new Rect(inner.x + inner.width * 0.32f, inner.yMax - 56, inner.width * 0.4f, 52);
+            if (s.State == SiteState.ReadyForHouse && !s.HouseStarted)
+            {
+                bool afford = eco == null || eco.CanAfford(s.Plan.BuildCost);
+                GUI.enabled = afford;
+                if (GUI.Button(act, afford ? $"Have the house built  (${s.Plan.BuildCost:N0})" : $"Building it: ${s.Plan.BuildCost:N0}", ShopTheme.BuyButton))
+                    if (!s.OrderHouse(out string why)) GameUI.Toast(why);
+                GUI.enabled = true;
+                act.x += act.width + inner.width * 0.02f; act.width = inner.width * 0.26f;
+            }
+            else if (s.HouseStarted)
+            {
+                if (s.State == SiteState.Completed && !s.Sold)
+                {
+                    if (GUI.Button(act, $"Sell it  (${s.Plan.SalePrice:N0})", ShopTheme.BuyButton))
+                        if (!s.SellHouse(out string why)) GameUI.Toast(why);
+                }
+                else GUI.Label(act, s.Sold ? $"Sold to {s.Buyer}" : $"Sells for ${s.Plan.SalePrice:N0} when it's built", ShopTheme.DimStyle);
+                return; // (no giving up once the house is going up)
+            }
             int idx = sites.IndexOf(s);
             bool sure = confirmCancel == idx;
-            if (GUI.Button(new Rect(inner.x + inner.width * 0.32f, inner.yMax - 56, inner.width * 0.4f, 52), sure ? "Sure? The permit isn't refunded" : "Give up this site", ShopTheme.PlainButton))
+            if (GUI.Button(act, sure ? "Sure? The permit isn't refunded" : "Give up this site", ShopTheme.PlainButton))
             {
                 if (sure) { Remove(s); selPlan = 0; confirmCancel = -1; } else confirmCancel = idx;
             }
@@ -291,8 +373,8 @@ namespace FPSBase.City
             SiteState.Excavating => $"Digging: pad {s.PadDone * 100f:0}% level, footings {s.TrenchDone * 100f:0}% dug",
             SiteState.ReadyForConcrete => "Ready for concrete: bring a mixer truck",
             SiteState.PouringConcrete => s.Curing ? $"Curing: {s.CureText()} left" : $"Pouring concrete: {s.ConcreteDone * 100f:0}% in",
-            SiteState.ReadyForHouse => "Ready for the house",
-            _ => "Finished",
+            SiteState.ReadyForHouse => s.HouseStarted ? $"House going up: {s.HouseProgress * 100f:0}%" : "Ready for the house",
+            _ => s.Sold ? $"Sold: {s.Address}" : $"Built: {s.Address} (for sale)",
         };
 
         /// <summary>The plan drawn from above: the pad in sand, the footings in blue, the front at the bottom.</summary>
@@ -349,7 +431,9 @@ namespace FPSBase.City
                 if (d > 80f) continue;
                 Vector3 sp = cam.WorldToScreenPoint(top);
                 if (sp.z <= 0f) continue;
-                string text = s.State == SiteState.ReadyForConcrete ? $"{s.Plan.title}  ·  ready for concrete ({s.Plan.ConcreteVolume:0.#} m³)"
+                if (s.State == SiteState.Completed && d > 30f) continue; // (a finished house: its label only close by)
+                string text = s.State == SiteState.Completed ? (s.Sold ? $"{s.Address}  ·  {s.Buyer}" : $"Your {s.Plan.title}  ·  {s.Address}  ·  for sale (${s.Plan.SalePrice:N0}, on your phone)")
+                    : s.State == SiteState.ReadyForConcrete ? $"{s.Plan.title}  ·  ready for concrete ({s.Plan.ConcreteVolume:0.#} m³)"
                     : s.State >= SiteState.PouringConcrete ? $"{s.Plan.title}  ·  {StageText(s)}" +
                         (s.State == SiteState.PouringConcrete && !s.Curing ? $" ({s.ConcretePoured:0.0} of {s.ConcreteNeeded:0.0} m³)" + (d < 35f && s.PourSide.Length > 0 ? $"\nStill to fill: mostly the {s.PourSide} side" : "") : "")
                     : $"{s.Plan.title}  ·  pad {s.PadDone * 100f:0}% level  ·  footings {s.TrenchDone * 100f:0}% dug ({s.Plan.footingDepth:0.0#} m)";
@@ -365,7 +449,7 @@ namespace FPSBase.City
 
         public void Write(BinaryWriter w)
         {
-            w.Write(-2); // version 2: each site has its concrete after it
+            w.Write(-3); // version 3: each site has its concrete, then its house, after it
             w.Write(nextId);
             w.Write(sites.Count);
             foreach (var s in sites) s.Write(w);
@@ -375,8 +459,16 @@ namespace FPSBase.City
         {
             foreach (var s in sites) if (s != null) Destroy(s.gameObject);
             sites.Clear();
+            removedIds.Clear();
+            ReadSites(r, false);
+        }
+
+        void ReadSites(BinaryReader r, bool merge)
+        {
             int first = r.ReadInt32(), version = 1;
-            if (first < 0) { version = -first; nextId = r.ReadInt32(); } else nextId = first;
+            if (first < 0) version = -first;
+            int nid = first < 0 ? r.ReadInt32() : first;
+            if (!merge) nextId = nid;
             int n = r.ReadInt32();
             for (int i = 0; i < n; i++)
             {
@@ -385,9 +477,13 @@ namespace FPSBase.City
                 var plan = HousePlan.Find(title);
                 var at = new Vector3(x, pad, z);
                 var site = DigSite.At(at);
-                if (plan == null || site == null)
+                if (plan == null || site == null || (merge && removedIds.Contains(id))) { ConstructionSite.SkipData(r, version); continue; }
+                var have = merge ? ById(id) : null;
+                if (have != null)
                 {
-                    if (version >= 2) { r.ReadSingle(); int k = r.ReadInt32(); for (int j = 0; j < k; j++) { r.ReadInt32(); r.ReadSingle(); r.ReadSingle(); } }
+                    have.MergeState(state);
+                    if (version >= 2) have.MergeConcrete(r);
+                    if (version >= 3) have.ReadHouse(r);
                     continue;
                 }
                 var go = new GameObject($"Construction site: {plan.title}");
@@ -396,6 +492,7 @@ namespace FPSBase.City
                 s.Setup(plan, site, at, yw, pad, false);
                 s.RestoreState(state, start);
                 if (version >= 2) s.ReadConcrete(r);
+                if (version >= 3) s.ReadHouse(r);
                 sites.Add(s);
             }
         }

@@ -572,6 +572,7 @@ namespace FPSBase.Net
                     break;
                 }
                 case MsgBlocks: ReadBlocks(from, r); break;
+                case MsgSites: ReadSites(r); break;
                 case MsgBye: break;
             }
         }
@@ -599,6 +600,7 @@ namespace FPSBase.Net
             if ((vehicleTimer -= dt) <= 0f) { vehicleTimer = 1f / 15f; SendVehicles(slow); SendTrailers(slow, null); }
             if ((terrainTimer -= dt) <= 0f) { terrainTimer = 0.12f; SendTerrain(); SendPiles(null, false); }
             BlocksTick(dt);
+            SitesTick(dt);
             ShowRemotes(Time.deltaTime);
         }
 
@@ -1239,6 +1241,7 @@ namespace FPSBase.Net
             }
             SendTrailers(true, to); // and the trailers this game runs
             SendBlocksTo(to); // and the concrete blocks (after the trailers they may be chained to)
+            SendSitesTo(to); // and the houses being built
         }
 
         // ------------------------------------------------------------------ helpers

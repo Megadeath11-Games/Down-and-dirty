@@ -17,6 +17,9 @@ namespace FPSBase.City
         public static IReadOnlyList<House> All => all;
 
         public int index;
+        [Tooltip("A house you built yourself on your own foundation (not one of the town's customers).")]
+        public bool playerBuilt;
+        [System.NonSerialized] public ConstructionSite site;
         public string first = "Pat", last = "Smith";
         public string street = "Maple St";
         public int number = 100;
@@ -55,11 +58,12 @@ namespace FPSBase.City
         public Damageable[] Parts => parts ??= GetComponentsInChildren<Damageable>(true);
         public Damageable Part(string id) { foreach (var d in Parts) if (d.id == id) return d; return null; }
 
-        void OnEnable() { all.Add(this); all.Sort((a, b) => a.index.CompareTo(b.index)); }
+        void OnEnable() { if (playerBuilt) return; all.Add(this); all.Sort((a, b) => a.index.CompareTo(b.index)); }
         void OnDisable() => all.Remove(this);
 
         void Start()
         {
+            if (playerBuilt) return;
             // an old dirt driveway: no grass on it
             var site = DigSite.At(driveway.center3());
             if (site != null && site.Contains(driveway.center3())) site.TrampleRect(driveway);
@@ -99,13 +103,19 @@ namespace FPSBase.City
         {
             get
             {
+                if (playerBuilt)
+                    return site != null && site.Sold ? $"{Address}  ({Owner}; you built it)" : $"{Address}  (your house: sell it on your phone)";
                 var j = Jobs.Instance != null ? Jobs.Instance.OpenJobAt(this) : null;
                 string what = j == null ? "" : j.state == JobState.Offered ? $"  —  wants: {j.Title} (${j.pay:N0}, answer on your phone)" : $"  —  {(Jobs.WhoHas(j) == "you" ? "your" : Jobs.WhoHas(j) == "the crew" ? "the crew's" : Jobs.WhoHas(j) + "'s")} job: {j.Title}";
                 return $"{Address}  ({Owner}){what}";
             }
         }
 
-        public override void Interact(PlayerInteractor player) => Jobs.Instance?.OpenPhone(this);
+        public override void Interact(PlayerInteractor player)
+        {
+            if (playerBuilt) { Construction.Instance?.OpenSite(site); return; }
+            Jobs.Instance?.OpenPhone(this);
+        }
     }
 
     static class RectExt

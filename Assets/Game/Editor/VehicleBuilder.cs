@@ -54,7 +54,7 @@ namespace FPSBase.EditorTools
                 }
         }
 
-        class VehiclePrefabs { public GameObject mini, pickup, dumpTruck, hauler, miningHauler, mixer, dozer, loader, grader, bowser, tilt7, goose10; public GameObject[] excavators, dozers, skids, semis; }
+        class VehiclePrefabs { public GameObject mini, pickup, dumpTruck, hauler, miningHauler, mixer, dozer, loader, grader, bowser, tilt7, goose10, dump5, dump10, loader15, loader30; public GameObject[] excavators, dozers, skids, semis; }
 
         class ExcavatorSpec
         {
@@ -83,18 +83,11 @@ namespace FPSBase.EditorTools
                     length = 7.4f, width = 2.45f, wheelR = 0.55f, hood = 1.0f, cab = 1.8f, cabH = 1.6f,
                     bedL = 3.9f, bedW = 2.4f, bedH = 0.95f, capacity = 6f, mass = 9500f, fuel = 250f, workBurn = 30f, topSpeed = 85f, axles = new[] { 2.55f, -2.05f }
                 }, fm, tm, vm.dirt)),
-                hauler = SavePrefab(BuildFleetTruck(new TruckSpec
-                {
-                    name = "Haul Truck 25t", id = "Haul25", paintHex = 0xf59e0b, accentHex = 0x1e293b,
-                    length = 10f, width = 2.9f, wheelR = 0.85f, hood = 1.3f, cab = 2.0f, cabH = 1.8f,
-                    bedL = 5.8f, bedW = 2.9f, bedH = 1.25f, capacity = 14f, mass = 24000f, fuel = 400f, workBurn = 45f, topSpeed = 55f, axles = new[] { 3.5f, -1.7f, -3.7f }
-                }, fm, tm, vm.dirt)),
-                miningHauler = SavePrefab(BuildFleetTruck(new TruckSpec
-                {
-                    name = "Mining Haul Truck 60 t", id = "Haul60", paintHex = 0xeab308, accentHex = 0x111827, mining = true,
-                    length = 10.4f, width = 4.6f, wheelR = 1.0f, hood = 0f, cab = 1.7f, cabH = 2.0f,
-                    bedL = 6.7f, bedW = 4.3f, bedH = 1.75f, capacity = 30f, mass = 45000f, fuel = 800f, workBurn = 75f, topSpeed = 50f, axles = new[] { 3.2f, -2.1f }
-                }, fm, tm, vm.dirt)),
+                // the haul trucks and wheel loaders from the heavy-haul fleet visualizer (FleetModelBuilder)
+                dump5 = SavePrefab(BuildModelHauler(HaulFleet[0], fm, tm, vm.dirt)),
+                dump10 = SavePrefab(BuildModelHauler(HaulFleet[1], fm, tm, vm.dirt)),
+                hauler = SavePrefab(BuildModelHauler(HaulFleet[2], fm, tm, vm.dirt)),
+                miningHauler = SavePrefab(BuildModelHauler(HaulFleet[3], fm, tm, vm.dirt)),
                 mixer = SavePrefab(BuildFleetTruck(new TruckSpec
                 {
                     name = "Concrete Mixer Truck", id = "Mixer8", paintHex = 0xf1f1ec, accentHex = 0xd9480f, mixer = true,
@@ -102,7 +95,9 @@ namespace FPSBase.EditorTools
                     capacity = 8f, mass = 12500f, fuel = 300f, workBurn = 34f, topSpeed = 80f, axles = new[] { 3.0f, -1.55f, -2.9f }
                 }, fm, tm, vm.dirt)),
                 dozer = SavePrefab(BuildDozer(vm)),
-                loader = SavePrefab(BuildFleetLoader(fm, tm, vm.dirt)),
+                loader = SavePrefab(BuildModelLoader(LoaderFleet[0], fm, tm, vm.dirt)),
+                loader15 = SavePrefab(BuildModelLoader(LoaderFleet[1], fm, tm, vm.dirt)),
+                loader30 = SavePrefab(BuildModelLoader(LoaderFleet[2], fm, tm, vm.dirt)),
             };
             // the heavy fleet (5 t - 150 t excavators, 22 t and 66.5 t dozers)
             p.excavators = new GameObject[ExcavatorFleet.Length];

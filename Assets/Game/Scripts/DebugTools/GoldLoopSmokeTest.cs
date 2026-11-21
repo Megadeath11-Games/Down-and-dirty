@@ -37,6 +37,7 @@ namespace FPSBase.DebugTools
                         case "dig": yield return DigCycleTests(); break;
                         case "menudig": yield return MenuDigTests(); break;
                         case "loader": yield return LoaderDigTests(); break;
+                        case "newfleet": yield return NewFleetTests(); break;
                         case "sway": yield return TrailerSwayTests(); break;
                         case "blockdirt": yield return BlockDirtTests(); break;
                         case "house": yield return HouseSiteTests(); break;
@@ -3462,12 +3463,12 @@ namespace FPSBase.DebugTools
         /// The wheel loader for real (physics on, wheels on the ground): all four wheels are drawn, driving the bucket
         /// into a heap fills it across its whole width, and curled and raised it carries the load across the yard.
         /// </summary>
-        IEnumerator LoaderDigTests()
+        IEnumerator LoaderDigTests(string loaderName = "Wheel Loader")
         {
             var site = DigSite.Instance;
             var dealer = FindFirstObjectByType<VehicleDealer>();
-            var pf = Prefab0(dealer, "Wheel Loader");
-            if (pf == null) { Check(false, "the dealer sells the wheel loader"); yield break; }
+            var pf = Prefab0(dealer, loaderName);
+            if (pf == null) { Check(false, $"the dealer sells the {loaderName}"); yield break; }
             Vector3 st = new Vector3(60f, 0f, -150f); st.y = site.SurfaceY(st);
             var fl = Instantiate(pf, st + Vector3.up * 0.3f, Quaternion.identity).GetComponent<FrontLoader>();
             var rb = fl.GetComponent<Rigidbody>(); rb.isKinematic = false;
@@ -3475,7 +3476,7 @@ namespace FPSBase.DebugTools
             foreach (var w in fl.wheelVisuals)
                 if (w != null && w.GetComponentInChildren<MeshFilter>() is MeshFilter mf && mf.sharedMesh != null && mf.sharedMesh.vertexCount > 0
                     && w.GetComponentInChildren<MeshRenderer>() is MeshRenderer mr && mr.enabled) drawn++;
-            Check(drawn == 4, $"the wheel loader has all four wheels drawn ({drawn}/4)");
+            Check(drawn == 4, $"the {fl.displayName} has all four wheels drawn ({drawn}/4)");
             for (int i = 0; i < 80; i++) yield return new WaitForFixedUpdate();
             float low = 99f, high = -99f;
             foreach (var w in fl.wheelVisuals) { float g = w.position.y - fl.wheelRadius - site.SurfaceY(w.position); low = Mathf.Min(low, g); high = Mathf.Max(high, g); }
@@ -3510,7 +3511,7 @@ namespace FPSBase.DebugTools
             float full = fl.bucketLoad.volume;
             float heap1 = site.LooseVolume(heapAt, 3f, out _);
             log.AppendLine($"INFO  loader into a {heap0:0.00} m³ heap: {got:0.00} of {cap:0.00} m³ in {t:0.0} s over {went:0.0} m, {full:0.00} after curling; heap now {heap1:0.00} m³ (took {heap0 - heap1:0.00}), front tyres {fl.wheelVisuals[0].position.y - site.SurfaceY(fl.wheelVisuals[0].position):0.00} m over the ground");
-            Check(got > cap * 0.7f && t < 7f, $"driven into a heap with the bucket flat, the wheel loader fills it ({got:0.00} of {cap:0.00} m³ in {t:0.0} s)");
+            Check(got > cap * 0.7f && t < 7f, $"driven into a heap with the bucket flat, the {fl.displayName} fills it ({got:0.00} of {cap:0.00} m³ in {t:0.0} s)");
             Check(full > cap * 0.9f, $"curled back in the heap, the bucket is full ({full:0.00} of {cap:0.00} m³)");
             Check(heap0 - heap1 > full * 0.6f, $"the dirt in the bucket came out of the heap ({heap0 - heap1:0.00} m³ gone from it)");
 
@@ -3549,6 +3550,124 @@ namespace FPSBase.DebugTools
             Check(fl.bucketLoad.volume > 0.1f && fl.transform.up.y > 0.95f, $"arms right down on flat ground, it scrapes up dirt as it drives ({fl.bucketLoad.volume:0.00} m³) and stays on its wheels");
             Destroy(fl.gameObject);
             yield return null;
+        }
+
+        /// <summary>
+        /// The haul trucks and wheel loaders from the heavy-haul fleet: every one is on sale and drawn; the trucks
+        /// sit on their tyres, take a load, drive, steer (the articulated haulers bend at the hitch, their front
+        /// wheels with the tractor), and tip it out; the loaders steer by bending in the middle (arms, bucket and
+        /// Z-bar going with it) and dig, fill, carry and scrape like the old loader.
+        /// </summary>
+        IEnumerator NewFleetTests()
+        {
+            var dealer = FindFirstObjectByType<VehicleDealer>();
+            Vector3 padAt = new Vector3(-300f, 400f, -300f);
+            var pad = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            pad.name = "Test pad"; pad.transform.position = padAt + Vector3.down * 0.5f; pad.transform.localScale = new Vector3(300f, 1f, 400f);
+            Physics.SyncTransforms();
+            string[] trucks = { "Dump Truck 5 t", "Dump Truck 10 t", "Articulated Haul Truck 25t", "Articulated Haul Truck 50 t" };
+            for (int k = 0; k < trucks.Length; k++)
+            {
+                var pf = Prefab0(dealer, trucks[k]);
+                if (pf == null) { Check(false, $"the dealer sells the {trucks[k]}"); continue; }
+                Vector3 st = padAt + new Vector3(-110f + k * 70f, 1.5f, -150f);
+                var tk = Instantiate(pf, st, Quaternion.identity).GetComponent<DumpPickup>();
+                var trb = tk.GetComponent<Rigidbody>();
+                yield return null;
+                for (int i = 0; i < 80; i++) yield return new WaitForFixedUpdate();
+                int drawn = 0; float low = 99f, high = -99f;
+                for (int i = 0; i < tk.wheelVisuals.Length; i++)
+                {
+                    var w = tk.wheelVisuals[i];
+                    if (w != null && w.GetComponentInChildren<MeshFilter>() is MeshFilter mf && mf.sharedMesh != null && mf.sharedMesh.vertexCount > 0) drawn++;
+                    float g = w.position.y - tk.wheels[i].radius - padAt.y;
+                    low = Mathf.Min(low, g); high = Mathf.Max(high, g);
+                }
+                bool adt = tk.articulation != null;
+                Check(drawn == tk.wheels.Length && drawn >= 4 && low > -0.12f && high < 0.12f && tk.transform.up.y > 0.98f,
+                    $"{tk.displayName}: {drawn} wheels drawn, standing on them ({low:0.00} .. {high:0.00} m from the ground, upright {tk.transform.up.y:0.000}){(adt ? ", articulated" : "")}");
+                if (k < 2 || k == 2) Check(tk.GetComponentInChildren<Hitch>() != null, $"{tk.displayName} has a pintle hook for the equipment trailers");
+                // a load in the box
+                tk.Receive(FPSBase.City.GravelBin.Make(0, tk.capacity * 0.9f));
+                for (int i = 0; i < 50; i++) yield return new WaitForFixedUpdate();
+                float loaded = tk.load.volume;
+                Check(loaded > tk.capacity * 0.8f, $"{tk.displayName} takes a load ({loaded:0.0} of {tk.capacity:0.0} m³)");
+                yield return ShotAt(tk.transform.position + new Vector3(-9f, 4.5f, 11f) * (adt ? 1.35f : 1f), tk.transform.position + Vector3.up * 1.2f, $"Screenshots/fleet_truck{k}.png");
+                // drive off
+                Vector3 p0 = tk.transform.position;
+                tk.TestDrive(1f);
+                for (int i = 0; i < 50 * 6; i++) yield return new WaitForFixedUpdate();
+                float went = Vector3.Dot(tk.transform.position - p0, Vector3.forward), kmh = trb.linearVelocity.magnitude * 3.6f;
+                Check(went > 15f && tk.transform.up.y > 0.97f, $"{tk.displayName} drives off loaded ({went:0} m in 6 s, {kmh:0} km/h)");
+                // steer: slowed to a walk first (full lock at a run spins anything round)
+                tk.TestDrive(-1f);
+                for (int i = 0; i < 50 * 8 && trb.linearVelocity.magnitude > 3f; i++) yield return new WaitForFixedUpdate();
+                tk.TestDrive(0.35f); tk.TestSteer(1f);
+                float yaw0 = tk.transform.eulerAngles.y;
+                for (int i = 0; i < 50 * 3; i++) yield return new WaitForFixedUpdate();
+                float turned = Mathf.DeltaAngle(yaw0, tk.transform.eulerAngles.y);
+                string bend = "";
+                if (adt)
+                {
+                    var fw = tk.wheelVisuals[0];
+                    float frontYaw = Mathf.DeltaAngle(tk.transform.eulerAngles.y, tk.articulation.front.eulerAngles.y);
+                    // the wheel's axle (its Axle child points along it) against the tractor's
+                    Vector3 ax = Vector3.ProjectOnPlane(fw.Find("Axle") != null ? fw.Find("Axle").right : fw.rotation * Quaternion.Euler(0f, 0f, -90f) * Vector3.right, tk.transform.up);
+                    float wheelYaw = Vector3.SignedAngle(Vector3.ProjectOnPlane(tk.transform.right, tk.transform.up), ax, tk.transform.up);
+                    if (wheelYaw > 90f) wheelYaw -= 180f; else if (wheelYaw < -90f) wheelYaw += 180f;
+                    bend = $", tractor at {frontYaw:0}° and its wheels at {wheelYaw:0}°";
+                    Check(tk.articulation.Angle > 12f && Mathf.Abs(frontYaw - tk.articulation.Angle) < 1f && Mathf.Abs(wheelYaw - frontYaw) < 3f,
+                        $"{tk.displayName} bends at the hitch as it steers (articulated {tk.articulation.Angle:0}°{bend})");
+                    yield return ShotAt(tk.transform.position + tk.transform.right * -8f + Vector3.up * 10f + tk.transform.forward * 4f, tk.transform.position, $"Screenshots/fleet_truck{k}_turn.png");
+                }
+                Check(turned > 25f, $"{tk.displayName} turns right ({turned:0}° in 3 s{bend})");
+                tk.TestSteer(0f); tk.TestDrive(0f);
+                for (int i = 0; i < 50 * 4; i++) yield return new WaitForFixedUpdate();
+                // tip it
+                float before = tk.load.volume;
+                for (float a = 0f; a <= tk.maxTilt; a += 1f) { tk.SetTilt(a); yield return new WaitForFixedUpdate(); }
+                for (int i = 0; i < 50 * 8; i++) yield return new WaitForFixedUpdate();
+                Check(tk.load.volume < before * 0.3f, $"{tk.displayName} tips its load out ({before:0.0} to {tk.load.volume:0.0} m³ with the box up {tk.Tilt:0}°)");
+                if (k == 3) yield return ShotAt(tk.transform.position + new Vector3(-12f, 5f, -12f), tk.transform.position + Vector3.up * 2f, "Screenshots/fleet_truck_tipped.png");
+                tk.SetTilt(0f);
+                Destroy(tk.gameObject);
+                yield return null;
+            }
+            foreach (var pile in new System.Collections.Generic.List<DirtPile>(DirtPile.All)) if (pile != null && pile.transform.position.y > 300f) Destroy(pile.gameObject);
+            Destroy(pad);
+
+            // the loaders: bend to steer, then the full loader dig test each
+            string[] loaders = { "Wheel Loader 6 t", "Wheel Loader 15 t", "Wheel Loader 30 t" };
+            var site = DigSite.Instance;
+            for (int k = 0; k < loaders.Length; k++)
+            {
+                var pf = Prefab0(dealer, loaders[k]);
+                if (pf == null) { Check(false, $"the dealer sells the {loaders[k]}"); continue; }
+                Vector3 st = new Vector3(20f + k * 22f, 0f, -110f); st.y = site.SurfaceY(st);
+                var fl = Instantiate(pf, st + Vector3.up * 0.3f, Quaternion.identity).GetComponent<FrontLoader>();
+                for (int i = 0; i < 60; i++) yield return new WaitForFixedUpdate();
+                var art = fl.articulation;
+                Check(art != null && fl.GetComponent<ZBarLinkage>() != null, $"{fl.displayName} is articulated with a Z-bar bucket linkage");
+                if (art == null) { Destroy(fl.gameObject); continue; }
+                fl.SetPose(Mathf.Lerp(fl.armRange.x, fl.armRange.y, 0.3f), 0f);
+                yield return ShotAt(fl.transform.position + new Vector3(-7f, 3.5f, 9f) * (fl.wheelRadius / 0.55f), fl.transform.position + Vector3.up * 1.2f, $"Screenshots/fleet_loader{k}.png");
+                Vector3 tip0 = fl.transform.InverseTransformPoint(fl.bucketTip.position);
+                var zb = fl.GetComponent<ZBarLinkage>();
+                Quaternion crank0 = zb.bellcrank.localRotation;
+                for (float c = 0f; c < 1.5f; c += Time.deltaTime) { art.SetInput(1f); yield return null; }
+                Vector3 tip1 = fl.transform.InverseTransformPoint(fl.bucketTip.position);
+                Check(art.Angle > 30f && tip1.x - tip0.x > 1f, $"{fl.displayName} bends in the middle to steer: front frame at {art.Angle:0}°, the bucket swung {tip1.x - tip0.x:0.0} m right");
+                yield return ShotAt(fl.transform.position + new Vector3(0f, 9f, 2f) * (fl.wheelRadius / 0.55f), fl.transform.position, $"Screenshots/fleet_loader{k}_turn.png");
+                for (float c = 0f; c < 1.5f; c += Time.deltaTime) { art.SetInput(0f); yield return null; }
+                // tipping the bucket moves the Z-bar
+                fl.SetPose(fl.Arm, fl.tiltRange.y);
+                yield return null; yield return null;
+                float crank = Quaternion.Angle(crank0, zb.bellcrank.localRotation);
+                Check(crank > 10f, $"{fl.displayName}: tipping the bucket swings the Z-bar bellcrank ({crank:0}°)");
+                Destroy(fl.gameObject);
+                yield return null;
+                yield return LoaderDigTests(loaders[k]);
+            }
         }
 
         /// <summary>

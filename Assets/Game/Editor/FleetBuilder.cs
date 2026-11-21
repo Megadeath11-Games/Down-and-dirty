@@ -261,6 +261,15 @@ namespace FPSBase.EditorTools
                 return !(neg && pos);
             }
 
+            /// <summary>Triangles as they come (x, y, z for each corner, three corners a triangle), each with its own corners (flat shaded).</summary>
+            public void Raw(Material m, float[] f)
+            {
+                var tri = Sub(m);
+                int b = v.Count;
+                for (int i = 0; i + 2 < f.Length; i += 3) v.Add(new Vector3(f[i], f[i + 1], f[i + 2]));
+                for (int i = b; i < v.Count; i++) tri.Add(i);
+            }
+
             /// <summary>Bake into a mesh asset on a "Mesh" child of `part`.</summary>
             public void Attach(Transform part, string assetName)
             {

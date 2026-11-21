@@ -13,6 +13,13 @@ namespace FPSBase.Core
         /// <summary>Newest first.</summary>
         public static readonly Post[] Blog =
         {
+            new Post { date = "Update 38  ·  Nov 21, 2026", title = "New haul trucks and wheel loaders",
+                body =
+                "• New models for the haul fleet. The 25 t haul truck is now an articulated hauler: six wheels, all driven, a scow body, and it bends at the hitch to steer, with the front wheels going round with the cab.\n" +
+                "• The 60 t mining truck is replaced by the Articulated Haul Truck 50 t: 29.5 m³ rock body, a canopy over the cab, a ladder and handrails. If you owned the old one, your save gives you the new one in its place.\n" +
+                "• Two new smaller dump trucks, on the end of the Trucks list: the Dump Truck 5 t (cab-over, 3.6 m³, cheap to run) and the Dump Truck 10 t (6.8 m³). Both have dual rear wheels and a tailgate that swings open as the box tips, and both tow the equipment trailers.\n" +
+                "• The compact wheel loader is now the Wheel Loader 6 t, and the 15 t and 30 t loaders are new, on the end of the Dozers & loaders list. All three are articulated: they bend in the middle to steer, and the arms, bucket and front wheels swing with the front frame. The bucket hangs on a Z-bar linkage you can watch work as you tip it.\n" +
+                "• The new loaders dig, fill, carry and scrape like the old one; the 15 t fills the 10 t truck in three passes and the 30 t fills the 25 t hauler in three." },
             new Post { date = "Update 37  ·  Nov 21, 2026", title = "The house goes up",
                 body =
                 "• Build your own houses, part 4: the house. Once the foundation has cured, open the site on your phone (Build tab) and press Have the house built. The crew charges by the size of the house (about $220 a square metre a floor).\n" +
@@ -337,11 +344,16 @@ namespace FPSBase.Core
                 "• Dozer berms build up properly in front of the blade." },
         };
 
-        public const string TestListVersion = "2026-11-21b";
+        public const string TestListVersion = "2026-11-21c";
 
         /// <summary>What's new in this build to try out.</summary>
         public static readonly string[] TestList =
         {
+            "Dealer, Trucks: buy the Dump Truck 5 t and Dump Truck 10 t (end of the list): load them, drive, tip the box: the tailgate swings open; hitch a trailer to the pintle hook",
+            "Articulated Haul Truck 25t: steer: it bends at the hitch and the front wheels swing with the cab; load it with an excavator, tip it out",
+            "Articulated Haul Truck 50 t (was the 60 t mining truck): an old save that had the mining truck gives you this one; load, haul and tip",
+            "Wheel Loader 6 t, 15 t and 30 t: steer: the front frame bends with the arms and bucket; tip the bucket: the Z-bar linkage moves; dig a heap, carry it, load a truck",
+            "Look at the new cabs from outside and inside: blue glass, seat and controls, nothing see-through that shouldn't be",
             "A cured foundation: phone, Build tab, your site: Have the house built: you pay, the walls rise, then the roof goes on (about a minute)",
             "The finished house: it has an address on the nearest street and a map marker; walk up to it: it says it's yours; press E: the phone opens on it",
             "Sell it from the phone: the money's well over what you spent; the buyer's name shows on the house; save and load: it's still there, sold",

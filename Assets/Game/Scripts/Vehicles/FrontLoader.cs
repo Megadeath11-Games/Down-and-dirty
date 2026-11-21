@@ -22,6 +22,8 @@ namespace FPSBase.Vehicles
         public float wheelRadius = 0.55f;
         [Tooltip("Skid steer: each side's wheels turn at that side's own speed, so a spin turn runs them against each other.")]
         public bool skidSteer;
+        [Tooltip("Articulated: the front frame (arms, bucket, front wheels) swings at the centre hitch as it steers.")]
+        public FrameArticulation articulation;
         public Vector2 armRange = new Vector2(-38f, 48f);   // deg, + = raise
         public Vector2 tiltRange = new Vector2(-45f, 60f);  // deg (self-levelling), - = curl back, + = dump
         public float armSpeed = 22f, tiltSpeed = 55f;
@@ -168,6 +170,7 @@ namespace FPSBase.Vehicles
         protected override void Update()
         {
             base.Update();
+            if (articulation != null && Occupied) articulation.SetInput(steer);
             float yaw = transform.eulerAngles.y;
             float yawRate = Time.deltaTime > 1e-5f ? Mathf.DeltaAngle(lastYaw, yaw) * Mathf.Deg2Rad / Time.deltaTime : 0f;
             lastYaw = yaw;

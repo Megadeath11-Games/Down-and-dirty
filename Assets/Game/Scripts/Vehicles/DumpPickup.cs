@@ -20,6 +20,8 @@ namespace FPSBase.Vehicles
         public float motorTorque = 900f;     // per wheel, 4x4
         public float brakeTorque = 3500f;
         public float maxSteer = 32f;
+        [Tooltip("An articulated hauler: the front frame swings at the hitch as it steers (the front wheels go with it).")]
+        public FrameArticulation articulation;
         public float topSpeedKmh = 95f;
         [Tooltip("Has a transfer case: 2WD (rear) / 4-high / 4-low. Without one it's rear drive only.")]
         public bool transferCase;
@@ -130,7 +132,9 @@ namespace FPSBase.Vehicles
                 if (w == null || wheelVisuals[i] == null) continue;
                 netSpin[i] = Mathf.Repeat(netSpin[i] + moved / Mathf.Max(0.1f, w.radius) * Mathf.Rad2Deg, 360f);
                 w.GetWorldPose(out Vector3 p, out _);
-                wheelVisuals[i].SetPositionAndRotation(p, transform.rotation * Quaternion.Euler(netSpin[i], 0f, 0f) * Quaternion.Euler(0f, 0f, 90f));
+                Quaternion q = transform.rotation * Quaternion.Euler(netSpin[i], 0f, 0f);
+                if (articulation != null && i < 2) Articulate(ref p, ref q, transform.rotation);
+                wheelVisuals[i].SetPositionAndRotation(p, q * Quaternion.Euler(0f, 0f, 90f));
             }
         }
         /// <summary>Tests: how far wheel `i` has rolled on screen while another player drives (deg).</summary>
@@ -351,6 +355,7 @@ namespace FPSBase.Vehicles
             int rearAxles = Mathf.Max(1, wheels.Length / 2 - 1);
             for (int a = 1; a <= rearAxles; a++) AxleTorque(a * 2, a * 2 + 1, rear / rearAxles, rearLocked);
 
+            if (articulation != null) articulation.SetAngle(steerAngle);
             for (int i = 0; i < wheels.Length; i++)
             {
                 var w = wheels[i];
@@ -369,12 +374,25 @@ namespace FPSBase.Vehicles
                 if (wheelVisuals.Length > i && wheelVisuals[i] != null && !RidingTrailer) // on a trailer deck the tyres hold still
                 {
                     w.GetWorldPose(out Vector3 p, out Quaternion q);
+                    // an articulated hauler's front wheels turn with the front frame, not on steering knuckles
+                    if (articulation != null && i < 2) Articulate(ref p, ref q, transform.rotation * Quaternion.Euler(0f, w.steerAngle, 0f));
                     wheelVisuals[i].SetPositionAndRotation(p, q * Quaternion.Euler(0f, 0f, 90f));
                 }
             }
         }
 
         float[] axleOut = new float[4];
+
+        /// <summary>A front wheel on the articulated front frame: swung about the hitch by the frame's angle, facing the frame's way.</summary>
+        void Articulate(ref Vector3 p, ref Quaternion q, Quaternion steered)
+        {
+            if (articulation.front == null) return;
+            float a = articulation.Angle;
+            Vector3 h = articulation.front.position;
+            p = h + Quaternion.AngleAxis(a, transform.up) * (p - h);
+            Quaternion spin = Quaternion.Inverse(steered) * q; // (just the roll)
+            q = transform.rotation * Quaternion.Euler(0f, a, 0f) * spin;
+        }
 
         /// <summary>
         /// Split an axle's torque between its two wheels. Open diff: equal torque, but no more than the wheel with

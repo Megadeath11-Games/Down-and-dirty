@@ -44,6 +44,8 @@ namespace FPSBase.Core
         ChainLonger, ChainShorter,
         // setting out a house plan
         PlanRotateLeft, PlanRotateRight, PlanRaise, PlanLower, PlanPlace, PlanCancel,
+        // concrete mixer truck
+        ChuteLeft, ChuteRight, ChuteUp, ChuteDown, ConcretePour, ConcreteLoad,
     }
 
     /// <summary>Controller inputs (Xbox names; a PlayStation pad is the same places: A = Cross, B = Circle, X = Square, Y = Triangle).</summary>
@@ -131,6 +133,12 @@ namespace FPSBase.Core
             new(GameAction.PlanLower, "Setting out a house", "Pad lower (10 cm)", Key.PageDown),
             new(GameAction.PlanPlace, "Setting out a house", "Set the plan down here", Key.Enter),
             new(GameAction.PlanCancel, "Setting out a house", "Put the plans away", Key.Backspace),
+            new(GameAction.ChuteLeft, "Concrete mixer truck", "Swing the chute left", Key.LeftArrow),
+            new(GameAction.ChuteRight, "Concrete mixer truck", "Swing the chute right", Key.RightArrow),
+            new(GameAction.ChuteUp, "Concrete mixer truck", "Chute up", Key.UpArrow),
+            new(GameAction.ChuteDown, "Concrete mixer truck", "Chute down", Key.DownArrow),
+            new(GameAction.ConcretePour, "Concrete mixer truck", "Pour (hold): the drum turns out", Key.E),
+            new(GameAction.ConcreteLoad, "Concrete mixer truck", "Order a load (under the concrete plant's chute)", Key.R),
 
             new(GameAction.GraderBladeUp, "Motor grader", "Blade up (both lift rams)", Key.E),
             new(GameAction.GraderBladeDown, "Motor grader", "Blade down (both lift rams)", Key.Q),

@@ -192,6 +192,7 @@ namespace FPSBase.EditorTools
                 // (new machines go on the end: a save keeps a machine by its place in this list)
                 L("Excavators", "Mining Shovel 150 t", 1650000f, e[5], true, "12.5 m³ bucket on a 9.4 m boom: just massive. Two-storey house with catwalks, fills the 60 t mining haul truck in three passes. Too big for any lowboy: it's delivered to the heavy yard and walks from there. 2,200 L tank."),
                 L("Trucks", "Mining Haul Truck 60 t", 780000f, prefabs.miningHauler, true, "30 m³ off-highway rock body, dual rear tyres taller than you, the cab up on the deck with a ladder and handrails. The 50 t excavator fills it in eight passes, the 150 t shovel in three. Off-road only. 800 L tank. " + ex),
+                L("Trucks", "Concrete Mixer Truck", 135000f, prefabs.mixer, false, "Tandem-axle ready-mix truck with an 8 m³ drum. Back the hopper in under the chute at the concrete plant (east of the block yard) and order a load, drive it to your house site with the drum turning, swing the chute with the arrow keys and hold the pour key. Concrete stays workable for 20 minutes after it's batched. 300 L tank."),
             };
         }
     }

@@ -136,7 +136,7 @@ namespace FPSBase.Vehicles
         /// <summary>Tests: how far wheel `i` has rolled on screen while another player drives (deg).</summary>
         public float NetWheelSpin(int i) => netSpin != null && i < netSpin.Length ? netSpin[i] : 0f;
 
-        void Awake()
+        protected void Awake()
         {
             rb = GetComponent<Rigidbody>();
             rb.centerOfMass = new Vector3(0f, 0.35f, 0.2f);
@@ -325,7 +325,7 @@ namespace FPSBase.Vehicles
         protected override bool DriveInput => Mathf.Abs(lastThrottle) > 0.05f;
         public override int BrakePedal => lastBraking || lastHandbrake ? 1 : 0;
 
-        void ApplyDrive(float throttle, float steer, bool handbrake)
+        protected void ApplyDrive(float throttle, float steer, bool handbrake)
         {
             lastThrottle = throttle;
             float speed = Vector3.Dot(rb.linearVelocity, transform.forward);

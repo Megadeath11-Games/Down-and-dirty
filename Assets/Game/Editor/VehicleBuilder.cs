@@ -54,7 +54,7 @@ namespace FPSBase.EditorTools
                 }
         }
 
-        class VehiclePrefabs { public GameObject mini, pickup, dumpTruck, hauler, miningHauler, dozer, loader, grader, bowser, tilt7, goose10; public GameObject[] excavators, dozers, skids, semis; }
+        class VehiclePrefabs { public GameObject mini, pickup, dumpTruck, hauler, miningHauler, mixer, dozer, loader, grader, bowser, tilt7, goose10; public GameObject[] excavators, dozers, skids, semis; }
 
         class ExcavatorSpec
         {
@@ -63,7 +63,7 @@ namespace FPSBase.EditorTools
 
         class TruckSpec
         {
-            public string name, id; public int paintHex = 0xd4d4d0, accentHex = 0x1e293b; public bool mining;
+            public string name, id; public int paintHex = 0xd4d4d0, accentHex = 0x1e293b; public bool mining, mixer;
             public float length, width, wheelR, hood, cab, cabH, bedL, bedW, bedH, capacity, mass, fuel, workBurn, topSpeed;
             public float[] axles;
         }
@@ -94,6 +94,12 @@ namespace FPSBase.EditorTools
                     name = "Mining Haul Truck 60 t", id = "Haul60", paintHex = 0xeab308, accentHex = 0x111827, mining = true,
                     length = 10.4f, width = 4.6f, wheelR = 1.0f, hood = 0f, cab = 1.7f, cabH = 2.0f,
                     bedL = 6.7f, bedW = 4.3f, bedH = 1.75f, capacity = 30f, mass = 45000f, fuel = 800f, workBurn = 75f, topSpeed = 50f, axles = new[] { 3.2f, -2.1f }
+                }, fm, tm, vm.dirt)),
+                mixer = SavePrefab(BuildFleetTruck(new TruckSpec
+                {
+                    name = "Concrete Mixer Truck", id = "Mixer8", paintHex = 0xf1f1ec, accentHex = 0xd9480f, mixer = true,
+                    length = 9.2f, width = 2.5f, wheelR = 0.55f, hood = 1.05f, cab = 1.9f, cabH = 1.6f,
+                    capacity = 8f, mass = 12500f, fuel = 300f, workBurn = 34f, topSpeed = 80f, axles = new[] { 3.0f, -1.55f, -2.9f }
                 }, fm, tm, vm.dirt)),
                 dozer = SavePrefab(BuildDozer(vm)),
                 loader = SavePrefab(BuildFleetLoader(fm, tm, vm.dirt)),

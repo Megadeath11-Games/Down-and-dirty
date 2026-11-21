@@ -151,7 +151,12 @@ namespace FPSBase.Core
                 var tanks = v.GetComponentsInChildren<FuelTank>(true);
                 w.Write(tanks.Length);
                 foreach (var t in tanks) w.Write(t.liters);
-                if (v is DumpPickup pk)
+                if (v is MixerTruck mx)
+                {
+                    w.Write((byte)4); // 4 = concrete in the drum and its age
+                    w.Write(mx.Concrete); w.Write(mx.Age);
+                }
+                else if (v is DumpPickup pk)
                 {
                     w.Write((byte)3); // 3 = tidy tank, gooseneck ball, bed load (1 = older saves: no ball)
                     w.Write(pk.TidyTankFitted);
@@ -345,6 +350,8 @@ namespace FPSBase.Core
                     if (extra == 1) { tidy = r.ReadBoolean(); bed = NetIO.ReadLoad(r); }
                     else if (extra == 3) { tidy = r.ReadBoolean(); goose = r.ReadBoolean(); bed = NetIO.ReadLoad(r); }
                     else if (extra == 2) { lowState = r.ReadByte(); lp = RV3(r); lq = RQ(r); }
+                    float mixM3 = 0f, mixAge = 0f;
+                    if (extra == 4) { mixM3 = r.ReadSingle(); mixAge = r.ReadSingle(); }
 
                     VehicleBase v = null;
                     if (scene) { foreach (var x in VehicleBase.All) if (x.NetId == id) { v = x; break; } }
@@ -369,6 +376,7 @@ namespace FPSBase.Core
                         pk.SetGooseneck(goose);
                         if (!bed.IsEmpty) pk.Receive(bed);
                     }
+                    if (v is MixerTruck mxr && extra == 4) mxr.SetConcrete(mixM3, mixAge);
                     if (v is SemiTruck semi && extra == 2) lowboys.Add((semi, lowState, lp, lq));
                 }
             }

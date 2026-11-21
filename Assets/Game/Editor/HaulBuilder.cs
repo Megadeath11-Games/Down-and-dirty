@@ -376,6 +376,10 @@ namespace FPSBase.EditorTools
                 hook.gameObject.AddComponent<Hitch>().type = HitchType.Pintle;
             }
 
+            DumpPickup pk;
+            if (s.mixer) pk = BuildMixerBody(root, s, fm, paint, accent, id, chassisY, front, railX, cabBack);
+            else
+            {
             // --- dump box hinged at the back: ribbed sides, top rails, a cab protector, hoist ram, tailgate
             var bedPivot = Marker(t, "BedPivot (hinge)", new Vector3(0f, bedFloor, -front + 0.15f));
             var bed = Marker(bedPivot, "DumpBox", new Vector3(0f, 0f, s.bedL / 2f));
@@ -421,24 +425,27 @@ namespace FPSBase.EditorTools
             mound.GetComponent<MeshRenderer>().sharedMaterial = dirt;
             mound.SetActive(false);
 
-            var pk = root.AddComponent<DumpPickup>();
-            pk.displayName = s.name;
-            pk.fuelCapacity = s.fuel; pk.fuel = s.fuel * 0.6f; pk.idleBurn = s.workBurn * 0.12f; pk.workBurn = s.workBurn;
-            pk.capacity = s.capacity; pk.topSpeedKmh = s.topSpeed;
-            pk.motorTorque = s.mass * 0.35f; pk.brakeTorque = s.mass * 1.35f;
-            pk.transferCase = false;
-            pk.rearLocked = s.axles.Length > 2 || s.mining;
-            pk.lowGearBoost = 2.8f;
+            pk = root.AddComponent<DumpPickup>();
             pk.bedPivot = bedPivot; pk.bedContents = contents.transform; pk.bedMound = mound.transform; pk.bedVolume = vol;
             pk.bedInnerSize = new Vector3(bw * 0.94f, bh, bl * 0.95f);
             pk.tailgatePour = Marker(bedPivot, "PourPoint", new Vector3(0f, 0.25f, -0.25f));
             pk.tailgate = gateHinge;
+            }
+            // (a mixer's pulled and stopped as if loaded: a full drum is 8 m³ of concrete, about 19 t)
+            float pullMass = s.mass + (s.mixer ? s.capacity * 1800f : 0f);
+            pk.displayName = s.name;
+            pk.fuelCapacity = s.fuel; pk.fuel = s.fuel * 0.6f; pk.idleBurn = s.workBurn * 0.12f; pk.workBurn = s.workBurn;
+            pk.capacity = s.capacity; pk.topSpeedKmh = s.topSpeed;
+            pk.motorTorque = pullMass * 0.32f; pk.brakeTorque = pullMass * 1.3f;
+            pk.transferCase = false;
+            pk.rearLocked = s.axles.Length > 2 || s.mining;
+            pk.lowGearBoost = 2.8f;
             pk.exitPoint = Marker(t, "ExitPoint", exitAt);
 
             int n = s.axles.Length * 2;
             pk.wheels = new WheelCollider[n];
             pk.wheelVisuals = new Transform[n];
-            float perWheel = s.mass / n;
+            float perWheel = (s.mass + (s.mixer ? s.capacity * 1800f : 0f)) / n;
             for (int i = 0; i < n; i++)
             {
                 float side = i % 2 == 0 ? -1f : 1f;
@@ -463,8 +470,110 @@ namespace FPSBase.EditorTools
                 pk.wheelVisuals[i] = v;
             }
             CabInterior(seat, CabStyle.Truck, CabMatsFrom(fm, paint), id);
-            pk.vehicleCamera = VehicleCam(t, t, seat, L * 1.5f, s.cabH + 1.2f + (s.mining ? 2.5f : 0f));
+            pk.vehicleCamera = VehicleCam(t, t, seat, L * 1.5f, s.cabH + 1.2f + (s.mining ? 2.5f : 0f) + (s.mixer ? 1.4f : 0f));
             return root;
         }
+
+        /// <summary>
+        /// The mixer's body: a pear-shaped drum on a front pedestal and rear rollers, tipped up at the back with a
+        /// spiral painted on it (so you see it turn), the charging hopper over its mouth, the chute below it that
+        /// swings round the back and tips up and down, a water tank and a ladder up to the hopper.
+        /// </summary>
+        static MixerTruck BuildMixerBody(GameObject root, TruckSpec s, FleetMats fm, Material paint, Material accent, string id, float chassisY, float front, float railX, float cabBack)
+        {
+            var t = root.transform;
+            float W = s.width, R = Mathf.Min(1.15f, W * 0.46f), half = 2.75f, tilt = 10f;
+            float sn = Mathf.Sin(tilt * Mathf.Deg2Rad), cs = Mathf.Cos(tilt * Mathf.Deg2Rad);
+            float drumY = chassisY + 0.25f + R + sn * 1.4f;
+            float drumZ = cabBack - 0.2f - half * cs;
+            var mount = Marker(t, "Drum Mount", new Vector3(0f, drumY, drumZ));
+            mount.localRotation = Quaternion.Euler(tilt, 0f, 0f);
+            var drum = Marker(mount, "Drum", Vector3.zero);
+            float Rz(float z) => z > 1.4f ? Mathf.Lerp(R, R * 0.52f, (z - 1.4f) / 1.35f) : z < -0.6f ? Mathf.Lerp(R, 0.4f, (-0.6f - z) / 2.15f) : R;
+            var gd = new Geo();
+            gd.Cyl(paint, new Vector3(0f, 0f, 2.075f), AxisFwd, R, R * 0.52f, 1.35f, 24);
+            gd.Cyl(paint, new Vector3(0f, 0f, 0.4f), AxisFwd, R, R, 2.0f, 24);
+            gd.Cyl(paint, new Vector3(0f, 0f, -1.675f), AxisFwd, 0.4f, R, 2.15f, 24);
+            gd.Cyl(fm.dark, new Vector3(0f, 0f, -2.78f), AxisFwd, 0.43f, 0.43f, 0.1f, 16); // the mouth
+            gd.Cyl(fm.dark, new Vector3(0f, 0f, 2.76f), AxisFwd, R * 0.3f, R * 0.3f, 0.1f, 12); // drive end
+            gd.Cyl(fm.dark, new Vector3(0f, 0f, -0.1f), AxisFwd, R + 0.03f, R + 0.03f, 0.12f, 24); // roller track
+            // two painted spirals round the drum (and its fins inside): you see the drum turn
+            for (int h = 0; h < 2; h++)
+                for (int i = 0; i < 27; i++)
+                {
+                    float z = -2.6f + i * 0.2f, a = i * 26f + h * 180f, rz = Rz(z) + 0.015f;
+                    float ar = a * Mathf.Deg2Rad;
+                    gd.Box(accent, new Vector3(Mathf.Cos(ar) * rz, Mathf.Sin(ar) * rz, z), new Vector3(0.36f, 0.03f, 0.2f), Quaternion.Euler(0f, 0f, a - 90f) * Quaternion.Euler(0f, 32f, 0f));
+                }
+            gd.Attach(drum, id + "_Drum");
+            ColBox(mount, "Drum Collider", new Vector3(0f, 0f, 0.2f), new Vector3(R * 1.8f, R * 1.8f, 4.6f));
+
+            // where the mouth is, in the truck's own frame
+            Vector3 mouth = mount.localPosition + mount.localRotation * new Vector3(0f, 0f, -2.8f);
+            var g = new Geo();
+            // subframe, the front pedestal (the drum's drive), rear roller stand
+            foreach (int sd in new[] { -1, 1 })
+                g.Box(fm.dark, new Vector3(sd * railX, chassisY + 0.22f, (cabBack - 0.1f + mouth.z) / 2f), new Vector3(0.16f, 0.14f, cabBack - 0.1f - mouth.z));
+            Vector3 fe = mount.localPosition + mount.localRotation * new Vector3(0f, 0f, 2.5f);
+            float pedTop = fe.y - R * 0.5f, pedBot = chassisY + 0.28f;
+            g.Box(paint, new Vector3(0f, (pedTop + pedBot) / 2f, fe.z), new Vector3(0.9f, pedTop - pedBot, 0.32f));
+            g.Cyl(fm.dark, new Vector3(0f, fe.y, fe.z + 0.2f), AxisFwd, 0.28f, 0.28f, 0.35f, 12); // gearbox
+            Vector3 rr = mount.localPosition + mount.localRotation * new Vector3(0f, 0f, -0.1f);
+            foreach (int sd in new[] { -1, 1 })
+            {
+                float rx = sd * R * 0.66f, ry = rr.y - R * 0.78f;
+                g.Box(paint, new Vector3(rx, (ry + pedBot) / 2f, rr.z), new Vector3(0.16f, ry - pedBot, 0.22f));
+                g.Cyl(fm.chrome, new Vector3(rx, ry + 0.06f, rr.z), AxisFwd, 0.12f, 0.12f, 0.2f, 12); // roller
+            }
+            g.Box(paint, new Vector3(0f, pedBot + 0.08f, rr.z), new Vector3(R * 1.5f, 0.12f, 0.24f));
+            // the charging hopper over the mouth, on its own stand
+            g.Cyl(paint, new Vector3(0f, mouth.y + 0.55f, mouth.z - 0.05f), Quaternion.identity, 0.34f, 0.78f, 0.6f, 18);
+            g.Cyl(fm.dark, new Vector3(0f, mouth.y + 0.86f, mouth.z - 0.05f), Quaternion.identity, 0.8f, 0.8f, 0.04f, 18);
+            foreach (int sd in new[] { -1, 1 })
+                g.Box(fm.dark, new Vector3(sd * 0.55f, (mouth.y + 0.4f + pedBot) / 2f, mouth.z - 0.15f), new Vector3(0.1f, mouth.y + 0.4f - pedBot, 0.1f));
+            // the collecting funnel under the mouth that feeds the chute
+            g.Cyl(fm.dark, new Vector3(0f, mouth.y - 0.5f, mouth.z - 0.15f), Quaternion.identity, 0.2f, 0.42f, 0.42f, 14);
+            // water tank behind the cab, fenders over the rear tandem, a ladder up the back to the hopper
+            g.Cyl(fm.chrome, new Vector3(W * 0.33f, chassisY + 0.78f, cabBack - 0.32f), Quaternion.identity, 0.26f, 0.26f, 0.95f, 14);
+            g.Cyl(fm.dark, new Vector3(W * 0.33f, chassisY + 1.28f, cabBack - 0.32f), Quaternion.identity, 0.08f, 0.08f, 0.06f, 8);
+            float r0 = s.axles[1], r1 = s.axles[2];
+            foreach (int sd in new[] { -1, 1 })
+            {
+                g.Box(accent, new Vector3(sd * (W / 2f - 0.2f), s.wheelR * 2f + 0.16f, (r0 + r1) / 2f), new Vector3(0.52f, 0.05f, Mathf.Abs(r0 - r1) + s.wheelR * 2.2f));
+                g.Box(fm.dark, new Vector3(sd * (W / 2f - 0.2f), s.wheelR * 1.4f, (r0 + r1) / 2f), new Vector3(0.5f, 0.04f, 0.5f));
+            }
+            Vector3 l0 = new Vector3(-0.85f, chassisY - 0.1f, -front + 0.12f), l1 = new Vector3(-0.85f, mouth.y + 0.75f, mouth.z - 0.35f);
+            foreach (float o in new[] { -0.2f, 0.2f }) Rail(g, fm.chrome, l0 + Vector3.right * o, l1 + Vector3.right * o, 0.025f);
+            for (int i = 1; i < 9; i++) g.Box(fm.dark, Vector3.Lerp(l0, l1, i / 9f), new Vector3(0.4f, 0.03f, 0.05f));
+            Rail(g, fm.chrome, l1 + new Vector3(-0.2f, 0.5f, 0f), l1 + new Vector3(0.6f, 0.5f, 0.3f), 0.025f); // grab rail at the hopper
+            g.Attach(t, id + "_MixerBody");
+
+            // the chute: swings round under the mouth and tips down
+            var yaw = Marker(t, "Chute Swing", new Vector3(0f, mouth.y - 0.82f, mouth.z - 0.15f));
+            yaw.localRotation = Quaternion.Euler(0f, 180f, 0f);
+            var pitch = Marker(yaw, "Chute Tip", Vector3.zero);
+            pitch.localRotation = Quaternion.Euler(22f, 0f, 0f);
+            var gc = new Geo();
+            const float CL = 2.3f;
+            gc.Box(fm.dark, new Vector3(0f, 0f, CL / 2f), new Vector3(0.44f, 0.03f, CL));
+            foreach (int sd in new[] { -1, 1 })
+            {
+                gc.Box(fm.dark, new Vector3(sd * 0.22f, 0.08f, CL / 2f), new Vector3(0.03f, 0.18f, CL), Quaternion.Euler(0f, 0f, sd * -18f));
+                gc.Box(accent, new Vector3(sd * 0.24f, 0.17f, CL / 2f), new Vector3(0.04f, 0.03f, CL));
+            }
+            gc.Cyl(fm.chrome, new Vector3(0f, 0.02f, 0f), Quaternion.identity, 0.14f, 0.14f, 0.1f, 12); // swivel
+            gc.Attach(pitch, id + "_Chute");
+            var end = Marker(pitch, "Chute End", new Vector3(0f, 0.02f, CL));
+
+            var mx = root.AddComponent<MixerTruck>();
+            mx.drum = drum;
+            mx.hopper = Marker(t, "Hopper", new Vector3(0f, mouth.y + 0.86f, mouth.z - 0.05f));
+            mx.chuteYaw = yaw; mx.chutePitch = pitch; mx.chuteEnd = end;
+            mx.drumCapacity = s.capacity;
+            mx.concreteMaterial = WetConcrete();
+            return mx;
+        }
+
+        static Material WetConcrete() => Flat("Concrete_Wet", new Color(0.4f, 0.4f, 0.39f), 0.72f);
     }
 }

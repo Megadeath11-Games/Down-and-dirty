@@ -40,6 +40,7 @@ namespace FPSBase.DebugTools
                         case "sway": yield return TrailerSwayTests(); break;
                         case "blockdirt": yield return BlockDirtTests(); break;
                         case "house": yield return HouseSiteTests(); break;
+                        case "mixer": yield return MixerTests(); break;
                         case "bucket": yield return BucketTests(); break;
                         case "multi": yield return MultiControlTests(); break;
                         case "fleet2": yield return Fleet2Tests(); break;
@@ -294,6 +295,7 @@ namespace FPSBase.DebugTools
             yield return TrailerSwayTests();
             yield return BlockDirtTests();
             yield return HouseSiteTests();
+            yield return MixerTests();
             yield return BucketTests();
             yield return MultiControlTests();
             yield return SaveTests();
@@ -3713,6 +3715,96 @@ namespace FPSBase.DebugTools
                 Destroy(d.gameObject);
             }
             Destroy(blk.gameObject);
+            yield return null;
+        }
+
+        IEnumerator MixerTests()
+        {
+            var plant = FPSBase.City.ConcretePlant.Instance;
+            Check(plant != null && plant.chute != null, "the concrete plant is there, with its loading chute");
+            var dealer = FindFirstObjectByType<VehicleDealer>();
+            int li = dealer != null ? System.Array.FindIndex(dealer.listings, l => l.name == "Concrete Mixer Truck") : -1;
+            Check(li >= 0 && li == dealer.listings.Length - 1 && dealer.listings[li].prefab != null, $"the mixer truck is on the end of the dealer's list ({li} of {(dealer != null ? dealer.listings.Length : 0)})");
+            if (plant == null || li < 0 || dealer.listings[li].prefab == null) yield break;
+            Vector3 ch = plant.chute.position;
+            var go = Instantiate(dealer.listings[li].prefab, VehicleDealer.GroundAt(ch) + Vector3.up * 0.5f, Quaternion.identity);
+            var m = go.GetComponent<MixerTruck>();
+            Check(m != null && m.drum != null && m.hopper != null && m.chuteEnd != null, "the mixer truck has its drum, hopper and chute");
+            if (m == null) { Destroy(go); yield break; }
+            Vector3 off = ch - m.hopper.position; off.y = 0f;
+            go.transform.position += off;
+            for (int i = 0; i < 90; i++) yield return new WaitForFixedUpdate();
+            var rb = go.GetComponent<Rigidbody>();
+            float empty = rb.mass;
+            log.AppendLine($"INFO  mixer under the chute: hopper {m.hopper.position.y:0.00} m up, chute {ch.y:0.00} m, {Vector2.Distance(new Vector2(ch.x, ch.z), new Vector2(m.hopper.position.x, m.hopper.position.z)):0.00} m off; {empty:0} kg empty");
+            Check(plant.IsUnder(m) && FPSBase.City.ConcretePlant.Under(m) == plant, "parked with the hopper under the chute, the plant sees it");
+            Economy.Instance.Earn(5000f);
+            float money = Economy.Instance.Money;
+            bool ordered = plant.Order(m, 4f, out string why);
+            float paid = money - Economy.Instance.Money;
+            Check(ordered && (Economy.Instance.Unlimited || Mathf.Abs(paid - 4f * plant.pricePerM3) < 0.5f), $"ordered 4 m³ and paid ${4f * plant.pricePerM3:N0} ({why ?? "ok"}, paid ${paid:N0}{(Economy.Instance.Unlimited ? ", unlimited money" : "")})");
+            float maxRpm = 0f, t0 = Time.time; bool shot = false;
+            while (plant.Loading && Time.time - t0 < 20f)
+            {
+                maxRpm = Mathf.Max(maxRpm, m.DrumRpm);
+                if (!shot && Time.time - t0 > 1.5f) { shot = true; yield return ShotAt(ch + new Vector3(-8f, -0.8f, 11f), ch + Vector3.down * 2f, "Screenshots/mixer_plant.png"); }
+                yield return null;
+            }
+            Check(Mathf.Abs(m.Concrete - 4f) < 0.02f && maxRpm > 8f, $"the plant charged the drum: {m.Concrete:0.00} m³ in {Time.time - t0:0.0} s, drum turning fast while loading ({maxRpm:0} rpm)");
+            Check(Mathf.Abs(rb.mass - empty - m.Concrete * m.concreteKg) < 1f && rb.mass - empty > 9000f, $"the truck is heavier by the concrete ({rb.mass - empty:0} kg)");
+            // order more than fits: it only batches what the drum has room for
+            plant.Order(m, 10f, out _);
+            Check(Mathf.Abs(plant.Owed - 4f) < 0.01f, $"order 10 m³ with room for 4: it batches 4 ({plant.Owed:0.0})");
+            t0 = Time.time;
+            while (plant.Loading && Time.time - t0 < 20f) yield return null;
+            bool more = plant.Order(m, 1f, out string why2);
+            Check(Mathf.Abs(m.Concrete - m.drumCapacity) < 0.02f && !more, $"filled to the brim ({m.Concrete:0.00} m³), then it won't take more ({why2})");
+            // drive it out of the lane
+            Vector3 start = go.transform.position;
+            m.TestDrive(1f);
+            for (int i = 0; i < 200; i++) yield return new WaitForFixedUpdate();
+            m.TestDrive(0f);
+            for (int i = 0; i < 100; i++) yield return new WaitForFixedUpdate();
+            float moved = Vector3.Distance(go.transform.position, start);
+            Check(moved > 6f && m.DrumRpm > 1f, $"loaded, it drives ({moved:0.0} m in 4 s) with the drum turning slowly ({m.DrumRpm:0.0} rpm)");
+            // swing the chute out to the right and pour
+            Vector3 endWas = go.transform.InverseTransformPoint(m.chuteEnd.position);
+            m.TestChute(70f, 30f);
+            t0 = Time.time;
+            while (Time.time - t0 < 2.5f) yield return null;
+            Vector3 endNow = go.transform.InverseTransformPoint(m.chuteEnd.position);
+            Check(endNow.x - endWas.x > 1.2f && Mathf.Abs(m.ChuteYawDeg - 70f) < 1f, $"the chute swings round to the right ({m.ChuteYawDeg:0}°: its end moved {endNow.x - endWas.x:0.0} m sideways)");
+            float wasted = FPSBase.City.ConcreteFlow.Wasted, before = m.Concrete;
+            m.TestPour(true);
+            t0 = Time.time; shot = false;
+            while (Time.time - t0 < 8f)
+            {
+                if (!shot && Time.time - t0 > 5f) { shot = true; yield return ShotAt(go.transform.TransformPoint(new Vector3(7f, 4.5f, -11f)), m.chuteEnd.position + Vector3.down * 1f, "Screenshots/mixer_pour.png"); }
+                yield return null;
+            }
+            bool wasPouring = m.PouringNow;
+            m.TestPour(false);
+            for (int i = 0; i < 30; i++) yield return null;
+            float poured = before - m.Concrete;
+            Check(wasPouring && poured > 1.2f && Mathf.Abs(FPSBase.City.ConcreteFlow.Wasted - wasted - poured) < 0.01f, $"holding pour, the drum turns out and the concrete comes down the chute ({poured:0.00} m³, {m.DrumRpm:0} rpm after)");
+            FPSBase.City.ConcretePuddle pud = null;
+            foreach (var q in FPSBase.City.ConcretePuddle.All) if (q != null && (pud == null || q.Volume > pud.Volume)) pud = q;
+            Vector3 groundAt = pud != null ? pud.transform.position : default;
+            float gy = FPSBase.City.ConcreteFlow.GroundBelow(groundAt + Vector3.up * 2f, null, out Vector3 gh) ? gh.y : float.NaN;
+            int verts = pud != null && pud.GetComponent<MeshFilter>().sharedMesh != null ? pud.GetComponent<MeshFilter>().sharedMesh.vertexCount : 0;
+            Check(pud != null && Mathf.Abs(pud.Volume - poured) < 0.05f && verts > 100 && Mathf.Abs(groundAt.y - gy) < 0.3f,
+                $"it lands on the ground as a puddle ({(pud != null ? $"{pud.Volume:0.00} m³, {pud.Radius:0.0} m across the middle, {verts} vertices, {groundAt.y - gy:0.00} m off the ground" : "none")})");
+            // left too long, it won't come out; washing out empties it
+            m.SetConcrete(2f, m.workableSeconds + 5f);
+            m.TestPour(true);
+            t0 = Time.time;
+            while (Time.time - t0 < 1.5f) yield return null;
+            m.TestPour(false);
+            Check(m.GoneOff && Mathf.Abs(m.Concrete - 2f) < 0.001f && !plant.Order(m, 1f, out _), "concrete gone off in the drum won't pour, and the plant won't top it up");
+            m.WashOut();
+            Check(m.Concrete == 0f && Mathf.Abs(rb.mass - empty) < 1f, "washed out, the drum's empty and the truck its own weight again");
+            Destroy(go);
+            foreach (var q in new System.Collections.Generic.List<FPSBase.City.ConcretePuddle>(FPSBase.City.ConcretePuddle.All)) if (q != null) Destroy(q.gameObject);
             yield return null;
         }
 

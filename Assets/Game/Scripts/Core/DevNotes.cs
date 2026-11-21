@@ -13,6 +13,14 @@ namespace FPSBase.Core
         /// <summary>Newest first.</summary>
         public static readonly Post[] Blog =
         {
+            new Post { date = "Update 35  ·  Nov 20, 2026", title = "The concrete mixer truck and the concrete plant",
+                body =
+                "• Build your own houses, part 2: the concrete mixer truck and the concrete plant. The truck's on the end of the dealer's Trucks list ($135,000): a tandem-axle ready-mix truck with an 8 m³ drum.\n" +
+                "• The concrete plant is east of the block yard, by the landscape supply (on the map). Back the truck in down the lane under the batching tower so the hopper on top at the back is under the loading chute, then press R in the cab (or walk up to the control house) and order 1, 2, 4 or 6 m³, or fill it. It's $145 a m³, paid up front; the drum turns fast while it's charged. Drive off before it's done and loading stops until you back in again.\n" +
+                "• On the road the drum keeps turning slowly. Loaded, the truck's about 19 t: it pulls and stops like it.\n" +
+                "• To pour: swing the chute with the arrow keys (left / right round the back, up / down to tip it) and hold E. The drum turns the other way and the concrete runs down the chute.\n" +
+                "• Concrete stays workable for 20 minutes after it's batched; the cab shows how long is left. Leave it too long and it goes off in the drum: it won't come out and the plant won't top it up. Get out and wash the drum out from the truck's menu.\n" +
+                "• For now the concrete lands on the ground, as a puddle that spreads as you pour and goes hard over three minutes. Pouring it into your house site's footings and slab comes in the next update. Puddles aren't saved; the concrete in the drum is." },
             new Post { date = "Update 34  ·  Nov 20, 2026", title = "Build your own houses: plans, setting out, levelling the pad and digging the footings",
                 body =
                 "• Build your own houses, part 1: your phone has a new Build a house tab with ten house plans, from a 5 x 10 m tiny home to a U-shaped ranch and a two-storey duplex. Each has its own footprint, its own footings and how deep they go.\n" +
@@ -313,11 +321,16 @@ namespace FPSBase.Core
                 "• Dozer berms build up properly in front of the blade." },
         };
 
-        public const string TestListVersion = "2026-11-20k";
+        public const string TestListVersion = "2026-11-20l";
 
         /// <summary>What's new in this build to try out.</summary>
         public static readonly string[] TestList =
         {
+            "Dealer, Trucks: buy the Concrete Mixer Truck (on the end of the list)",
+            "Concrete plant (east of the block yard, on the map): back the hopper in under the chute, press R in the cab, order a load: you pay and the drum fills while it turns fast",
+            "Drive a loaded mixer: drum turning slowly, it feels heavy; the cab shows the workable time counting down",
+            "Arrow keys swing and tip the chute; hold E to pour: concrete runs down the chute into a puddle that spreads and goes hard",
+            "Leave the concrete 20 minutes: it goes off and won't pour; wash the drum out from the truck's menu; save and load: the drum keeps its concrete",
             "Phone (P), Build a house tab: ten plans, each with a drawing of its footprint and footings, its size, depths and price",
             "Set out a plan: it follows where you look; Q/E or the wheel turns it, Page Up/Down moves the pad, it goes red with the reason over a street, a house or a steep slope, Enter or a click sets it down and charges you",
             "Dig the footings with an excavator: each stretch turns green once it is deep enough",

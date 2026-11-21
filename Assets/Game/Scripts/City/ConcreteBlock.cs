@@ -168,6 +168,176 @@ namespace FPSBase.City
             if (!fromNet) GameUI.Toast($"Unchained the {Info.name.ToLower()}");
         }
 
+        // ------------------------------------------------------------------ walls: blocks snap together
+
+        /// <summary>How close a block let go off the chain has to be to a spot against another block to snap into it (m).</summary>
+        public const float SnapReach = 0.9f;
+        /// <summary>Test switch: off = blocks are set down wherever they're let go.</summary>
+        public static bool SnapOn = true;
+        /// <summary>The block it last snapped against (for the test).</summary>
+        [System.NonSerialized] public ConcreteBlock LastSnapTo;
+
+        bool Upright => Vector3.Dot(transform.up, Vector3.up) > 0.985f;
+        /// <summary>Set down and still (on the ground, on a wall, on a deck): something to build against.</summary>
+        bool SetDown => HookedBy == null && (Pinned || Registered || ChainedTo != null || Body.isKinematic || Body.IsSleeping() || Body.linearVelocity.sqrMagnitude < 0.01f);
+
+        static float Yaw(Transform t) { Vector3 f = Vector3.ProjectOnPlane(t.forward, Vector3.up); return Mathf.Atan2(f.x, f.z) * Mathf.Rad2Deg; }
+        public float Heading => Yaw(transform);
+
+        /// <summary>A block's size seen from another one it's turned `turn` degrees (a multiple of 90) from: (across, up, along).</summary>
+        static Vector3 SizeIn(Vector3 s, float turn) => Mathf.RoundToInt(Mathf.Abs(turn) / 90f) % 2 == 1 ? new Vector3(s.z, s.y, s.x) : s;
+
+        /// <summary>
+        /// Let go off the chain near a block that's set down: it squares up to that block and goes into the nearest
+        /// spot against it (end to end, side by side, or on top: flush or half over the joint below, like brickwork).
+        /// So a wall lines up off the first block put down, block by block. Returns whether it snapped.
+        /// </summary>
+        public bool SnapToWall()
+        {
+            LastSnapTo = null;
+            if (!SnapOn || ChainedTo != null || HookedBy != null || !NetMine) return false;
+            Vector3 here = transform.position; // (the bottom middle)
+            float myYaw = Yaw(transform);
+            float bd = SnapReach; Vector3 bestP = default; Quaternion bestQ = default; ConcreteBlock bestB = null;
+            var cand = new List<Vector3>();
+            foreach (var o in all)
+            {
+                if (o == null || o == this || !o.Upright || !o.SetDown) continue;
+                Vector3 N = o.Size;
+                if ((o.transform.position - here).magnitude > (N.magnitude + Size.magnitude) * 0.5f + SnapReach + 0.5f) continue;
+                float turn = Mathf.Round(Mathf.DeltaAngle(Yaw(o.transform), myYaw) / 90f) * 90f;
+                Quaternion q = o.transform.rotation * Quaternion.Euler(0f, turn, 0f);
+                Vector3 e = SizeIn(Size, turn);
+                cand.Clear();
+                float fx = (N.x - e.x) * 0.5f, fz = (N.z - e.z) * 0.5f;
+                var xs = Mathf.Abs(fx) > 0.02f ? new[] { 0f, fx, -fx } : new[] { 0f };
+                var zs = Mathf.Abs(fz) > 0.02f ? new[] { 0f, fz, -fz } : new[] { 0f };
+                foreach (int sgn in new[] { -1, 1 })
+                {
+                    foreach (float x in xs) cand.Add(new Vector3(x, 0f, sgn * (N.z + e.z) * 0.5f)); // end to end
+                    foreach (float z in zs) cand.Add(new Vector3(sgn * (N.x + e.x) * 0.5f, 0f, z)); // side by side
+                }
+                var tops = new List<float>(zs) { N.z * 0.5f, -N.z * 0.5f };                         // on top
+                foreach (float x in xs) foreach (float z in tops) cand.Add(new Vector3(x, N.y, z));
+                foreach (var l in cand)
+                {
+                    Vector3 p = o.transform.TransformPoint(l);
+                    float d = Vector3.Distance(p, here);
+                    if (d >= bd) continue;
+                    if (l.y < 0.01f) p = OnGround(p);
+                    if (!Free(p, q)) continue;
+                    if (l.y > 0.01f && !Supported(p, q)) continue;
+                    bd = d; bestP = p; bestQ = q; bestB = o;
+                }
+            }
+            if (bestB == null) return false;
+            var body = Body;
+            transform.SetPositionAndRotation(bestP + Vector3.up * 0.004f, bestQ);
+            body.position = transform.position; body.rotation = bestQ;
+            if (!body.isKinematic) { body.linearVelocity = Vector3.zero; body.angularVelocity = Vector3.zero; }
+            lastPos = transform.position; lastRot = bestQ; still = 0f;
+            LastSnapTo = bestB;
+            NetDirty = true;
+            return true;
+        }
+
+        /// <summary>Beside a block on the ground: on the dirt there if it's higher than the block beside it stands.</summary>
+        static Vector3 OnGround(Vector3 p)
+        {
+            var site = DigSite.At(p);
+            if (site != null && site.Contains(p)) { float g = site.SurfaceY(p); if (g > p.y + 0.02f) p.y = g; }
+            return p;
+        }
+
+        /// <summary>Nothing in the way there: no other block, no machine.</summary>
+        bool Free(Vector3 p, Quaternion q)
+        {
+            int n = Physics.OverlapBoxNonAlloc(p + q * Vector3.up * (Size.y * 0.5f + 0.01f), Size * 0.5f - Vector3.one * 0.04f, near, q, ~0, QueryTriggerInteraction.Ignore);
+            for (int i = 0; i < n; i++)
+            {
+                var c = near[i];
+                if (c == null || c.transform.IsChildOf(transform)) continue;
+                if (c.GetComponentInParent<ConcreteBlock>() != null || c.attachedRigidbody != null) return false;
+            }
+            return true;
+        }
+
+        /// <summary>On top of the wall: both its ends sit on blocks (it doesn't hang off the end of the course below).</summary>
+        bool Supported(Vector3 p, Quaternion q)
+        {
+            Vector3 along = q * Vector3.forward, up = q * Vector3.up;
+            foreach (float f in new[] { -0.38f, 0.38f })
+            {
+                Vector3 at = p + along * (Size.z * f) + up * 0.06f;
+                bool hit = false;
+                foreach (var h in Physics.RaycastAll(at, -up, 0.2f, ~0, QueryTriggerInteraction.Ignore))
+                    if (!h.collider.transform.IsChildOf(transform) && h.collider.GetComponentInParent<ConcreteBlock>() != null) { hit = true; break; }
+                if (!hit) return false;
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Squared up face to face against another block (snapped into a wall, or the block a wall was started
+        /// from): any face touching another's, the two lined up to within a few degrees.
+        /// </summary>
+        public bool InWall()
+        {
+            if (!Upright) return false;
+            Vector3 me = transform.position;
+            foreach (var o in all)
+            {
+                if (o == null || o == this || !o.Upright) continue;
+                if ((o.transform.position - me).sqrMagnitude > 16f) continue;
+                float rel = Mathf.DeltaAngle(Yaw(o.transform), Yaw(transform));
+                float turn = Mathf.Round(rel / 90f) * 90f;
+                if (Mathf.Abs(rel - turn) > 3f) continue;
+                Vector3 e = SizeIn(Size, turn), N = o.Size;
+                Vector3 l = o.transform.InverseTransformPoint(me);
+                // how far apart the two boxes are along each of its axes (below 0 = they overlap that much)
+                float gx = Mathf.Abs(l.x) - (N.x + e.x) * 0.5f;
+                float gz = Mathf.Abs(l.z) - (N.z + e.z) * 0.5f;
+                float gy = Mathf.Max(l.y - N.y, -(l.y + e.y));
+                int faces = 0, over = 0;
+                foreach (float gap in new[] { gx, gy, gz })
+                {
+                    if (gap >= -0.03f && gap <= 0.08f) faces++;
+                    else if (gap < -0.05f) over++;
+                }
+                if (faces == 1 && over == 2) return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Blocks lying about: not in a wall, not on the chain, not on a trailer or truck (chained or just loaded).
+        /// </summary>
+        public static List<ConcreteBlock> Loose()
+        {
+            var l = new List<ConcreteBlock>();
+            foreach (var b in all)
+                if (b != null && b.ChainedTo == null && b.HookedBy == null && !b.CarrierBelow(out _) && !b.InWall()) l.Add(b);
+            return l;
+        }
+
+        /// <summary>The fraction of the price the yard gives back for a loose block it collects.</summary>
+        public const float CollectRefund = 0.5f;
+        /// <summary>Multiplayer: these blocks are gone (sent to everyone before they're removed).</summary>
+        public static System.Action<List<ConcreteBlock>> NetRemoved;
+
+        /// <summary>The block yard collects every loose block (half its price back). Returns how many.</summary>
+        public static int CollectLoose(out float refund)
+        {
+            var l = Loose();
+            refund = 0f;
+            foreach (var b in l) refund += b.Info.price * CollectRefund;
+            if (l.Count == 0) return 0;
+            NetRemoved?.Invoke(l);
+            foreach (var b in l) { b.Unregister(); b.gameObject.SetActive(false); Destroy(b.gameObject); }
+            Economy.Instance?.Earn(refund);
+            return l.Count;
+        }
+
         // ------------------------------------------------------------------ multiplayer
 
         /// <summary>This game runs it now (we hooked, chained or bought it).</summary>

@@ -1,6 +1,7 @@
 using System.Collections;
 using System.IO;
 using System.Text;
+using FPSBase.City;
 using FPSBase.Core;
 using FPSBase.Mining;
 using FPSBase.Vehicles;
@@ -69,6 +70,7 @@ namespace FPSBase.DebugTools
                         case "hitch": yield return DumpHitchTests(); break;
                         case "lip": yield return BucketLipTests(); break;
                         case "graderride": yield return GraderRideTests(); break;
+                        case "blockyard": yield return BlockYardTests(); break;
                         case "slosh": yield return SloshTests(DigSite.Instance, FindFirstObjectByType<DumpPickup>()); break;
                         case "materials": yield return MaterialsTests(DigSite.Instance, Economy.Instance, FindFirstObjectByType<WashPlant>(), FindFirstObjectByType<DumpPickup>()); break;
                         default: log.AppendLine($"INFO  unknown quick test '{part}'"); break;
@@ -3560,6 +3562,209 @@ namespace FPSBase.DebugTools
         /// wheels with the tractor), and tip it out; the loaders steer by bending in the middle (arms, bucket and
         /// Z-bar going with it) and dig, fill, carry and scrape like the old loader.
         /// </summary>
+        /// <summary>
+        /// The block yard and the blocks: the drive-through lane is solid road its whole length and a semi drives
+        /// through it; buying blocks again and again onto its trailer stacks them neatly (none flung about); blocks
+        /// let go by a set-down block snap into a wall off it (end to end, on top over the joint, at a corner);
+        /// a block on the chain turns with the keys; the phone's clean up collects only the loose ones.
+        /// </summary>
+        IEnumerator BlockYardTests()
+        {
+            var yard = BlockYard.Instance;
+            var dealer = FindFirstObjectByType<VehicleDealer>();
+            if (yard == null) { Check(false, "there's a block yard"); yield break; }
+            var eco = Economy.Instance;
+            if (eco != null) eco.Earn(500000f);
+            Physics.SyncTransforms();
+
+            // --- the lane: a road the whole way, from the end of West Ave past the concrete plant
+            var bay = yard.bay;
+            Vector3 along = bay.forward; along.y = 0f; along.Normalize(); // (the bay's length runs east)
+            Vector3 mid = bay.position;
+            var west = GameObject.Find("Block Yard Lane West"); var east = GameObject.Find("Block Yard Lane East");
+            Check(west != null && east != null, "the lane carries on as a road both ways out of the yard");
+            if (west == null || east == null) yield break;
+            float x0 = west.GetComponent<Collider>().bounds.min.x, x1 = (GameObject.Find("Block Yard Lane East End") ?? east).GetComponent<Collider>().bounds.max.x;
+            var ground = new System.Text.StringBuilder();
+            bool solid = true; float lo = 99f, hi = -99f;
+            for (float x = x0 + 1f; x < x1; x += 6f)
+                foreach (float dz in new[] { -2f, 1f })
+                {
+                    Vector3 at = new Vector3(x, 40f, mid.z + dz);
+                    if (!Physics.Raycast(at, Vector3.down, out RaycastHit h, 80f, ~0, QueryTriggerInteraction.Ignore)) { solid = false; ground.Append($" {x:0}: nothing;"); continue; }
+                    lo = Mathf.Min(lo, h.point.y); hi = Mathf.Max(hi, h.point.y);
+                    bool road = h.collider.name.Contains("Lane") || h.collider.name.Contains("Pad") || h.collider.name.Contains("Ave") || h.collider.name.Contains("Ground");
+                    if (!road || Mathf.Abs(h.point.y - mid.y) > 0.25f) { solid = false; ground.Append($" {x:0},{dz:0}: {h.collider.name} at {h.point.y - mid.y:+0.00;-0.00};"); }
+                    // what's under the road there (is it buried in a hillside, or floating?)
+                    float terr = float.NaN;
+                    foreach (var t in Terrain.activeTerrains) { var tb = t.terrainData.bounds; Vector3 tl = new Vector3(x, 0f, mid.z + dz) - t.transform.position; if (tl.x >= 0 && tl.z >= 0 && tl.x <= tb.size.x && tl.z <= tb.size.z) terr = t.SampleHeight(new Vector3(x, 0f, mid.z + dz)) + t.transform.position.y; }
+                    if (!float.IsNaN(terr) && Mathf.Abs(terr - mid.y) > 0.35f) ground.Append($" {x:0},{dz:0}: terrain {terr - mid.y:+0.00;-0.00};");
+                }
+            log.AppendLine($"INFO  the lane from x {x0:0} to {x1:0}: surface {lo - mid.y:+0.00;-0.00} to {hi - mid.y:+0.00;-0.00} m;{ground}");
+            Check(solid, $"the drive-through lane is road all the way ({x1 - x0:0} m){(solid ? "" : ":" + ground)}");
+
+            // --- a semi with its lowboy drives in at the west end and out at the east
+            var spf = Prefab0(dealer, "Semi Truck 25");
+            SemiTruck semi = null;
+            if (spf == null) Check(false, "the dealer sells the 25 t semi");
+            else
+            {
+                // (on the lane, its lowboy still on the west apron)
+                Vector3 st = new Vector3(x0 + 20f, mid.y + 0.4f, mid.z);
+                semi = Instantiate(spf, st, Quaternion.LookRotation(along)).GetComponent<SemiTruck>();
+                for (int i = 0; i < 50 * 3; i++) yield return new WaitForFixedUpdate();
+                var low = semi.Towing;
+                bool inBay = false; float startX = semi.transform.position.x;
+                semi.TestDrive(0.45f);
+                var path = new System.Text.StringBuilder();
+                for (float t = 0f; t < 70f; t += Time.fixedDeltaTime)
+                {
+                    yield return new WaitForFixedUpdate();
+                    // keep to the lane's middle line
+                    float off = semi.transform.position.z - mid.z;
+                    semi.TestSteer(Mathf.Clamp(off * 0.25f + Vector3.Dot(semi.transform.forward, Vector3.forward) * 1.5f, -1f, 1f));
+                    if (Mathf.Repeat(t, 2f) < Time.fixedDeltaTime) path.Append($" {semi.transform.position.x - mid.x:0},{semi.transform.position.z - mid.z:+0.0;-0.0}");
+                    if (yard.CarrierInBay(out _, out var dk) && low != null && dk == low.deckArea) inBay = true;
+                    // stop with the lowboy in the bay, the first time through
+                    if (inBay && low != null && low.deckArea.position.x > mid.x - 7f) break; // (it rolls on a few metres)
+                }
+                semi.TestDrive(0f); semi.TestSteer(0f);
+                var srb = semi.GetComponent<Rigidbody>();
+                for (int i = 0; i < 50 * 8 && (i < 50 || srb.linearVelocity.magnitude > 0.15f); i++) yield return new WaitForFixedUpdate();
+                inBay = yard.CarrierInBay(out _, out var stopDeck) && low != null && stopDeck == low.deckArea;
+                log.AppendLine($"INFO  the semi's way in (x, z off the lane):{path}");
+                if (low != null) log.AppendLine($"INFO  the lowboy's deck in the bay's frame: {yard.bay.InverseTransformPoint(low.deckArea.position)} (bay {yard.baySize})");
+                Check(inBay, $"the semi's lowboy pulls into the loading bay and stops in it ({semi.transform.position.x - startX:0.0} m in, deck {(low != null ? low.deckArea.position.x - mid.x : 0f):+0.0;-0.0} m from the bay's middle)");
+
+                // --- buying again and again onto it: neat rows, nothing flung about
+                if (inBay && low != null)
+                {
+                    int before = ConcreteBlock.All.Count;
+                    int got = 0;
+                    for (int i = 0; i < 6; i++) got += yard.Buy(1, 4); // (the button spammed: six lots in the same moment)
+                    var mine = new System.Collections.Generic.List<ConcreteBlock>();
+                    var spot = new System.Collections.Generic.Dictionary<ConcreteBlock, Vector3>();
+                    for (int i = before; i < ConcreteBlock.All.Count; i++) { var b = ConcreteBlock.All[i]; mine.Add(b); spot[b] = low.deckArea.InverseTransformPoint(b.transform.position); }
+                    for (int i = 0; i < 50 * 4; i++) yield return new WaitForFixedUpdate();
+                    float moved = 0f; int off = 0, overlapping = 0;
+                    foreach (var b in mine)
+                    {
+                        if (b == null) continue;
+                        Vector3 l = low.deckArea.InverseTransformPoint(b.transform.position);
+                        moved = Mathf.Max(moved, Vector3.Distance(l, spot[b]));
+                        if (!b.CarrierBelow(out _)) off++;
+                        foreach (var o in mine)
+                        {
+                            if (o == null || o == b) continue;
+                            // (really inside each other, not just touching)
+                            var bc = b.GetComponent<Collider>(); var oc = o.GetComponent<Collider>();
+                            if (Physics.ComputePenetration(bc, bc.transform.position, bc.transform.rotation, oc, oc.transform.position, oc.transform.rotation, out _, out float pen) && pen > 0.05f) overlapping++;
+                        }
+                    }
+                    var where = new System.Text.StringBuilder();
+                    foreach (var b in mine) if (b != null) { Vector3 l = low.deckArea.InverseTransformPoint(b.transform.position); where.Append($" ({spot[b].x:0.00},{spot[b].y:0.00},{spot[b].z:0.00})->({l.x:0.00},{l.y:0.00},{l.z:0.00});"); }
+                    log.AppendLine($"INFO  the load, spot -> where it ended up on the deck:{where}");
+                    Check(got == mine.Count && got >= 8 && moved < 0.25f && off == 0 && overlapping == 0,
+                        $"buying lock blocks six times at once onto the lowboy loads them neatly ({got} loaded, the most any moved {moved:0.00} m, {off} off the deck, {overlapping / 2} overlapping)");
+                    yield return ShotAt(low.deckArea.position + new Vector3(-6f, 5f, -7f), low.deckArea.position, "Screenshots/blockyard_load.png");
+                    foreach (var b in mine) if (b != null) Destroy(b.gameObject);
+                    yield return null;
+                }
+                // and on out the east end
+                semi.TestDrive(0.5f);
+                for (float t = 0f; t < 70f && semi.transform.position.x < x1 - 6f; t += Time.fixedDeltaTime)
+                {
+                    yield return new WaitForFixedUpdate();
+                    float off = semi.transform.position.z - mid.z;
+                    semi.TestSteer(Mathf.Clamp(off * 0.25f + Vector3.Dot(semi.transform.forward, Vector3.forward) * 1.5f, -1f, 1f));
+                }
+                semi.TestDrive(0f); semi.TestSteer(0f);
+                bool through = semi.transform.position.x >= x1 - 6f;
+                float trailerEnd = low != null ? low.transform.position.x : 0f;
+                Check(through && (low == null || trailerEnd > yard.bay.position.x + 13f), $"the semi drives on out the far side ({semi.transform.position.x - x0:0} m along the lane, trailer {(low != null ? $"past the yard: {trailerEnd > yard.bay.position.x + 13f}" : "none")})");
+                yield return ShotAt(semi.transform.position + new Vector3(-10f, 6f, -12f), semi.transform.position, "Screenshots/blockyard_through.png");
+                if (low != null) Destroy(low.gameObject);
+                Destroy(semi.gameObject);
+                yield return null;
+            }
+
+            // --- a wall, off the first block
+            Vector3 wallAt = yard.bay.position + new Vector3(-5f, 0f, 7.75f); // (on the yard pad north of the lane, clear of the stock)
+            wallAt.y = mid.y + 0.05f;
+            var a = BlockYard.Spawn(1, wallAt, Quaternion.Euler(0f, 23f, 0f));
+            a.Claim();
+            for (int i = 0; i < 50 * 2; i++) yield return new WaitForFixedUpdate();
+            Vector3 fwd = a.transform.forward, right = a.transform.right;
+            // end to end: let go a little off and turned a little
+            var b2 = BlockYard.Spawn(1, a.transform.position + fwd * (a.Size.z + 0.35f) + right * 0.2f + Vector3.up * 0.3f, Quaternion.Euler(0f, 23f + 7f, 0f));
+            b2.Claim(); yield return new WaitForFixedUpdate();
+            bool s1 = b2.SnapToWall();
+            Vector3 lb = a.transform.InverseTransformPoint(b2.transform.position);
+            Check(s1 && b2.LastSnapTo == a && Mathf.Abs(Mathf.DeltaAngle(a.Heading, b2.Heading)) < 0.5f && Mathf.Abs(lb.x) < 0.01f && Mathf.Abs(lb.z - a.Size.z) < 0.01f,
+                $"a block let go by the first one squares up and butts on to its end ({lb.x:0.000}, {lb.y:0.000}, {lb.z:0.000} from it, turned {Mathf.DeltaAngle(a.Heading, b2.Heading):0.0}°)");
+            for (int i = 0; i < 50; i++) yield return new WaitForFixedUpdate();
+            // on top, over the joint (like brickwork)
+            var c3 = BlockYard.Spawn(1, a.transform.TransformPoint(new Vector3(0.1f, a.Size.y + 0.25f, a.Size.z * 0.42f)), Quaternion.Euler(0f, 23f - 5f, 0f));
+            c3.Claim(); yield return new WaitForFixedUpdate();
+            bool s2 = c3.SnapToWall();
+            Vector3 lc = a.transform.InverseTransformPoint(c3.transform.position);
+            Check(s2 && Mathf.Abs(lc.y - a.Size.y) < 0.01f && Mathf.Abs(lc.z - a.Size.z * 0.5f) < 0.01f && Mathf.Abs(lc.x) < 0.01f,
+                $"one let go over the joint sits on top across it ({lc.x:0.000}, {lc.y:0.000}, {lc.z:0.000})");
+            // turned near square: it goes in square (a corner)
+            var d4 = BlockYard.Spawn(1, a.transform.TransformPoint(new Vector3(a.Size.x * 0.5f + a.Size.z * 0.5f + 0.3f, 0.2f, -a.Size.z * 0.5f + a.Size.x * 0.5f)), Quaternion.Euler(0f, 23f + 82f, 0f));
+            d4.Claim(); yield return new WaitForFixedUpdate();
+            bool s3 = d4.SnapToWall();
+            float turn = Mathf.DeltaAngle(a.Heading, d4.Heading);
+            Check(s3 && Mathf.Abs(Mathf.Abs(turn) - 90f) < 0.5f, $"one let go turned near square goes in square, a corner ({turn:0.0}°)");
+            // far from anything: left where it is
+            var e5 = BlockYard.Spawn(1, wallAt + new Vector3(0f, 0f, 6f), Quaternion.Euler(0f, 60f, 0f));
+            e5.Claim(); yield return new WaitForFixedUpdate();
+            Vector3 e0 = e5.transform.position;
+            Check(!e5.SnapToWall() && (e5.transform.position - e0).magnitude < 0.001f, "one let go away from any block stays where it's put");
+            for (int i = 0; i < 50 * 3; i++) yield return new WaitForFixedUpdate();
+            Check(a.InWall() && b2.InWall() && c3.InWall() && d4.InWall() && !e5.InWall(), $"the wall's blocks count as in a wall, the lone one doesn't ({a.InWall()} {b2.InWall()} {c3.InWall()} {d4.InWall()} / {e5.InWall()})");
+            yield return ShotAt(a.transform.position + new Vector3(-4f, 3f, -5f), a.transform.position + Vector3.up * 0.5f, "Screenshots/blockyard_wall.png");
+
+            // --- clean up: only the loose one goes, and half its price comes back
+            var loose = ConcreteBlock.Loose();
+            float m0 = eco != null ? eco.Money : 0f;
+            bool onlyLoose = loose.Contains(e5) && !loose.Contains(a) && !loose.Contains(b2) && !loose.Contains(c3) && !loose.Contains(d4);
+            int collected = ConcreteBlock.CollectLoose(out float refund);
+            yield return null;
+            Check(onlyLoose && e5 == null && a != null && b2 != null && c3 != null && d4 != null && (eco == null || Mathf.Abs(eco.Money - m0 - refund) < 0.5f) && refund >= ConcreteBlock.Kinds[1].price * 0.5f - 0.01f,
+                $"the phone's clean up collects the loose blocks and leaves the wall ({collected} collected, ${refund:0} back)");
+
+            // --- a block on an excavator's chain turns with the keys, and goes into the wall when let go
+            var xpf = Prefab0(dealer, "Compact Excavator");
+            if (xpf != null)
+            {
+                Vector3 xa = a.transform.position + a.transform.forward * -6f + a.transform.right * 3f; xa.y = mid.y + 0.3f;
+                var ex = Instantiate(xpf, xa, Quaternion.LookRotation(-a.transform.right)).GetComponent<MiniExcavator>();
+                for (int i = 0; i < 50 * 2; i++) yield return new WaitForFixedUpdate();
+                var chain = ex.GetComponent<BucketChain>();
+                var f6 = BlockYard.Spawn(1, chain.Shackle + Vector3.down * (chain.Length + 0.2f + ConcreteBlock.Kinds[1].size.y), Quaternion.Euler(0f, 10f, 0f));
+                f6.Claim(); yield return new WaitForFixedUpdate();
+                chain.Hook(f6);
+                for (int i = 0; i < 50 * 2; i++) yield return new WaitForFixedUpdate();
+                float h0 = f6.Heading;
+                chain.TurnBy(90f);
+                for (int i = 0; i < 50 * 4; i++) yield return new WaitForFixedUpdate();
+                float turned = Mathf.DeltaAngle(h0, f6.Heading);
+                Check(chain.Held == f6 && Mathf.Abs(turned - 90f) < 6f, $"turning the block on the chain turns it and it holds there ({turned:0.0}° of 90)");
+                // swing it in by the end of the wall and let go
+                chain.Release();
+                Destroy(f6.gameObject);
+                var g7 = BlockYard.Spawn(1, b2.transform.position + b2.transform.forward * (b2.Size.z + 0.5f) + Vector3.up * 0.4f, Quaternion.Euler(0f, b2.Heading + 4f, 0f));
+                g7.Claim(); yield return new WaitForFixedUpdate();
+                chain.Hook(g7);
+                chain.Release(); // (let go where it is: the chain's not long enough to reach from the machine)
+                Check(g7.LastSnapTo == b2, $"a block let go off the chain by the end of the wall goes into it ({(g7.LastSnapTo != null ? "against the " + (g7.LastSnapTo == b2 ? "end block" : "another block") : "not snapped")})");
+                Destroy(ex.gameObject); Destroy(g7.gameObject);
+            }
+            foreach (var bk in new[] { a, b2, c3, d4 }) if (bk != null) Destroy(bk.gameObject);
+            yield return null;
+        }
+
         /// <summary>
         /// The grader on a hard pad over bumps: one under the left wheels only (the front axle and the left tandem
         /// rock over it, the frame stays near level and the blade hardly moves), and a windrow down the middle

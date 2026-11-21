@@ -40,6 +40,9 @@ namespace FPSBase.Vehicles
 
         /// <summary>Automated tests: drive without a player in the seat.</summary>
         public void TestDrive(float throttleInput) => testThrottle = throttleInput;
+        float testSteer;
+        /// <summary>Steering with nobody in the seat (the automated test).</summary>
+        public void TestSteer(float steerInput) => testSteer = steerInput;
         protected override bool DriveInput => Mathf.Abs(throttle) > 0.05f || Mathf.Abs(testThrottle) > 0.05f;
         public TrackSuspension Suspension => suspension;
 
@@ -77,7 +80,7 @@ namespace FPSBase.Vehicles
         protected virtual void FixedUpdate()
         {
             IgnorePileCollisions();
-            if (!Occupied) { throttle = testThrottle; steer = 0f; }
+            if (!Occupied) { throttle = testThrottle; steer = testSteer; }
             if (rb.isKinematic) return;
             suspension.Step();
             GroundPushBack();

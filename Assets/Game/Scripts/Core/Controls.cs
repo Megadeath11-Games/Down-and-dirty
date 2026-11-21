@@ -46,6 +46,8 @@ namespace FPSBase.Core
         PlanRotateLeft, PlanRotateRight, PlanRaise, PlanLower, PlanPlace, PlanCancel,
         // concrete mixer truck
         ChuteLeft, ChuteRight, ChuteUp, ChuteDown, ConcretePour, ConcreteLoad,
+        // turning a block on the excavator's chain
+        ChainTurnLeft, ChainTurnRight,
     }
 
     /// <summary>Controller inputs (Xbox names; a PlayStation pad is the same places: A = Cross, B = Circle, X = Square, Y = Triangle).</summary>
@@ -127,6 +129,8 @@ namespace FPSBase.Core
             new(GameAction.Hook, "Excavator chain", "Bucket chain: let it down / hook a block / let go", Key.H),
             new(GameAction.ChainLonger, "Excavator chain", "Let the chain out longer", Key.Y),
             new(GameAction.ChainShorter, "Excavator chain", "Take the chain in shorter", Key.U),
+            new(GameAction.ChainTurnLeft, "Excavator chain", "Turn the block on the chain left", Key.Comma),
+            new(GameAction.ChainTurnRight, "Excavator chain", "Turn the block on the chain right", Key.Period),
             new(GameAction.PlanRotateLeft, "Setting out a house", "Turn the plan left", Key.Q),
             new(GameAction.PlanRotateRight, "Setting out a house", "Turn the plan right", Key.E),
             new(GameAction.PlanRaise, "Setting out a house", "Pad higher (10 cm)", Key.PageUp),

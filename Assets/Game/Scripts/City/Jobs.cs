@@ -716,12 +716,12 @@ namespace FPSBase.City
 
         public const string PhoneTitle = "Phone";
         int chatWith = -1;   // house index of the open conversation
-        int phoneTab;        // 0 = messages, 1 = jobs, 2 = building houses
+        int phoneTab;        // 0 = messages, 1 = jobs, 2 = building houses, 3 = clean up
         Vector2 listScroll, chatScroll;
         bool scrollToEnd;
 
-        /// <summary>Switch the phone to a tab (0 messages, 1 jobs, 2 building houses).</summary>
-        public void ShowTab(int tab) => phoneTab = Mathf.Clamp(tab, 0, 2);
+        /// <summary>Switch the phone to a tab (0 messages, 1 jobs, 2 building houses, 3 clean up).</summary>
+        public void ShowTab(int tab) => phoneTab = Mathf.Clamp(tab, 0, 3);
 
         public void OpenPhone(House h)
         {
@@ -755,6 +755,9 @@ namespace FPSBase.City
                 if (GUI.Button(new Rect(area.x + listW + gap, area.y, 220, 36), building > 0 ? $"Build a house  ({building})" : "Build a house", phoneTab == 2 ? ShopTheme.TabOn : ShopTheme.Tab)) phoneTab = 2;
                 if (phoneTab == 2) { con.DrawPhone(new Rect(area.x, area.y + 46, area.width, area.height - 46)); return; }
             }
+            int loose = LooseBlocks().Count;
+            if (GUI.Button(new Rect(area.x + listW + gap + 228, area.y, 190, 36), loose > 0 ? $"Clean up  ({loose})" : "Clean up", phoneTab == 3 ? ShopTheme.TabOn : ShopTheme.Tab)) { phoneTab = 3; confirmCollect = false; }
+            if (phoneTab == 3) { DrawCleanup(new Rect(area.x, area.y + 46, area.width, area.height - 46)); return; }
 
             // left: conversations or jobs
             var list = new Rect(area.x, area.y + 46, listW, area.height - 46);
@@ -877,6 +880,60 @@ namespace FPSBase.City
             }
         }
         static GUIStyle bubbleIn;
+
+        // ------------------------------------------------------------------ clean up: loose concrete blocks
+
+        bool confirmCollect;
+        List<ConcreteBlock> looseCache = new();
+        float looseAt = -1f;
+        /// <summary>The loose blocks (looked for twice a second, not every repaint).</summary>
+        List<ConcreteBlock> LooseBlocks()
+        {
+            if (looseAt < 0f || Time.unscaledTime - looseAt > 0.5f) { looseCache = ConcreteBlock.Loose(); looseAt = Time.unscaledTime; }
+            looseCache.RemoveAll(b => b == null);
+            return looseCache;
+        }
+
+        void DrawCleanup(Rect area)
+        {
+            Card(area, ShopTheme.TexCard);
+            var inner = new Rect(area.x + 20, area.y + 16, area.width - 40, area.height - 32);
+            float y = inner.y;
+            GUI.Label(new Rect(inner.x, y, inner.width, 30), "Clean up", ShopTheme.Heading); y += 38;
+            GUI.Label(new Rect(inner.x, y, inner.width, 66),
+                "Concrete blocks lying about: ones that aren't squared up against another block in a wall, and aren't on the chain or on a trailer or truck. " +
+                $"The block yard collects them and gives you back {ConcreteBlock.CollectRefund * 100f:0}% of what they cost.", ShopTheme.Body);
+            y += 74;
+            var loose = LooseBlocks();
+            if (loose.Count == 0)
+            {
+                GUI.Label(new Rect(inner.x, y, inner.width, 30), "Nothing to clean up: every block is in a wall or on a load.", ShopTheme.Body);
+                return;
+            }
+            var counts = new int[ConcreteBlock.Kinds.Length];
+            float back = 0f;
+            foreach (var b in loose) { counts[Mathf.Clamp(b.kind, 0, counts.Length - 1)]++; back += b.Info.price * ConcreteBlock.CollectRefund; }
+            for (int k = 0; k < counts.Length; k++)
+            {
+                if (counts[k] == 0) continue;
+                GUI.Label(new Rect(inner.x + 12, y, inner.width - 12, 26), $"{counts[k]} × {ConcreteBlock.Kinds[k].name}", ShopTheme.Body);
+                y += 28;
+            }
+            y += 10;
+            string label = confirmCollect ? $"Really collect all {loose.Count}?  (+${back:N0})" : $"Have the yard collect the {loose.Count} loose block{(loose.Count == 1 ? "" : "s")}  (+${back:N0} back)";
+            if (GUI.Button(new Rect(inner.x, y, Mathf.Min(inner.width, 520f), 52), label, ShopTheme.BuyButton))
+            {
+                if (!confirmCollect) confirmCollect = true;
+                else
+                {
+                    confirmCollect = false;
+                    int n = ConcreteBlock.CollectLoose(out float r);
+                    looseAt = -1f;
+                    GameUI.Toast($"The yard collected {n} loose block{(n == 1 ? "" : "s")} (${r:N0} back)");
+                }
+            }
+            if (confirmCollect && GUI.Button(new Rect(inner.x + Mathf.Min(inner.width, 520f) + 10, y, 140, 52), "Not now", ShopTheme.PlainButton)) confirmCollect = false;
+        }
 
         static string Snip(string s, int n) => s == null ? "" : s.Length <= n ? s : s.Substring(0, n - 1) + "…";
 

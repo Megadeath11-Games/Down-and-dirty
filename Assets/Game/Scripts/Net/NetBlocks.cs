@@ -58,10 +58,25 @@ namespace FPSBase.Net
             }
         }
 
-        static void WriteBlock(BinaryWriter w, ConcreteBlock b)
+        /// <summary>The block yard collected these: everyone removes them.</summary>
+        void SendBlocksGone(List<ConcreteBlock> list)
+        {
+            if (!InSession || list.Count == 0) return;
+            const int per = 40;
+            for (int s = 0; s < list.Count; s += per)
+            {
+                int n = Mathf.Min(per, list.Count - s);
+                var w = Begin(MsgBlocks);
+                w.Write(n);
+                for (int i = 0; i < n; i++) WriteBlock(w, list[s + i], true);
+                Send(w, true, null);
+            }
+        }
+
+        static void WriteBlock(BinaryWriter w, ConcreteBlock b, bool gone = false)
         {
             w.Write(b.NetId); w.Write((byte)b.kind); w.Write(b.NetSeq);
-            byte flags = 0;
+            byte flags = (byte)(gone ? 4 : 0);
             int carrier = 0; byte carrierKind = 0;
             if (b.ChainedTo != null)
             {
@@ -92,6 +107,12 @@ namespace FPSBase.Net
                 int hookV = (flags & 2) != 0 ? r.ReadInt32() : 0;
 
                 var b = FindBlock(id);
+                if ((flags & 4) != 0)
+                {
+                    // collected by the yard on a friend's game
+                    if (b != null) { if (b.HookedBy != null) b.HookedBy.Release(true); b.gameObject.SetActive(false); Destroy(b.gameObject); }
+                    continue;
+                }
                 if (b == null)
                 {
                     b = BlockYard.Spawn(kind, p, q, id);

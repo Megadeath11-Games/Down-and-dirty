@@ -76,6 +76,28 @@ namespace FPSBase.Vehicles
         /// <summary>How close a block's loop has to be to the hook to hook it (m).</summary>
         public const float Reach = 0.75f;
 
+        // ------------------------------------------------------------------ turning the block on the chain
+
+        /// <summary>How fast the turn keys turn a block on the chain (deg/s).</summary>
+        public const float TurnSpeed = 50f;
+        float turnTo;
+        /// <summary>The heading the block on the chain is being turned to (deg, about straight up).</summary>
+        public float TurnTarget => turnTo;
+        /// <summary>Turn the block on the chain by `deg` (+ = clockwise seen from above). Public for the test.</summary>
+        public void TurnBy(float deg) { if (Held != null) { turnTo = Mathf.Repeat(turnTo + deg + 180f, 360f) - 180f; Held.Body.WakeUp(); } }
+
+        /// <summary>
+        /// The block hangs from one loop, so nothing but the air stops it spinning: steady it on the heading it's
+        /// set to (a hand on a tag line), turning it smoothly when the keys turn it.
+        /// </summary>
+        void HoldHeading()
+        {
+            var b = Held.Body;
+            float err = Mathf.DeltaAngle(Held.Heading, turnTo) * Mathf.Deg2Rad;
+            float a = Mathf.Clamp(6f * err - 4f * b.angularVelocity.y, -6f, 6f);
+            b.AddTorque(Vector3.up * a, ForceMode.Acceleration);
+        }
+
         void Awake()
         {
             ex = GetComponent<MiniExcavator>();
@@ -102,6 +124,11 @@ namespace FPSBase.Vehicles
             {
                 float ax = Controls.Axis(GameAction.ChainLonger, GameAction.ChainShorter);
                 if (Mathf.Abs(ax) > 0.05f) ChangeLength(ax * LengthSpeed * Time.deltaTime);
+            }
+            if (Held != null)
+            {
+                float tu = Controls.Axis(GameAction.ChainTurnRight, GameAction.ChainTurnLeft);
+                if (Mathf.Abs(tu) > 0.05f) TurnBy(tu * TurnSpeed * Time.deltaTime);
             }
         }
 
@@ -227,13 +254,15 @@ namespace FPSBase.Vehicles
             if (b.HookedBy != null) b.HookedBy.Release(fromNet);
             Out = true;
             Held = b; b.HookedBy = this;
+            turnTo = b.Heading;
             if (!fromNet) b.Claim();
             if (b.NetMine && !b.Body.isKinematic) MakeJoint(b);
             b.NetDirty = true;
             if (!fromNet)
             {
                 float ratio = b.Info.kg / Mathf.Max(1f, rb != null ? rb.mass : 1f);
-                GameUI.Toast(ratio > 0.35f ? $"Hooked the {b.Info.name.ToLower()} ({b.Info.kg:N0} kg): heavy for this machine, keep it close in" : $"Hooked the {b.Info.name.ToLower()} ({b.Info.kg:N0} kg)");
+                string keys = $"{Controls.KeyName(Controls.Get(GameAction.ChainTurnLeft))} / {Controls.KeyName(Controls.Get(GameAction.ChainTurnRight))} turns it";
+                GameUI.Toast(ratio > 0.35f ? $"Hooked the {b.Info.name.ToLower()} ({b.Info.kg:N0} kg): heavy for this machine, keep it close in. {keys}" : $"Hooked the {b.Info.name.ToLower()} ({b.Info.kg:N0} kg). {keys}");
             }
         }
 
@@ -265,7 +294,10 @@ namespace FPSBase.Vehicles
             if (body != null) { body.linearDamping = 0.05f; body.angularDamping = 0.05f; body.WakeUp(); }
             b.HookedBy = null; Held = null;
             b.NetDirty = true;
-            if (!fromNet) GameUI.Toast($"Unhooked the {b.Info.name.ToLower()}");
+            if (fromNet) return;
+            // let go by another block: it squares up and goes into the wall
+            if (b.SnapToWall()) GameUI.Toast($"Set the {b.Info.name.ToLower()} into the wall");
+            else GameUI.Toast($"Unhooked the {b.Info.name.ToLower()}");
         }
 
         // the bucket, stick and boom pass round a block on the chain instead of knocking it about
@@ -283,6 +315,7 @@ namespace FPSBase.Vehicles
             // the shackle moves with the arm: keep the chain's top end on it
             if (joint == null && Held.NetMine && !Held.Body.isKinematic) MakeJoint(Held);
             if (joint != null) joint.connectedAnchor = rb.transform.InverseTransformPoint(Shackle);
+            if (joint != null && Held.NetMine) HoldHeading();
         }
 
         // ------------------------------------------------------------------ drawing: steel links from shackle to hook

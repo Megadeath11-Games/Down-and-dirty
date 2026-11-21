@@ -83,20 +83,47 @@ namespace FPSBase.EditorTools
             yard.SetParent(root, false);
             yard.position = supply + new Vector3(32f, 0f, -1f);
             var padM = Flat("Yard_Concrete", new Color(0.6f, 0.59f, 0.56f), 0.1f);
-            var pad = Block(root, "Block Yard Pad", yard.position + new Vector3(0f, 0.07f - 0.15f, 0f), new Vector3(26f, 0.3f, 22f), padM, 3f);
+            // the pad runs further south than the stock, for the drive-through lane along its south side
+            const float padS = -16f, padN = 11f;
+            var pad = Block(root, "Block Yard Pad", yard.position + new Vector3(0f, 0.07f - 0.15f, (padS + padN) * 0.5f), new Vector3(26f, 0.3f, padN - padS), padM, 3f);
             GameObjectUtility.SetStaticEditorFlags(pad, StaticEditorFlags.BatchingStatic);
-            hard.Add(new Rect(yard.position.x - 13f, yard.position.z - 11f, 26f, 22f));
+            hard.Add(new Rect(yard.position.x - 13f, yard.position.z + padS, 26f, padN - padS));
 
-            // the loading bay: painted lines a trailer backs in between (along x, open to the supply pad's side)
+            // the loading bay: a drive-through lane the whole length of the yard (along x), so a semi comes off the
+            // end of West Ave along the south side of the supply pad, gets loaded, and drives on out the far side,
+            // along the south edge of the concrete plant (west of the supply pad the ground climbs into the hills)
             var paint = Flat("Bay_Paint_Yellow", new Color(0.95f, 0.78f, 0.15f), 0.3f);
-            var bay = Marker(yard, "Loading Bay", new Vector3(-4f, 0.07f, -3f));
+            const float laneZ = -12f, laneW = 6.5f;
+            var bay = Marker(yard, "Loading Bay", new Vector3(0f, 0.07f, laneZ));
             bay.localRotation = Quaternion.Euler(0f, 90f, 0f);
-            Vector2 bs = new Vector2(6f, 14f);
-            Part(bay, "Bay Line L", new Vector3(-bs.x / 2f, 0.01f, 0f), new Vector3(0.12f, 0.02f, bs.y), paint);
-            Part(bay, "Bay Line R", new Vector3(bs.x / 2f, 0.01f, 0f), new Vector3(0.12f, 0.02f, bs.y), paint);
-            Part(bay, "Bay Line End", new Vector3(0f, 0.01f, bs.y / 2f), new Vector3(bs.x, 0.02f, 0.12f), paint);
-            for (int i = 0; i < 4; i++)
-                Part(bay, "Bay Hatch", new Vector3(0f, 0.01f, bs.y / 2f - 0.6f - i * 0.4f), new Vector3(bs.x - 0.4f, 0.02f, 0.08f), paint);
+            Vector2 bs = new Vector2(laneW - 1f, 26f);
+            Part(bay, "Bay Line L", new Vector3(-bs.x / 2f, 0.01f, 0f), new Vector3(0.12f, 0.02f, bs.y - 1f), paint);
+            Part(bay, "Bay Line R", new Vector3(bs.x / 2f, 0.01f, 0f), new Vector3(0.12f, 0.02f, bs.y - 1f), paint);
+            // arrows down the middle: in at the west end, out at the east
+            foreach (float az in new[] { -8f, 0f, 8f })
+            {
+                Part(bay, "Bay Arrow", new Vector3(0f, 0.01f, az), new Vector3(0.18f, 0.02f, 2.2f), paint);
+                foreach (int sd in new[] { -1, 1 })
+                    Part(bay, "Bay Arrow", new Vector3(sd * 0.38f, 0.01f, az + 0.75f), new Vector3(0.16f, 0.02f, 1.1f), paint).transform.localRotation = Quaternion.Euler(0f, -sd * 40f, 0f);
+            }
+            // the lane carries on as a concrete road both ways: west to the end of West Ave, east past the concrete plant
+            float laneWorldZ = yard.position.z + laneZ;
+            float westX = supply.x + 7f, yardW = yard.position.x - 13f, yardE = yard.position.x + 13f, eastX = supply.x + 92f;
+            var apronM = Flat("Yard_Concrete", new Color(0.6f, 0.59f, 0.56f), 0.1f);
+            // (kept off the supply and plant pads: their edges are at z -11 and -12 from their middles)
+            float northEdge = Mathf.Min(laneWorldZ + laneW * 0.5f, supply.z - 11.05f);
+            float plantSouth = supply.z - 1f - 12.05f;
+            void Apron(string n, float x0, float x1, float zTop)
+            {
+                float z0 = laneWorldZ - laneW * 0.5f;
+                var a = Block(root, n, new Vector3((x0 + x1) * 0.5f, 0.07f - 0.15f, (z0 + zTop) * 0.5f), new Vector3(x1 - x0, 0.3f, zTop - z0), apronM, 3f);
+                GameObjectUtility.SetStaticEditorFlags(a, StaticEditorFlags.BatchingStatic);
+                hard.Add(new Rect(x0, z0 - 1f, x1 - x0, zTop - z0 + 2f));
+            }
+            Apron("Block Yard Lane West", westX, yardW, northEdge);
+            float plantE = supply.x + 62f + 14f; // (the plant pad is 28 m across)
+            Apron("Block Yard Lane East", yardE, plantE, Mathf.Min(laneWorldZ + laneW * 0.5f, plantSouth));
+            Apron("Block Yard Lane East End", plantE, eastX, laneWorldZ + laneW * 0.5f);
 
             // stock on the yard: the blocks in rows, a few courses high (scenery: the bought ones come from prefabs)
             var stock = new GameObject("Block Stock (scenery)").transform; stock.SetParent(yard, false);
@@ -105,7 +132,7 @@ namespace FPSBase.EditorTools
             for (int k = 0; k < kinds.Length; k++)
             {
                 Vector3 s = kinds[k].size;
-                float x = 7.5f, z = -8.5f + k * 2.9f;
+                float x = 7.5f, z = -7.5f + k * 2.9f; // (north of the lane)
                 int courses = k == 5 ? 2 : 3;
                 for (int c = 0; c < courses; c++)
                     for (int j = 0; j < 2; j++)
@@ -122,7 +149,7 @@ namespace FPSBase.EditorTools
             // the yard office (where you buy)
             var office = new GameObject("Block Yard Office").transform;
             office.SetParent(yard, false);
-            office.localPosition = new Vector3(9.5f, 0.07f, 8.5f);
+            office.localPosition = new Vector3(10.5f, 0.07f, 9.0f);
             var wall = Flat("Office_Siding", new Color(0.78f, 0.74f, 0.62f), 0.15f);
             var roof = Flat("Office_Roof", new Color(0.32f, 0.36f, 0.4f), 0.3f);
             var glass = Flat("Office_Window", new Color(0.35f, 0.55f, 0.7f), 0.85f);
@@ -132,7 +159,7 @@ namespace FPSBase.EditorTools
             Part(office, "Counter", new Vector3(0f, 1.0f, -1.55f), new Vector3(2.2f, 0.12f, 0.5f), roof, true);
             var by = office.gameObject.AddComponent<BlockYard>();
             by.prefabs = prefabs;
-            by.bay = bay; by.baySize = bs;
+            by.bay = bay; by.baySize = new Vector2(laneW, bs.y); // (the whole lane counts, not just between the lines)
             by.groundDrop = drop;
             MapMark(office, "Block yard", new Color(0.75f, 0.75f, 0.72f), new Vector3(0f, 0f, -4f));
         }

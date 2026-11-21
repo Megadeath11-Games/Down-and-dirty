@@ -110,6 +110,7 @@ namespace FPSBase.Net
                 var w = Begin(MsgPlantLoad); w.Write(PlantIndex(p)); NetIO.Write(w, l);
                 Send(HostSteam, w, true);
             };
+            FPSBase.City.ConcreteBlock.NetRemoved = SendBlocksGone;
             Trailer.NetDeckChanged = t =>
             {
                 if (!InSession || t == null || t.NetKey == 0) return;

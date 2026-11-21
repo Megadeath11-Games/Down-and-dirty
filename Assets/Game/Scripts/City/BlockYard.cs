@@ -62,6 +62,9 @@ namespace FPSBase.City
             return false;
         }
 
+        /// <summary>What's parked in the bay to be loaded (for the test).</summary>
+        public bool CarrierInBay(out string what, out Transform deck) => FindCarrier(out deck, out _, out _, out what, out _);
+
         bool InBay(Vector3 p)
         {
             Vector3 l = bay.InverseTransformPoint(p);
@@ -109,7 +112,7 @@ namespace FPSBase.City
             else
             {
                 var t = groundDrop != null ? groundDrop : transform;
-                Layout(new Vector2(8f, 12f), k.size, n, spots, t, 0f);
+                Layout(new Vector2(5f, 10f), k.size, n, spots, t, 0f);
                 rot = t.rotation;
             }
             n = spots.Count;
@@ -121,15 +124,20 @@ namespace FPSBase.City
                 if (b == null) continue;
                 b.Claim();
             }
+            Physics.SyncTransforms(); // (bought again straight away: the next lot sees these)
             GameUI.Toast(onCarrier
                 ? $"Loaded {n} × {k.name.ToLower()} on the {what} (${cost:N0}). Chain them down before you drive off: look at a block, F"
                 : $"{n} × {k.name.ToLower()} set down on the pad (${cost:N0}): nothing was parked in the bay");
             return n;
         }
 
+        /// <summary>The highest a load of blocks is stacked on a deck (m above it).</summary>
+        public const float MaxStack = 1.6f;
+
         /// <summary>
         /// Rows of blocks along the deck from the front, side by side, then a second layer on top: world positions
-        /// (the bottom middle of each block) in `spots`.
+        /// (the bottom middle of each block) in `spots`. Only where there's room: blocks already there (an earlier
+        /// lot, other sizes) are built round and stacked on, never dropped into.
         /// </summary>
         static void Layout(Vector2 deck, Vector3 block, int n, List<Vector3> spots, Transform on, float topY)
         {
@@ -137,16 +145,55 @@ namespace FPSBase.City
             int across = Mathf.Max(0, Mathf.FloorToInt((deck.x + gap) / (block.x + gap)));
             int along = Mathf.Max(0, Mathf.FloorToInt((deck.y + gap) / (block.z + gap)));
             if (across == 0 || along == 0) return;
+            Physics.SyncTransforms();
+            var carrier = on.GetComponentInParent<Rigidbody>();
             float wUsed = across * block.x + (across - 1) * gap;
+            int cells = across * along;
+            var at = new Vector3[cells];
+            var top = new float[cells]; // how high each spot is stacked already (above the deck), < 0 = something else is in the way
+            for (int r = 0, i = 0; r < along; r++)
+                for (int c = 0; c < across; c++, i++)
+                {
+                    float x = -wUsed * 0.5f + block.x * 0.5f + c * (block.x + gap);
+                    float z = deck.y * 0.5f - block.z * 0.5f - r * (block.z + gap); // front first (over the axles)
+                    at[i] = new Vector3(x, topY, z);
+                    top[i] = StackTop(on, at[i], block, carrier);
+                }
+            // the bottom layer first, everywhere there's room, then on top
             for (int layer = 0; layer < 2 && spots.Count < n; layer++)
-                for (int r = 0; r < along && spots.Count < n; r++)
-                    for (int c = 0; c < across && spots.Count < n; c++)
-                    {
-                        float x = -wUsed * 0.5f + block.x * 0.5f + c * (block.x + gap);
-                        float z = deck.y * 0.5f - block.z * 0.5f - r * (block.z + gap); // front first (over the axles)
-                        float y = topY + layer * (block.y + 0.01f) + 0.02f;
-                        spots.Add(on.TransformPoint(new Vector3(x, y, z)));
-                    }
+                for (int i = 0; i < cells && spots.Count < n; i++)
+                {
+                    float h = top[i];
+                    if (h < 0f || (layer == 0) != (h < 0.01f) || h + block.y > MaxStack) continue;
+                    Vector3 l = at[i] + Vector3.up * (h + 0.02f);
+                    if (!Room(on, l, block)) { top[i] = -1f; continue; }
+                    spots.Add(on.TransformPoint(l));
+                    top[i] = h + block.y + 0.01f;
+                }
+        }
+
+        /// <summary>The top of the blocks already stacked on a spot (m above the deck; 0 = empty, -1 = blocked by something that isn't a block).</summary>
+        static float StackTop(Transform on, Vector3 l, Vector3 block, Rigidbody carrier)
+        {
+            Vector3 c = on.TransformPoint(l + Vector3.up * (MaxStack * 0.5f + 0.05f));
+            Vector3 half = new Vector3(block.x * 0.5f - 0.06f, MaxStack * 0.5f, block.z * 0.5f - 0.06f);
+            var hits = Physics.OverlapBox(c, half, on.rotation, ~0, QueryTriggerInteraction.Ignore);
+            float h = 0f;
+            foreach (var col in hits)
+            {
+                var b = col.GetComponentInParent<ConcreteBlock>();
+                if (b != null) { h = Mathf.Max(h, on.InverseTransformPoint(b.transform.position + b.transform.up * b.Size.y).y - l.y); continue; }
+                if (col.attachedRigidbody != null && col.attachedRigidbody != carrier) return -1f; // (a machine on the deck)
+            }
+            return h;
+        }
+
+        /// <summary>Nothing in the way of a block put down here (other blocks a little off the grid, a machine).</summary>
+        static bool Room(Transform on, Vector3 l, Vector3 block)
+        {
+            Vector3 c = on.TransformPoint(l + Vector3.up * (block.y * 0.5f));
+            // anything at all: another block, a machine, or the carrier's own headboard, gooseneck or rails (the deck's under the box)
+            return Physics.OverlapBox(c, block * 0.5f - Vector3.one * 0.04f, on.rotation, ~0, QueryTriggerInteraction.Ignore).Length == 0;
         }
 
         void Draw()
@@ -157,7 +204,7 @@ namespace FPSBase.City
             GUILayout.Label(onCarrier
                 ? $"In the loading bay: the {what}, {(payload - LoadedKg(deck)) / 1000f:0.0} t of room left. Blocks go on loose: chain them down before you drive (look at one, F)."
                 : "<color=#e8a060>Nothing in the loading bay: blocks will be set down on the pad.</color> Back a trailer or a dump truck into the painted bay to have them loaded.");
-            GUILayout.Label("To unload: undo the chains, then hook each block's loop with an excavator's bucket chain (chain key, H by default) and lift it off.");
+            GUILayout.Label("To unload: undo the chains, then hook each block's loop with an excavator's bucket chain (chain key, H by default) and lift it off. Let one go by a block that's set down and it squares up and goes into the wall; turn it on the chain with , and . (by default). The bay is a drive-through: semis pull straight in and out.");
             GUILayout.Space(8);
             for (int k = 0; k < ConcreteBlock.Kinds.Length; k++)
             {

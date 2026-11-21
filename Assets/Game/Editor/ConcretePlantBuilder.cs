@@ -117,7 +117,7 @@ namespace FPSBase.EditorTools
             // --- the control house where you order (and its window onto the lane)
             var office = new GameObject("Concrete Plant Control House").transform;
             office.SetParent(plant, false);
-            office.localPosition = new Vector3(5.5f, Y, -9.2f);
+            office.localPosition = new Vector3(5.5f, Y, -8.4f); // (clear of the block yard's drive-through lane along the pad's south edge)
             var wall = Flat("Office_Siding", new Color(0.78f, 0.74f, 0.62f), 0.15f);
             var roof = Flat("Office_Roof", new Color(0.32f, 0.36f, 0.4f), 0.3f);
             var glass = Flat("Office_Window", new Color(0.35f, 0.55f, 0.7f), 0.85f);

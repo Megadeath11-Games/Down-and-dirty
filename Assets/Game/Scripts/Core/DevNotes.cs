@@ -13,6 +13,13 @@ namespace FPSBase.Core
         /// <summary>Newest first.</summary>
         public static readonly Post[] Blog =
         {
+            new Post { date = "Update 42  ·  Nov 21, 2026", title = "Block walls that snap together, and a drive-through block yard",
+                body =
+                "• Concrete blocks now build a proper wall. Set the first one down where you want the wall, and every block you let go off the excavator's chain near it squares up to it and slides into place: on the end of it, beside it, or on top across the joint like brickwork. Let one go away from the others and it stays where you put it, as the start of a new wall.\n" +
+                "• Turn a block while it hangs on the chain: , and . (by default, change them in Controls). It holds the way you turn it, so you can swing it round to go across a corner.\n" +
+                "• New Clean up tab on your phone: it lists the loose blocks (not squared up in a wall, not on the chain, a trailer or a truck), and the block yard will collect them all for half what they cost.\n" +
+                "• Buying blocks onto a trailer loads them in neat rows even if you press the button over and over. Before, each lot was dropped on top of the last and they flew everywhere; now each lot goes in the next free spots, stacks no higher than 1.6 m, and stops when the trailer's full by weight.\n" +
+                "• The block yard is a drive-through: a lane runs along its south side from the end of West Ave, past the concrete plant and out the far end, so a semi and its lowboy pull straight in, load and drive on out. The stock and the office moved north to make room, and the plant's control house moved back a little off the lane." },
             new Post { date = "Update 41  ·  Nov 21, 2026", title = "Grader running gear like the real thing",
                 body =
                 "• The motor grader now stands on its wheels the way a real one does: the front axle rocks on a centre pin, and each pair of rear wheels (the tandems) rocks too. It rests on three points, so a bump under one wheel tips that axle or tandem, not the whole machine, and you can see the wheels ride up and down over it.\n" +
@@ -361,11 +368,16 @@ namespace FPSBase.Core
                 "• Dozer berms build up properly in front of the blade." },
         };
 
-        public const string TestListVersion = "2026-11-21f";
+        public const string TestListVersion = "2026-11-21g";
 
         /// <summary>What's new in this build to try out.</summary>
         public static readonly string[] TestList =
         {
+            "Block yard: drive a semi with its lowboy off the end of West Ave along the yard's south lane: it fits, stops in the painted bay, and drives on out past the concrete plant",
+            "Block yard: with a trailer in the bay, press Buy on lock blocks five or six times fast: they load in neat rows, none fly off",
+            "Excavator chain: lift a block, set it down, then let the next go near its end: it squares up and butts on; one over the joint sits on top across it",
+            "Excavator chain: while a block hangs, press , and .: it turns and stays turned; turn it 90° by a wall's end for a corner",
+            "Phone, Clean up tab: drop a few blocks loose, collect them: they go, the wall stays, and you get half the price back",
             "Grader: drive the front wheels up onto a dirt pile or bank: the front tyres stay on the ground and climb it, the front end doesn't jump up ahead of them",
             "Grader: drive with one side's wheels over a bump: the front axle and the rear tandem on that side rock over it and the cab stays near level",
             "Grader: grade a rough strip as before: it still leaves a smooth road",

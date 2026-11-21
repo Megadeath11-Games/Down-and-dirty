@@ -132,7 +132,7 @@ namespace FPSBase.EditorTools
                     float a = k / 8f * Mathf.PI * 2f;
                     gw.Cyl(fm.pin, new Vector3(side * tw * 0.56f, Mathf.Sin(a) * wr * 0.18f, Mathf.Cos(a) * wr * 0.18f), AxisLat, 0.018f, 0.018f, 0.03f, 6);
                 }
-                gw.Attach(w, id + "_Wheel" + (side < 0 ? "L" : "R"));
+                gw.Attach(w, id + "_Wheel" + i); // (one mesh asset each: a second one saved under the same name took the first one's mesh away)
                 wheels[i] = w;
             }
 
@@ -183,6 +183,9 @@ namespace FPSBase.EditorTools
             ld.centerOfMass = new Vector3(0f, 0.5f, -0.6f);
             ld.armPivot = armPivot; ld.bucketPivot = bucketPivot; ld.bucketTip = tip; ld.bucketLoadVisual = mound.transform;
             ld.wheelVisuals = wheels; ld.wheelRadius = wr; ld.bucketCapacity = 0.9f;
+            // (the bucket opens forward and up, between the top lip and the cutting edge: left unset, it was guessed
+            // from the round dirt mound and came out wrong, so a curled, raised bucket tipped its load out)
+            ld.bucketMouth = new Vector3(0f, 0.7f, 0.8f).normalized;
 
             // rams: two lift rams (frame to arms) and the tilt ram (arm tower to the bucket)
             foreach (int s in new[] { -1, 1 })

@@ -126,8 +126,7 @@ namespace FPSBase.Core
                 // (the world waits while the menu is up, unless friends are in it or the real machines are working behind it)
                 if (menuOpen) Time.timeScale = FPSBase.Net.NetSession.InSession || FPSBase.UI.MenuScene.Live ? 1f : 0f;
                 if (menuOpen && AudioListener.pause != (Time.timeScale == 0f)) AudioListener.pause = Time.timeScale == 0f;
-                Cursor.lockState = CursorLockMode.None;
-                Cursor.visible = true;
+                ApplyCursor(Application.isFocused ? CursorLockMode.Confined : CursorLockMode.None, true);
                 return;
             }
             if (capturing.HasValue) CaptureKey(kb);
@@ -159,8 +158,29 @@ namespace FPSBase.Core
             // playing: locked in the middle. A menu, the map or the phone open: free to move but kept inside the
             // game's window (so it can't wander onto another monitor). Only let go when the game isn't in front.
             var want = !Application.isFocused ? CursorLockMode.None : !BlocksGameplay ? CursorLockMode.Locked : CursorLockMode.Confined;
-            if (Cursor.lockState != want) Cursor.lockState = want;
-            bool show = want != CursorLockMode.Locked;
+            ApplyCursor(want, want != CursorLockMode.Locked);
+        }
+
+        bool cursorFocused;
+        float cursorRefresh;
+        /// <summary>
+        /// Lock (or confine) the cursor. Windows lets go of the cursor's clip when the game loses focus, a window pops
+        /// up over it, or the display changes, while Unity still thinks it's locked, so the mouse wandered onto the
+        /// other monitor. Coming back into focus, and every couple of seconds while it's in front, the lock is set
+        /// again from scratch.
+        /// </summary>
+        void ApplyCursor(CursorLockMode want, bool show)
+        {
+            bool focused = Application.isFocused;
+            bool refresh = focused && (!cursorFocused || (cursorRefresh -= Time.unscaledDeltaTime) <= 0f);
+            cursorFocused = focused;
+            if (refresh && want != CursorLockMode.None)
+            {
+                cursorRefresh = 2f;
+                Cursor.lockState = CursorLockMode.None;
+                Cursor.lockState = want;
+            }
+            else if (Cursor.lockState != want) Cursor.lockState = want;
             if (Cursor.visible != show) Cursor.visible = show;
         }
 

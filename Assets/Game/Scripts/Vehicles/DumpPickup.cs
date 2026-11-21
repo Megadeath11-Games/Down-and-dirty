@@ -285,8 +285,10 @@ namespace FPSBase.Vehicles
         }
 
         // nobody in the cab: the box stays where it was left and keeps emptying
-        protected override void IdleUpdate(float dt) { DumpStep(dt); ApplyDrive(testThrottle, 0f, Mathf.Abs(testThrottle) < 0.01f && !testCoast); }
-        float testThrottle;
+        protected override void IdleUpdate(float dt) { DumpStep(dt); ApplyDrive(testThrottle, testSteer, Mathf.Abs(testThrottle) < 0.01f && !testCoast); }
+        float testThrottle, testSteer;
+        /// <summary>Tests: steer with nobody in the cab (-1 left … 1 right).</summary>
+        public void TestSteer(float steer) => testSteer = steer;
         /// <summary>Automated tests: drive with nobody in the cab.</summary>
         public void TestDrive(float throttle) { testThrottle = throttle; testCoast = false; }
         /// <summary>Tests: off the gas with nobody in it, without the parked handbrake (like a driver coasting).</summary>

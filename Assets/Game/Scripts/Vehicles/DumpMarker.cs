@@ -16,6 +16,14 @@ namespace FPSBase.Vehicles
         public float ringRadius = 0.6f;
         public bool Visible => drop != null && drop.enabled;
         public bool OverReceiver { get; private set; }
+        /// <summary>
+        /// Set while something else wants the marker instead (an excavator's lifting chain let down): a ring of that
+        /// radius round that point, green when `good` (a block's loop is in reach of the hook), with a drop line to
+        /// the ground under it. Null: the usual dump marker.
+        /// </summary>
+        public System.Func<(Vector3 center, float radius, bool good)?> hookRing;
+        /// <summary>The hook ring is showing (for the test).</summary>
+        public bool HookMode { get; private set; }
 
         LineRenderer drop, ring;
         static Material matGood, matPlain;
@@ -69,6 +77,31 @@ namespace FPSBase.Vehicles
         {
             var v = GetComponent<VehicleBase>();
             if ((source == null && sourceAt == null) || v == null || !v.Occupied || v.NetRemote) { Show(false); return; }
+            var hr = hookRing != null ? hookRing() : null;
+            HookMode = hr.HasValue;
+            if (hr.HasValue)
+            {
+                var (c, rad, good) = hr.Value;
+                Show(true);
+                OverReceiver = good;
+                var hm = good ? matGood : matPlain;
+                if (drop.sharedMaterial != hm) { drop.sharedMaterial = hm; ring.sharedMaterial = hm; }
+                float gy = c.y - 30f, hb = float.MaxValue;
+                int hn = Physics.RaycastNonAlloc(c + Vector3.up * 0.2f, Vector3.down, hits, 30f, ~0, QueryTriggerInteraction.Ignore);
+                for (int i = 0; i < hn; i++)
+                {
+                    var h = hits[i];
+                    if (h.distance >= hb || (ignore != null && h.collider.transform.IsChildOf(ignore))) continue;
+                    hb = h.distance; gy = h.point.y;
+                }
+                drop.SetPosition(0, c); drop.SetPosition(1, new Vector3(c.x, gy + 0.05f, c.z));
+                for (int i = 0; i < RingPoints; i++)
+                {
+                    float a = i / (float)RingPoints * Mathf.PI * 2f;
+                    ring.SetPosition(i, c + new Vector3(Mathf.Cos(a) * rad, 0f, Mathf.Sin(a) * rad));
+                }
+                return;
+            }
             Vector3 from = sourceAt != null ? sourceAt() : source.position;
             // find what's under the bucket (the first solid thing, or a truck bed / hopper that takes the load)
             int n = Physics.RaycastNonAlloc(from + Vector3.up * 0.5f, Vector3.down, hits, 60f, ~0, QueryTriggerInteraction.Collide);

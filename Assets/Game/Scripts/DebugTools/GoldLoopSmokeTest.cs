@@ -36,6 +36,9 @@ namespace FPSBase.DebugTools
                     {
                         case "dig": yield return DigCycleTests(); break;
                         case "menudig": yield return MenuDigTests(); break;
+                        case "loader": yield return LoaderDigTests(); break;
+                        case "sway": yield return TrailerSwayTests(); break;
+                        case "blockdirt": yield return BlockDirtTests(); break;
                         case "bucket": yield return BucketTests(); break;
                         case "multi": yield return MultiControlTests(); break;
                         case "fleet2": yield return Fleet2Tests(); break;
@@ -286,6 +289,9 @@ namespace FPSBase.DebugTools
             yield return DigCycleTests();
             yield return MenuDigTests();
             yield return DozerPerfTests();
+            yield return LoaderDigTests();
+            yield return TrailerSwayTests();
+            yield return BlockDirtTests();
             yield return BucketTests();
             yield return MultiControlTests();
             yield return SaveTests();
@@ -1779,23 +1785,22 @@ namespace FPSBase.DebugTools
             for (int i = 0; i < 90; i++) yield return new WaitForFixedUpdate();
             int onDeck = 0;
             foreach (var b in bought) if (b != null && b.CarrierBelow(out var d) && d.root == tr.transform.root) onDeck++;
-            Check(onDeck == bought.Count, $"they settle on the deck, loose ({onDeck}/{bought.Count} on it)");
-            if (bought.Count == 0) yield break;
-            var opt = FindOption(bought[0], "Chain down every block");
-            Check(opt != null && opt.enabled, "a block on the deck offers to chain down the whole load");
-            opt?.run(pi);
             int chained = 0; foreach (var b in bought) if (b.ChainedTo != null) chained++;
-            Check(chained == bought.Count, $"all chained down ({chained}/{bought.Count})");
+            Check(onDeck == bought.Count && chained == bought.Count, $"they settle on the deck and are chained down by themselves ({onDeck}/{bought.Count} on it, {chained} chained)");
+            if (bought.Count == 0) yield break;
             // the trailer moves: the load goes with it
             Vector3 bp = bought[0].transform.position, tp0 = tr.transform.position;
             for (int i = 0; i < 50; i++) { trb.MovePosition(tp0 + tr.transform.forward * (3f * (i + 1) / 50f)); yield return new WaitForFixedUpdate(); }
             yield return null;
             float moved = Vector3.Distance(bought[0].transform.position, bp);
             Check(Mathf.Abs(moved - 3f) < 0.2f, $"a chained block rides with the trailer ({moved:0.00} m of 3 m)");
-            opt = FindOption(bought[0], "Undo the chains on every block");
+            var opt = FindOption(bought[0], "Undo the chains on every block");
             opt?.run(pi);
             chained = 0; foreach (var b in bought) if (b.ChainedTo != null) chained++;
             Check(opt != null && chained == 0, "and unchained again");
+            for (int i = 0; i < 75; i++) yield return new WaitForFixedUpdate();
+            chained = 0; foreach (var b in bought) if (b.ChainedTo != null) chained++;
+            Check(chained == 0, $"unchained by hand, they stay loose on the deck ({chained} chained again)");
             foreach (var b in bought) if (b != null) Destroy(b.gameObject);
             Destroy(tr.gameObject);
 
@@ -1808,23 +1813,39 @@ namespace FPSBase.DebugTools
             Check(chain != null, "the excavator has a bucket chain");
             if (chain == null) yield break;
             chain.Toggle();
-            Check(chain.Out, "chain key lets the chain down");
-            Vector3 hook = chain.Shackle + Vector3.down * chain.Length;
+            Check(chain.Out && chain.PaidOut < chain.Length * 0.5f, $"chain key lets the chain down: it runs out, it doesn't just appear ({chain.PaidOut:0.00} of {chain.Length:0.00} m out at first)");
+            for (int i = 0; i < 200 && chain.PaidOut < chain.Length - 0.01f; i++) yield return null;
+            for (int i = 0; i < 60; i++) yield return new WaitForFixedUpdate();
+            Check(Mathf.Abs(chain.HookEnd.y - (chain.Shackle.y - chain.Length)) < 0.2f || chain.HookEnd.y < chain.Shackle.y - 0.5f, $"the free chain hangs down from the shackle under its own weight (hook {chain.Shackle.y - chain.HookEnd.y:0.00} m below it, {chain.Length:0.00} m of chain)");
+            Vector3 hook = chain.HookEnd;
             Vector3 bpos = new Vector3(hook.x, site.SurfaceY(hook), hook.z);
             var blk = FPSBase.City.BlockYard.Spawn(1, bpos, ex.transform.rotation);
             for (int i = 0; i < 60; i++) yield return new WaitForFixedUpdate();
-            float dEye = Vector3.Distance(blk.eye.position, chain.Shackle + Vector3.down * chain.Length);
+            float dEye = Vector3.Distance(blk.eye.position, chain.HookEnd);
+            var hmk = ex.GetComponent<DumpMarker>();
+            log.AppendLine($"INFO  chain out: marker in hook mode {(hmk != null && hmk.HookMode)}, green {(hmk != null && hmk.OverReceiver)} (loop {dEye:0.00} m from the hook)");
             log.AppendLine($"INFO  hook {dEye:0.00} m from the block's loop (chain {chain.Length:0.00} m, shackle {chain.Shackle.y - bpos.y:0.00} m above the ground)");
             if (chain.Nearest(0.75f) != blk)
             {
                 // (the arm's rest pose may hold the hook off the ground: bring the block up to it for the test)
                 blk.Body.isKinematic = true;
-                blk.transform.position += (chain.Shackle + Vector3.down * chain.Length) - blk.eye.position;
+                blk.transform.position += chain.HookEnd - blk.eye.position;
                 Physics.SyncTransforms();
                 blk.Body.isKinematic = false;
             }
             chain.Toggle();
             Check(chain.Held == blk && blk.HookedBy == chain, "chain key again with the hook by the loop hooks the block");
+            {
+                float l0 = chain.Length;
+                chain.ChangeLength(-10f);
+                float shortest = chain.Length;
+                chain.ChangeLength(0.6f);
+                Check(Mathf.Abs(shortest - chain.MinLength) < 1e-3f && chain.MinLength > 0.6f && chain.Length > shortest + 0.5f,
+                    $"the chain can be taken in and let out, never shorter than {chain.MinLength:0.00} m so a block hangs clear of the bucket (was {l0:0.00}, now {chain.Length:0.00})");
+                var bkt = ex.bucketPivot.Find("Tool Bucket") ? ex.bucketPivot.Find("Tool Bucket").GetComponent<Collider>() : null;
+                bool hits = true; foreach (var c in blk.GetComponentsInChildren<Collider>()) foreach (var t in ex.GetComponentsInChildren<Collider>()) if (t.name.StartsWith("Tool") && Physics.GetIgnoreCollision(c, t)) hits = false;
+                Check(hits, "a block on the chain collides with the bucket and the arm");
+            }
             float g0 = site.SurfaceY(blk.transform.position);
             ex.TestControl(new MiniExcavator.Inputs { boom = 1f });
             for (int i = 0; i < 150; i++) yield return new WaitForFixedUpdate();
@@ -3423,6 +3444,218 @@ namespace FPSBase.DebugTools
         /// round and tip), as behind the menu. After each cycle: the tallest point of dirt standing up over
         /// everything round it, near the trench.
         /// </summary>
+        /// <summary>
+        /// The wheel loader for real (physics on, wheels on the ground): all four wheels are drawn, driving the bucket
+        /// into a heap fills it across its whole width, and curled and raised it carries the load across the yard.
+        /// </summary>
+        IEnumerator LoaderDigTests()
+        {
+            var site = DigSite.Instance;
+            var dealer = FindFirstObjectByType<VehicleDealer>();
+            var pf = Prefab0(dealer, "Wheel Loader");
+            if (pf == null) { Check(false, "the dealer sells the wheel loader"); yield break; }
+            Vector3 st = new Vector3(60f, 0f, -150f); st.y = site.SurfaceY(st);
+            var fl = Instantiate(pf, st + Vector3.up * 0.3f, Quaternion.identity).GetComponent<FrontLoader>();
+            var rb = fl.GetComponent<Rigidbody>(); rb.isKinematic = false;
+            int drawn = 0;
+            foreach (var w in fl.wheelVisuals)
+                if (w != null && w.GetComponentInChildren<MeshFilter>() is MeshFilter mf && mf.sharedMesh != null && mf.sharedMesh.vertexCount > 0
+                    && w.GetComponentInChildren<MeshRenderer>() is MeshRenderer mr && mr.enabled) drawn++;
+            Check(drawn == 4, $"the wheel loader has all four wheels drawn ({drawn}/4)");
+            for (int i = 0; i < 80; i++) yield return new WaitForFixedUpdate();
+            float low = 99f, high = -99f;
+            foreach (var w in fl.wheelVisuals) { float g = w.position.y - fl.wheelRadius - site.SurfaceY(w.position); low = Mathf.Min(low, g); high = Mathf.Max(high, g); }
+            log.AppendLine($"INFO  loader tyres stand {low:0.00} .. {high:0.00} m off the ground");
+
+            // a heap of loose dirt ahead
+            Vector3 fwd = fl.transform.forward;
+            Vector3 heapAt = fl.bucketTip.position + fwd * 4f;
+            for (int i = 0; i < 8; i++) site.Deposit(new Vector3(heapAt.x, site.SurfaceY(heapAt), heapAt.z), MaterialLoad.Mix(0.75f, 0f, 0f, 0f, 0f), 1.6f);
+            site.SettleNow();
+            float heap0 = site.LooseVolume(heapAt, 3f, out _);
+            float cap = fl.bucketCapacity;
+            // arms down, bucket flat on the ground, drive in
+            fl.SetPose(fl.armRange.x + 6f, 0f);
+            Vector3 p0 = fl.transform.position;
+            float t = 0f;
+            fl.TestDrive(0.7f);
+            for (; t < 8f && fl.bucketLoad.volume < cap * 0.95f; t += Time.deltaTime)
+            {
+                fl.Work(Mathf.Max(fl.ForwardSpeed, 0.6f * 0.7f), 0f, Time.deltaTime);
+                yield return null;
+            }
+            float got = fl.bucketLoad.volume, went = Vector3.Dot(fl.transform.position - p0, fwd);
+            // then curl it back while still in the heap, to the brim
+            for (float c = 0f; c < 1.2f; c += Time.deltaTime)
+            {
+                fl.SetPose(fl.Arm, fl.Tilt - fl.tiltSpeed * Time.deltaTime);
+                fl.Work(Mathf.Max(fl.ForwardSpeed, 0f), -1f, Time.deltaTime);
+                yield return null;
+            }
+            fl.TestDrive(0f);
+            float full = fl.bucketLoad.volume;
+            float heap1 = site.LooseVolume(heapAt, 3f, out _);
+            log.AppendLine($"INFO  loader into a {heap0:0.00} m³ heap: {got:0.00} of {cap:0.00} m³ in {t:0.0} s over {went:0.0} m, {full:0.00} after curling; heap now {heap1:0.00} m³ (took {heap0 - heap1:0.00}), front tyres {fl.wheelVisuals[0].position.y - site.SurfaceY(fl.wheelVisuals[0].position):0.00} m over the ground");
+            Check(got > cap * 0.7f && t < 7f, $"driven into a heap with the bucket flat, the wheel loader fills it ({got:0.00} of {cap:0.00} m³ in {t:0.0} s)");
+            Check(full > cap * 0.9f, $"curled back in the heap, the bucket is full ({full:0.00} of {cap:0.00} m³)");
+            Check(heap0 - heap1 > full * 0.6f, $"the dirt in the bucket came out of the heap ({heap0 - heap1:0.00} m³ gone from it)");
+
+            // raised a little and carried: back out, drive across
+            for (float c = 0f; c < 1.5f; c += Time.deltaTime)
+            {
+                fl.SetPose(fl.Arm + fl.armSpeed * Time.deltaTime, fl.Tilt);
+                fl.Work(0f, 0f, Time.deltaTime);
+                yield return null;
+            }
+            float carried0 = fl.bucketLoad.volume;
+            float[] th = { -0.8f, 0f, 0.9f, 0f };
+            float[] secs = { 2f, 1f, 3f, 1.5f };
+            for (int s = 0; s < th.Length; s++)
+            {
+                fl.TestDrive(th[s]);
+                for (float c = 0f; c < secs[s]; c += Time.deltaTime) { fl.Work(fl.ForwardSpeed, 0f, Time.deltaTime); yield return null; }
+            }
+            fl.TestDrive(0f);
+            float lost = (carried0 - fl.bucketLoad.volume) / Mathf.Max(1e-4f, carried0);
+            Check(lost < 0.12f, $"curled and raised, the loader carries its bucket across the yard ({carried0:0.00} m³, {lost * 100f:0}% lost)");
+
+            // and on flat unbroken ground: arms down so the edge bites, it scrapes up a load as it drives
+            fl.bucketLoad = default;
+            for (int i = 0; i < 30; i++) yield return new WaitForFixedUpdate();
+            Vector3 flat = fl.transform.position + fl.transform.right * 6f;
+            flat.y = site.SurfaceY(flat) + 0.3f;
+            rb.isKinematic = true; fl.transform.position = flat; rb.position = flat; rb.isKinematic = false;
+            Physics.SyncTransforms();
+            for (int i = 0; i < 40; i++) yield return new WaitForFixedUpdate();
+            fl.SetPose(fl.armRange.x, 0f);
+            fl.TestDrive(0.6f);
+            for (float c = 0f; c < 4f; c += Time.deltaTime) { fl.Work(Mathf.Max(fl.ForwardSpeed, 0.36f), 0f, Time.deltaTime); yield return null; }
+            fl.TestDrive(0f);
+            log.AppendLine($"INFO  loader scraping flat ground for 4 s, arms right down: {fl.bucketLoad.volume:0.00} m³, upright {fl.transform.up.y:0.00}");
+            Check(fl.bucketLoad.volume > 0.1f && fl.transform.up.y > 0.95f, $"arms right down on flat ground, it scrapes up dirt as it drives ({fl.bucketLoad.volume:0.00} m³) and stays on its wheels");
+            Destroy(fl.gameObject);
+            yield return null;
+        }
+
+        /// <summary>
+        /// The tilt-deck trailer behind the pickup, empty and then with the barrier block on it (chained down by
+        /// itself): driven at speed and thrown into a sharp turn, then straightened, it follows and settles straight
+        /// behind the truck instead of wagging side to side.
+        /// </summary>
+        IEnumerator TrailerSwayTests()
+        {
+            var dealer = FindFirstObjectByType<VehicleDealer>();
+            var pkPrefab = Prefab0(dealer, "GMT400"); var trPrefab = Prefab0(dealer, "Tilt-Deck Equipment Trailer");
+            if (pkPrefab == null || trPrefab == null) { Check(false, "GMT400 and tilt-deck trailer for the sway test"); yield break; }
+            Vector3 padAt = new Vector3(-300f, 400f, 300f);
+            var pad = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            pad.name = "Test pad"; pad.transform.position = padAt + Vector3.down * 0.5f; pad.transform.localScale = new Vector3(400f, 1f, 400f);
+            Physics.SyncTransforms();
+            for (int run = 0; run < 4; run++)
+            {
+                // runs 0, 1: as the game has it (empty, then with the block); 2, 3: the same with no anti-sway, for comparison
+                Trailer.AntiSway = run < 2;
+                bool loaded = run % 2 == 1;
+                var pk = Instantiate(pkPrefab, padAt + new Vector3(run * 60f - 90f, 1.2f, -150f), Quaternion.identity).GetComponent<DumpPickup>();
+                yield return null;
+                pk.SetDrive(DumpPickup.DriveMode.TwoHigh, false);
+                var pintle = pk.GetComponentInChildren<Hitch>();
+                var tr = Instantiate(trPrefab, pk.transform.position - Vector3.forward * 7f, Quaternion.identity).GetComponent<Trailer>();
+                yield return null;
+                tr.transform.position += pintle.transform.position - tr.couplerPoint.position;
+                tr.Body.position = tr.transform.position;
+                Physics.SyncTransforms();
+                tr.Couple(pintle, true);
+                FPSBase.City.ConcreteBlock blk = null;
+                if (loaded)
+                {
+                    blk = FPSBase.City.BlockYard.Spawn(5, tr.deckArea.position + tr.deckArea.up * 0.6f, tr.transform.rotation);
+                    for (int i = 0; i < 100 && blk.ChainedTo == null; i++) yield return new WaitForFixedUpdate();
+                    Check(blk.ChainedTo != null && blk.ChainedTo.root == tr.transform, $"the barrier block set down on the tilt-deck trailer is chained down by itself ({(blk.ChainedTo != null ? "chained" : "loose")})");
+                    Check(tr.Body.mass > 1540f + 3000f, $"the trailer carries the chained block's weight ({tr.Body.mass:0} kg)");
+                }
+                for (int i = 0; i < 40; i++) yield return new WaitForFixedUpdate();
+                var prb = pk.GetComponent<Rigidbody>();
+                pk.TestDrive(1f);
+                for (int i = 0; i < 50 * 12 && Vector3.Dot(prb.linearVelocity, pk.transform.forward) < 11f; i++) yield return new WaitForFixedUpdate();
+                float v0 = prb.linearVelocity.magnitude;
+                pk.TestDrive(0.5f);
+                float Hitch() => Mathf.DeltaAngle(pk.transform.eulerAngles.y, tr.transform.eulerAngles.y);
+                float maxIn = 0f, slip = 0f;
+                pk.TestSteer(1f);
+                for (int i = 0; i < 90; i++)
+                {
+                    if (i == 45) pk.TestSteer(-1f); // (a swerve: sharp one way, snapped back the other)
+                    yield return new WaitForFixedUpdate();
+                    maxIn = Mathf.Max(maxIn, Mathf.Abs(Hitch()));
+                    Vector3 tv = tr.Body.linearVelocity;
+                    if (tv.magnitude > 2f) slip = Mathf.Max(slip, Mathf.Abs(Vector3.Dot(tv, tr.transform.right)) / tv.magnitude);
+                }
+                pk.TestSteer(0f);
+                // after: how often it swings across, and how far it still swings in the last 3 s
+                // (the swing measured about where it points on average: the truck may still be curving gently)
+                int crossings = 0; float last = 0f, lateMax = 0f, lo = 999f, hi = -999f;
+                var hs = new System.Collections.Generic.List<float>();
+                for (int i = 0; i < 50 * 6; i++) { yield return new WaitForFixedUpdate(); hs.Add(Hitch()); }
+                for (int i = 0; i < hs.Count; i++)
+                {
+                    int a0 = Mathf.Max(0, i - 25), a1 = Mathf.Min(hs.Count - 1, i + 25); float mean = 0f;
+                    for (int j = a0; j <= a1; j++) mean += hs[j];
+                    mean /= a1 - a0 + 1;
+                    float h = hs[i] - mean;
+                    if (Mathf.Abs(h) > 1f && Mathf.Abs(last) > 1f && Mathf.Sign(h) != Mathf.Sign(last)) crossings++;
+                    if (Mathf.Abs(h) > 1f) last = h;
+                    if (i >= 150) { lo = Mathf.Min(lo, hs[i]); hi = Mathf.Max(hi, hs[i]); }
+                }
+                lateMax = (hi - lo) * 0.5f;
+                pk.TestDrive(0f);
+                string what = (loaded ? "with the 3.65 t barrier block" : "empty") + (Trailer.AntiSway ? "" : " (no anti-sway, for comparison)");
+                log.AppendLine($"INFO  trailer sway {what}: from {v0 * 3.6f:0} km/h, swerve hitch up to {maxIn:0}°, trailer sliding sideways up to {slip * 100f:0}% of its speed; after straightening {crossings} swings across, last 3 s swinging ±{lateMax:0.0}°, upright {tr.transform.up.y:0.00}");
+                if (Trailer.AntiSway)
+                    Check(v0 > 9f && crossings <= 2 && lateMax < 1.5f && tr.transform.up.y > 0.9f, $"the tilt-deck trailer {what} follows a hard swerve and settles straight, no wagging ({crossings} swings across, last 3 s ±{lateMax:0.0}°)");
+                if (blk != null) Destroy(blk.gameObject);
+                Destroy(tr.gameObject); Destroy(pk.gameObject);
+                yield return null;
+            }
+            Trailer.AntiSway = true;
+            Destroy(pad);
+        }
+
+        /// <summary>
+        /// Concrete blocks and the dirt: set down on loose dirt the barrier block presses into it by its weight, and
+        /// dirt poured onto a block slides off beside it instead of going into the ground under it.
+        /// </summary>
+        IEnumerator BlockDirtTests()
+        {
+            var site = DigSite.Instance;
+            Vector3 at = new Vector3(15f, 0f, -168f); at.y = site.SurfaceY(at);
+            Check(site.Contains(at), "the block-on-dirt spot is on the dig field");
+            // a bed of fresh loose dirt
+            for (int i = 0; i < 10; i++) site.Deposit(new Vector3(at.x, site.SurfaceY(at), at.z), MaterialLoad.Mix(1.2f, 0f, 0f, 0f, 0f), 2.2f);
+            site.SettleNow();
+            for (int i = 0; i < 50; i++) yield return new WaitForFixedUpdate();
+            float bed = site.SurfaceY(at) - site.NativeY(at);
+            float g0 = site.SurfaceY(at);
+            Vector3 ringAt = at + Vector3.right * (0.91f * 0.5f + 0.25f);
+            float ring0 = site.SurfaceY(ringAt);
+            var blk = FPSBase.City.BlockYard.Spawn(5, new Vector3(at.x, g0 + 0.05f, at.z), Quaternion.identity);
+            for (int i = 0; i < 50 * 4; i++) yield return new WaitForFixedUpdate();
+            float g1 = site.SurfaceY(at);
+            float ring = site.SurfaceY(ringAt) - ring0;
+            log.AppendLine($"INFO  barrier block on {bed:0.00} m of loose dirt: ground under it went down {(g0 - g1) * 100f:0} cm (pressed {blk.LastSink * 100f:0} cm), packed {site.PackedAt(at):0.00}, dirt squeezed up beside it {ring * 100f:0} cm, block bottom {(blk.transform.position.y - g0) * 100f:0} cm from where the top was, holding {blk.Registered}");
+            Check(blk.Registered && g0 - g1 > 0.04f && site.PackedAt(at) > 0.3f, $"set down on loose dirt, the 3.65 t barrier block presses into it ({(g0 - g1) * 100f:0} cm down, packed {site.PackedAt(at):0.00})");
+            Check(blk.transform.position.y < g0 - 0.02f, $"and it sits down in it, not on the fluffy top ({(blk.transform.position.y - g0) * 100f:0} cm)");
+            // dirt poured onto its top
+            float under0 = site.SurfaceY(at);
+            float beside0 = site.LooseVolume(at, 2.2f, out _);
+            Vector3 top = blk.transform.position + Vector3.up * (blk.Size.y + 0.1f);
+            site.Deposit(top, MaterialLoad.Mix(0.4f, 0f, 0f, 0f, 0f), 0.3f);
+            float under1 = site.SurfaceY(at), beside1 = site.LooseVolume(at, 2.2f, out _);
+            Check(under1 - under0 < 0.01f && beside1 - beside0 > 0.3f, $"dirt poured on a block slides off beside it, not into the ground under it ({(under1 - under0) * 100f:0} cm under, {beside1 - beside0:0.00} of 0.40 m³ beside)");
+            Destroy(blk.gameObject);
+            yield return null;
+        }
+
         IEnumerator MenuDigTests()
         {
             var site = DigSite.Instance;
@@ -3979,6 +4212,23 @@ namespace FPSBase.DebugTools
             log.AppendLine($"INFO  terraced pit: {dugAll.volume:0.0} m³ = {dugAll.Describe()}, {dugAll.Grade:0.0} g/m³");
             Check(dugAll.gravel > dugAll.volume * 0.1f && dugAll.clay + dugAll.sand > dugAll.volume * 0.05f, "dug dirt carries gravel, sand and clay");
             yield return ShotAt(pit + new Vector3(-13f, 9f, -13f), pit + Vector3.down * 2f, "Screenshots/layers.png");
+            // a deep straight-sided cut (as an excavator leaves it): its walls show the layers in level bands
+            {
+                Vector3 cutAt = pit + new Vector3(22f, 0f, 0f); cutAt.y = site.SurfaceY(cutAt);
+                for (float x = -4f; x <= 4f; x += 0.2f)
+                    for (float z = 0f; z <= 4f; z += 0.2f)
+                    {
+                        Vector3 tp = cutAt + new Vector3(x, 0f, z);
+                        tp.y = site.SurfaceY(tp) - 4.5f;
+                        for (int i = 0; i < 12; i++) site.Dig(tp, 0.2f, 0.3f);
+                    }
+                site.SettleNow();
+                for (int i = 0; i < 10; i++) yield return null;
+                float floorY = site.SurfaceY(cutAt + new Vector3(0f, 0f, 2f));
+                log.AppendLine($"INFO  straight cut {cutAt.y - floorY:0.0} m deep");
+                yield return ShotAt(cutAt + new Vector3(0.5f, floorY - cutAt.y + 1.6f, 3.6f), cutAt + new Vector3(0f, floorY - cutAt.y + 1.4f, -0.5f), "Screenshots/layers_wall.png");
+                yield return ShotAt(cutAt + new Vector3(-3f, 3.5f, 9f), cutAt + new Vector3(0f, -2.5f, 0f), "Screenshots/layers_cut.png");
+            }
 
             // boulders: dig the dirt off a buried one and it comes out
             int b0 = Boulder.All.Count;

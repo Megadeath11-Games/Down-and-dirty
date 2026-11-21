@@ -380,6 +380,7 @@ namespace FPSBase.Mining
         void AddLoose(int x, int z, MaterialLoad l)
         {
             x = Mathf.Clamp(x, 1, res - 2); z = Mathf.Clamp(z, 1, res - 2);
+            OffBlock(ref x, ref z); // (landing on a block: it slides off beside it)
             float v = l.volume - l.rock; // boulders never go into the loose dirt
             if (v <= 0f) return;
             float was = loose[z, x];
@@ -1098,7 +1099,6 @@ namespace FPSBase.Mining
                     // cut then runs along the facets instead of zig-zagging across them (no saw teeth)
                     float dAD = Mathf.Abs(vBuf[ka].y - vBuf[kd].y), dBC = Mathf.Abs(vBuf[kb].y - vBuf[kc].y);
                     bool alongAD = Mathf.Abs(dAD - dBC) > 0.02f ? dAD < dBC : ((px + pz + (xa + za) / st) & 1) == 0;
-                    if (WallQuad(ka, kb, kc, kd)) continue;
                     if (alongAD) { TriK(ka, kc, kd); TriK(ka, kd, kb); }
                     else { TriK(ka, kc, kb); TriK(kb, kc, kd); }
                 }
@@ -1150,7 +1150,62 @@ namespace FPSBase.Mining
         {
             int sa = scoreBuf[a], sb = scoreBuf[b], sc = scoreBuf[c];
             int cat = sa >= sb && sa >= sc ? catBuf[a] : sb >= sc ? catBuf[b] : catBuf[c];
-            Tri(vBuf[a], vBuf[b], vBuf[c], cat);
+            int best = Mathf.Max(sa, Mathf.Max(sb, sc));
+            Vector3 A = vBuf[a], B = vBuf[b], C = vBuf[c];
+            float lo = Mathf.Min(A.y, Mathf.Min(B.y, C.y)), hi = Mathf.Max(A.y, Mathf.Max(B.y, C.y));
+            if (best >= 2 && hi - lo > LayerStep * 1.5f) { LayeredTri(A, B, C, cat, lo, hi); return; }
+            Tri(A, B, C, cat);
+        }
+
+        const float LayerStep = 0.1f;
+        static readonly List<Vector3> clipA = new(8), clipB = new(8);
+
+        /// <summary>
+        /// A steep facet of dug ground (the side of a cut) drawn in the colours of the layers it cuts through: it is
+        /// sliced along level lines shared by the whole field (every 10 cm of height, only where the layer changes),
+        /// and each slice takes the colour of the ground at its own depth. Before, the whole facet took one corner's
+        /// colour, so a facet from the topsoil down to the sand drew a long spike of topsoil into the sand, and the
+        /// walls were jagged with teeth; now the layers run along the wall in level bands.
+        /// </summary>
+        void LayeredTri(Vector3 A, Vector3 B, Vector3 C, int cat, float lo, float hi)
+        {
+            Vector3 mid = (A + B + C) / 3f;
+            int k0 = Mathf.FloorToInt(lo / LayerStep), k1 = Mathf.CeilToInt(hi / LayerStep);
+            float runFrom = lo; int runCat = -1;
+            for (int k = k0; k < k1; k++)
+            {
+                float y0 = Mathf.Max(lo, k * LayerStep), y1 = Mathf.Min(hi, (k + 1) * LayerStep);
+                if (y1 <= y0) continue;
+                int c = WallCat(new Vector3(mid.x, (y0 + y1) * 0.5f, mid.z), cat);
+                if (runCat < 0) { runCat = c; runFrom = y0; continue; }
+                if (c == runCat) continue;
+                Slice(A, B, C, runFrom, y0, runCat);
+                runCat = c; runFrom = y0;
+            }
+            if (runCat >= 0) Slice(A, B, C, runFrom, hi, runCat);
+        }
+
+        /// <summary>The part of triangle ABC between heights y0 and y1, drawn in `cat` (same winding).</summary>
+        void Slice(Vector3 A, Vector3 B, Vector3 C, float y0, float y1, int cat)
+        {
+            clipA.Clear(); clipA.Add(A); clipA.Add(B); clipA.Add(C);
+            ClipY(clipA, clipB, y0, true);
+            ClipY(clipB, clipA, y1, false);
+            for (int i = 1; i + 1 < clipA.Count; i++) Tri(clipA[0], clipA[i], clipA[i + 1], cat);
+        }
+
+        /// <summary>Keep the part of polygon `src` above (`above`) or below the level `y`, into `dst`.</summary>
+        static void ClipY(List<Vector3> src, List<Vector3> dst, float y, bool above)
+        {
+            dst.Clear();
+            int n = src.Count;
+            for (int i = 0; i < n; i++)
+            {
+                Vector3 p = src[i], q = src[(i + 1) % n];
+                bool pin = above ? p.y >= y : p.y <= y, qin = above ? q.y >= y : q.y <= y;
+                if (pin) dst.Add(p);
+                if (pin != qin) dst.Add(Vector3.Lerp(p, q, (y - p.y) / (q.y - p.y)));
+            }
         }
 
         /// <summary>

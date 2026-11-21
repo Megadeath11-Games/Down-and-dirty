@@ -189,7 +189,7 @@ namespace FPSBase.Vehicles
         /// <summary>How far any steel was in the unbroken ground past what it may (m), last physics step (for the test).</summary>
         public float LastPenetration { get; private set; }
 
-        static void SampleMeshes(Transform root, System.Func<Transform, bool> skip, float step, int cap,
+        internal static void SampleMeshes(Transform root, System.Func<Transform, bool> skip, float step, int cap,
             System.Action<Vector3, Transform> add)
         {
             float q = step * 0.7f;

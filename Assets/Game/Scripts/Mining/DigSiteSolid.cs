@@ -48,6 +48,64 @@ namespace FPSBase.Mining
             foreach (int i in e.cells) Around(i);
         }
 
+        /// <summary>
+        /// Dirt landing on a square a block stands on (poured on it, a clod rolled onto it) doesn't go into the ground
+        /// under the block: it slides off onto the nearest square beside it. Returns false if x,z is open ground.
+        /// </summary>
+        bool OffBlock(ref int x, ref int z)
+        {
+            if (solid.Count == 0 || !solid.ContainsKey(z * res + x)) return false;
+            for (int r = 1; r <= 24; r++)
+            {
+                int bx = -1, bz = -1; float bd = float.MaxValue;
+                for (int dz = -r; dz <= r; dz++)
+                    for (int dx = -r; dx <= r; dx++)
+                    {
+                        if (Mathf.Max(Mathf.Abs(dx), Mathf.Abs(dz)) != r) continue;
+                        int nx = x + dx, nz = z + dz;
+                        if (nx < 1 || nz < 1 || nx > res - 2 || nz > res - 2 || solid.ContainsKey(nz * res + nx)) continue;
+                        float d = dx * dx + dz * dz + Random.value * 0.5f; // (either side of a wall, about evenly)
+                        if (d < bd) { bd = d; bx = nx; bz = nz; }
+                    }
+                if (bx >= 0) { x = bx; z = bz; return true; }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// A block set down on loose dirt presses into it with its weight: the dirt under it packs (a heavy barrier
+        /// block much more than a half block) and some squeezes out round its edges, so it settles in instead of
+        /// sitting on the fluffy top like it weighs nothing. Returns how far the ground under it went down (m, average).
+        /// </summary>
+        public float PressUnder(List<int> cells, float kg)
+        {
+            if (cells == null || cells.Count == 0) return 0f;
+            float area = cells.Count * cellArea;
+            float want = Mathf.Clamp01(kg / Mathf.Max(0.05f, area) / 3000f); // (kg per m² of ground it stands on)
+            float before = 0f, after = 0f;
+            foreach (int i in cells) before += loose[i / res, i % res];
+            foreach (int i in cells)
+            {
+                int x = i % res, z = i / res;
+                float l = loose[z, x];
+                // squeezed out from under it: what's deeper than a thin skin, by how heavy it is
+                float out_ = Mathf.Max(0f, l - 0.04f) * 0.35f * want;
+                if (out_ > 0.002f)
+                {
+                    float k = out_ / l;
+                    var m = new MaterialLoad(out_ * cellArea, looseGold[z, x] * k);
+                    m.sand = looseSand[z, x] * k; m.gravel = looseGravel[z, x] * k; m.clay = looseClay[z, x] * k;
+                    loose[z, x] -= out_; looseGold[z, x] -= m.goldGrams;
+                    looseSand[z, x] -= m.sand; looseGravel[z, x] -= m.gravel; looseClay[z, x] -= m.clay;
+                    Touch(x, z);
+                    AddLoose(x, z, m); // (off the block: onto the squares round it)
+                }
+                for (int k = 0; k < 8; k++) PackCell(x, z, want);
+            }
+            foreach (int i in cells) after += loose[i / res, i % res];
+            return (before - after) / cells.Count;
+        }
+
         // the dirt round a block that came or went looks again at whether it should slide
         void Around(int i)
         {

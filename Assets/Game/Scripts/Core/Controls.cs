@@ -40,6 +40,8 @@ namespace FPSBase.Core
         Phone,
         // excavator bucket chain (lifting concrete blocks)
         Hook,
+        // the chain's length
+        ChainLonger, ChainShorter,
     }
 
     /// <summary>Controller inputs (Xbox names; a PlayStation pad is the same places: A = Cross, B = Circle, X = Square, Y = Triangle).</summary>
@@ -119,6 +121,8 @@ namespace FPSBase.Core
             new(GameAction.ExBladeUp, "Excavator blade", "Front blade up", Key.E),
             new(GameAction.ExBladeDown, "Excavator blade", "Front blade down", Key.Q),
             new(GameAction.Hook, "Excavator chain", "Bucket chain: let it down / hook a block / let go", Key.H),
+            new(GameAction.ChainLonger, "Excavator chain", "Let the chain out longer", Key.Y),
+            new(GameAction.ChainShorter, "Excavator chain", "Take the chain in shorter", Key.U),
 
             new(GameAction.GraderBladeUp, "Motor grader", "Blade up (both lift rams)", Key.E),
             new(GameAction.GraderBladeDown, "Motor grader", "Blade down (both lift rams)", Key.Q),

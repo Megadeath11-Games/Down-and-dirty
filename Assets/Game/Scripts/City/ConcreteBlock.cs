@@ -57,6 +57,8 @@ namespace FPSBase.City
         /// <summary>Chained down to a trailer deck or a truck bed: rides on it.</summary>
         public Transform ChainedTo { get; private set; }
         Collider[] chainedAgainst;
+        /// <summary>The trailer whose deck it was unchained on by hand: it isn't chained again by itself until lifted off.</summary>
+        [System.NonSerialized] public Transform NoAutoChain;
 
         void Awake()
         {
@@ -152,6 +154,7 @@ namespace FPSBase.City
             if (ChainedTo == null) return;
             if (!fromNet) Claim();
             var deckBody = ChainedTo.GetComponentInParent<Rigidbody>();
+            if (!fromNet) NoAutoChain = ChainedTo.root;
             transform.SetParent(null, true);
             if (chainedAgainst != null)
                 foreach (var a in cols) foreach (var b in chainedAgainst) if (a != null && b != null && !(b is CharacterController)) Physics.IgnoreCollision(a, b, false);
@@ -203,12 +206,23 @@ namespace FPSBase.City
         float still;
         Vector3 lastPos; Quaternion lastRot = Quaternion.identity;
         public bool Registered => restSite != null;
+        Vector3 pressedAt = new Vector3(1e9f, 0f, 1e9f), regPos;
+        Quaternion regRot = Quaternion.identity;
+        /// <summary>How far the loose dirt under it went down when it was last set down (m, for the test).</summary>
+        public float LastSink { get; private set; }
 
         void RestCheck(float dt)
         {
             bool moving = (transform.position - lastPos).sqrMagnitude > 1e-6f || Quaternion.Angle(transform.rotation, lastRot) > 0.05f;
             lastPos = transform.position; lastRot = transform.rotation;
-            if (moving || HookedBy != null || ChainedTo != null) { still = 0f; if (Registered && (moving || HookedBy != null)) Unregister(); return; }
+            // holding the ground, it lets go only when it's really moved (lifted, shoved, toppled), not for a
+            // millimetre of settling: let go, the dirt round it ran in under it and kept nudging it
+            if (Registered && HookedBy == null && ChainedTo == null)
+            {
+                if ((transform.position - regPos).sqrMagnitude > 0.0009f || Quaternion.Angle(transform.rotation, regRot) > 2f) { Unregister(); still = 0f; }
+                return;
+            }
+            if (moving || HookedBy != null || ChainedTo != null) { still = 0f; if (Registered) Unregister(); return; }
             still += dt;
             if (!Registered && still > 0.6f) Register();
         }
@@ -237,6 +251,25 @@ namespace FPSBase.City
             if (restCells.Count == 0) return;
             restSite = site;
             site.AddSolid(this, restCells, top);
+            regPos = transform.position; regRot = transform.rotation;
+            // set down on loose dirt: its weight presses it in (once per spot it's put down on: it settling a few
+            // centimetres into what it pressed doesn't press again)
+            Vector3 flat = new Vector3(transform.position.x, 0f, transform.position.z);
+            if (HookedBy == null && (flat - pressedAt).sqrMagnitude > 0.09f)
+            {
+                pressedAt = flat;
+                LastSink = site.PressUnder(restCells, Info.kg);
+                if (LastSink > 0.005f)
+                {
+                    // it goes down with the dirt it pressed, straight away (dropped onto it, it moved, let go of the
+                    // ground, and the dirt round it ran back in under it)
+                    transform.position += Vector3.down * LastSink;
+                    if (Body != null) { Body.position = transform.position; Body.linearVelocity = Vector3.zero; }
+                    lastPos = transform.position;
+                    site.AddSolid(this, restCells, top - LastSink);
+                    regPos = transform.position;
+                }
+            }
         }
 
         bool OnABlock()

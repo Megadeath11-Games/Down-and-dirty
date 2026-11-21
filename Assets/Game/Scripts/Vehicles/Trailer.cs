@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
+using FPSBase.City;
 using FPSBase.Core;
 using FPSBase.Mining;
 using UnityEngine;
@@ -313,13 +314,56 @@ namespace FPSBase.Vehicles
             PendingCouple = null;
             if (Hitched == null) SetBrake(true);
             if (NetRemote) rb.isKinematic = true;
+            TuneWheels();
             UpdateMass();
+        }
+
+        /// <summary>Concrete blocks chained down on it (t): they ride as part of it, so it carries their weight.</summary>
+        public float BlockTons
+        {
+            get
+            {
+                float kg = 0f;
+                foreach (var b in ConcreteBlock.All) if (b != null && b.ChainedTo != null && b.ChainedTo.root == transform) kg += b.Info.kg;
+                return kg / 1000f;
+            }
+        }
+
+        float[] spring0;
+        /// <summary>
+        /// The springs are built for a full load: empty (or with one block on) they were so stiff for its weight that
+        /// it skipped over every bump with its tyres barely on the ground, and slid about in corners. They're softened
+        /// to what it carries, and the tyres bite a bit harder sideways.
+        /// </summary>
+        void TuneWheels()
+        {
+            if (wheels == null || wheels.Length == 0 || rb == null) return;
+            if (spring0 == null)
+            {
+                spring0 = new float[wheels.Length];
+                for (int i = 0; i < wheels.Length; i++)
+                {
+                    if (wheels[i] == null) continue;
+                    spring0[i] = wheels[i].suspensionSpring.spring;
+                    var sf = wheels[i].sidewaysFriction; sf.stiffness = Mathf.Max(sf.stiffness, 2.2f); wheels[i].sidewaysFriction = sf;
+                }
+            }
+            float full = emptyMass + Mathf.Max(payloadTons * 1000f, emptyMass * 2f);
+            float k = Mathf.Clamp(rb.mass / full, 0.35f, 1f);
+            for (int i = 0; i < wheels.Length; i++)
+            {
+                if (wheels[i] == null || spring0[i] <= 0f) continue;
+                var js = wheels[i].suspensionSpring;
+                float ratio = js.spring > 0f ? js.damper / js.spring : 0.16f;
+                js.spring = spring0[i] * k; js.damper = js.spring * ratio;
+                wheels[i].suspensionSpring = js;
+            }
         }
 
         void UpdateMass()
         {
-            float m = emptyMass + CargoTons * 1000f + (Tank != null ? Tank.liters * 0.84f : 0f);
-            if (Mathf.Abs(rb.mass - m) > 5f) rb.mass = m;
+            float m = emptyMass + CargoTons * 1000f + BlockTons * 1000f + (Tank != null ? Tank.liters * 0.84f : 0f);
+            if (Mathf.Abs(rb.mass - m) > 5f) { rb.mass = m; TuneWheels(); }
         }
 
         // ------------------------------------------------------------------ coupling
@@ -341,6 +385,9 @@ namespace FPSBase.Vehicles
         }
 
         /// <summary>Couple to `h`; `snap` slides the trailer the last bit so the ring drops onto the hook.</summary>
+        /// <summary>The hitch damps the trailer swinging (off only for the test to compare).</summary>
+        public static bool AntiSway = true;
+
         public void Couple(Hitch h, bool snap)
         {
             if (h == null || joint != null) return;
@@ -372,6 +419,17 @@ namespace FPSBase.Vehicles
             joint.angularYLimit = new SoftJointLimit { limit = 85f };
             joint.angularZLimit = new SoftJointLimit { limit = h.type == HitchType.FifthWheel ? 8f : h.type == HitchType.Gooseneck ? 12f : 25f };
             joint.enableCollision = false;
+            if (AntiSway)
+            // Anti-sway: the hitch resists the trailer swinging (and rocking) relative to the truck, but not where it
+            // points: it still follows the truck round any corner, it just doesn't wag back and forth after one.
+            {
+                Vector3 com = rb.worldCenterOfMass, hp = h.transform.position;
+                float L = Mathf.Max(1.5f, Vector3.ProjectOnPlane(com - hp, Vector3.up).magnitude);
+                float d = rb.mass * L * L * 2.5f; // (about a 0.4 s settle for its swing about the ball)
+                joint.rotationDriveMode = RotationDriveMode.XYAndZ;
+                joint.angularYZDrive = new JointDrive { positionSpring = 0f, positionDamper = d, maximumForce = float.MaxValue };
+                joint.angularXDrive = new JointDrive { positionSpring = 0f, positionDamper = d * 0.3f, maximumForce = float.MaxValue };
+            }
             h.Attached = this;
             Hitched = h;
             // only the bits that meet at the hitch pass through each other (tongue, ring, jack vs the truck's back end):
@@ -666,6 +724,30 @@ namespace FPSBase.Vehicles
                     continue;
                 }
                 Chain(v, vrb);
+            }
+            ScanBlocks(half);
+        }
+
+        /// <summary>
+        /// Concrete blocks set down on the deck and sitting still on it are chained down, the way parked machines are.
+        /// One whose chains you undid yourself stays loose until it's been lifted off.
+        /// </summary>
+        void ScanBlocks(Vector3 half)
+        {
+            foreach (var b in new List<ConcreteBlock>(ConcreteBlock.All))
+            {
+                if (b == null || b.ChainedTo != null) continue;
+                Vector3 l = deckArea.InverseTransformPoint(b.transform.position);
+                bool over = Mathf.Abs(l.x) <= half.x + 0.3f && Mathf.Abs(l.z) <= half.z + 0.3f && l.y > -0.6f && l.y < 3f;
+                if (b.NoAutoChain == transform) { if (!over || b.HookedBy != null) b.NoAutoChain = null; continue; }
+                if (!over || b.HookedBy != null || !b.NetMine) continue;
+                var brb = b.Body;
+                if (brb == null || brb.isKinematic) continue;
+                Vector3 rel = brb.linearVelocity - rb.GetPointVelocity(b.transform.position);
+                if (rel.sqrMagnitude > 0.09f || brb.angularVelocity.sqrMagnitude > 0.09f) continue;
+                if (!b.CarrierBelow(out var on) || on.root != transform) continue;
+                b.ChainTo(on);
+                UpdateMass();
             }
         }
 

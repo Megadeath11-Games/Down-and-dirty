@@ -62,6 +62,7 @@ namespace FPSBase.Vehicles
                     return s != null && s.Contains(t) && s.SurfaceY(t) > t.y - 0.08f;
                 };
             }
+            BuildShell();
             SetPose(arm, tilt); // clamps the start pose into this machine's range (bucket on the ground)
             UpdateLoadVisual();
             if (wheelVisuals != null)
@@ -156,7 +157,9 @@ namespace FPSBase.Vehicles
                 Vector3 at = pourAt + side * (Random.Range(-1f, 1f) * halfW * 0.85f);
                 // (over a truck or hopper, only the bit of the edge that's over it: a bucket wider than the bed doesn't miss it)
                 var rec = MaterialTransfer.FindReceiverBelow(pourAt, transform, out _);
-                if (rec != null && MaterialTransfer.FindReceiverBelow(at, transform, out _) != rec) at = pourAt;
+                // (and a quarter metre in from its edge: poured right on the rim, dirt bounced off the side)
+                Vector3 inset = at + side * (Mathf.Sign(Vector3.Dot(at - pourAt, side)) * 0.25f);
+                if (rec != null && (MaterialTransfer.FindReceiverBelow(at, transform, out _) != rec || MaterialTransfer.FindReceiverBelow(inset, transform, out _) != rec)) at = pourAt;
                 MaterialTransfer.Pour(at, pour, transform, lcc != null ? lcc.ClumpRadius : 0f);
             }
             return pourAt;
@@ -181,40 +184,135 @@ namespace FPSBase.Vehicles
             }
         }
 
+        // ---- the bucket's steel: points all over it, so it cuts the dirt in its own shape (its whole width, not a
+        // little circle at the middle of the edge that let the rest of the bucket slide through the heap)
+        Vector3[] shellLocal, shellW, shellPrev, shellVel;
+        float[] shellLim; bool[] shellScoop;
+        bool shellHasPrev;
+        Vector3? scoopedAt;
+        float shellHalfW = 0.5f;
+        /// <summary>Dirt the bucket took in last frame (m³, for the test).</summary>
+        public float LastScooped { get; private set; }
+
+        void BuildShell()
+        {
+            if (bucketPivot == null || bucketTip == null) return;
+            var pts = new System.Collections.Generic.List<Vector3>();
+            var toLocal = bucketPivot.worldToLocalMatrix;
+            bool NotSteel(Transform t) =>
+                (bucketLoadVisual != null && t.IsChildOf(bucketLoadVisual)) || t.name.Contains("Load") || t.name.Contains("dirt");
+            MiniExcavator.SampleMeshes(bucketPivot, NotSteel, 0.06f, 12000, (w, _) => pts.Add(toLocal.MultiplyPoint3x4(w)));
+            if (pts.Count == 0) return;
+            shellLocal = pts.ToArray();
+            int n = shellLocal.Length;
+            shellW = new Vector3[n]; shellPrev = new Vector3[n]; shellVel = new Vector3[n];
+            shellLim = new float[n]; shellScoop = new bool[n];
+            float lo = float.MaxValue, hi = float.MinValue;
+            foreach (var p in shellLocal) { lo = Mathf.Min(lo, p.x); hi = Mathf.Max(hi, p.x); }
+            shellHalfW = Mathf.Max(0.2f, (hi - lo) * 0.5f * Mathf.Abs(bucketPivot.lossyScale.x));
+        }
+
         /// <summary>One step of bucket work. `v` = forward speed, `tiltIn` = -1 curl … +1 dump. Public for the automated test.</summary>
         public void Work(float v, float tiltIn, float dt)
         {
             Vector3 tip = bucketTip.position;
             var site = DigSite.At(transform.position);
-            // the cutting edge, or just above it (a flat or tipped-forward bucket's lip can ride on the pile's skin)
-            Vector3 lip = tip + Vector3.up * 0.12f + transform.forward * 0.08f;
-            bool inDirt = DirtPile.FindContaining(tip) != null || (site != null && (site.IsUnderground(tip) || site.IsUnderground(lip)));
+            LastScooped = 0f; scoopedAt = null;
+            bool tippedDown = tilt >= dumpAngle;
+            bool full = bucketLoad.volume >= bucketCapacity * 0.98f;
 
             // a full bucket held low acts like a small dozer blade and shoves dirt along
-            if (site != null && bucketLoad.volume >= bucketCapacity * 0.98f && v > 0.05f && tilt < 15f && site.Contains(tip))
-                site.BladePush(tip, transform.forward, 1.9f, tip.y + 0.05f);
+            if (site != null && full && v > 0.05f && tilt < 15f && site.Contains(tip))
+                site.BladePush(tip, transform.forward, shellHalfW * 2f, tip.y + 0.05f);
 
-            // fill: bucket pushed into dirt (flat, or tipped down so the edge cuts in), or curled while in the dirt
-            bool tippedDown = tilt >= dumpAngle;
-            if (inDirt && bucketLoad.volume < bucketCapacity && (!tippedDown || v > 0.05f))
+            if (site != null && site.Contains(tip) && shellLocal != null) Carve(site, v, tiltIn, full, tippedDown, dt);
+            else if (DirtPile.FindContaining(tip) is DirtPile pile && !full && (!tippedDown || v > 0.05f))
             {
+                // a dirt pile off the dig field (no ground to cut): driven or curled into, it fills as before
                 float want = Mathf.Max(v, 0f) * fillRate * dt + Mathf.Max(-tiltIn, 0f) * curlFillRate * dt;
                 want = Mathf.Min(want, bucketCapacity - bucketLoad.volume);
-                if (want > 0f)
-                {
-                    var got = DigSite.DigAnywhere(tip, 0.7f, want);
-                    bucketLoad.Add(got);
-                    if (!got.IsEmpty) lastCutAt = Time.time;
-                    var cc = GetComponent<ClumpContainer>();
-                    if (cc != null && cc.Scoop(tip, 0.9f, bucketCapacity) is Boulder b) GameUI.Toast($"Scooped up a {b.volume:0.0#} m³ boulder");
-                    if (!got.IsEmpty) { strainAmount = Mathf.Clamp01(want / Mathf.Max(1e-4f, fillRate * dt) + 0.3f); scrapeAmount = 0.6f; }
-                    if (!got.IsEmpty && (fxTimer -= dt) <= 0f) { PourFx.Dig(tip); fxTimer = 0.25f; }
-                }
+                var got = want > 0f ? pile.Dig(want) : default;
+                if (!got.IsEmpty) { bucketLoad.Add(got); lastCutAt = Time.time; LastScooped = got.volume; scrapeAmount = 0.6f; }
+            }
+            if (LastScooped > 0f)
+            {
+                var cc = GetComponent<ClumpContainer>();
+                if (cc != null && cc.Scoop(tip, 0.9f, bucketCapacity) is Boulder b) GameUI.Toast($"Scooped up a {b.volume:0.0#} m³ boulder");
+                strainAmount = Mathf.Clamp01(LastScooped / Mathf.Max(1e-4f, fillRate * dt) + 0.3f);
+                scrapeAmount = 0.6f;
+                if ((fxTimer -= dt) <= 0f) { PourFx.Dig(tip); fxTimer = 0.25f; }
             }
 
             Vector3 pourAt = DumpStep(dt);
             underBucket = Describe(MaterialTransfer.FindReceiverBelow(pourAt, transform, out _));
             UpdateLoadVisual();
+        }
+
+        /// <summary>
+        /// The bucket in the dig field: every bit of its steel cuts the dirt it moves through. Driven in flat, or
+        /// curled while it's in the dirt, what the cutting edge slices off goes in through the mouth: it fills
+        /// across its whole width. Lowered straight down it only presses; the back or the sides shove loose dirt
+        /// along. Unbroken ground is cut no faster than the machine has the push for; loose dirt (a heap) always goes.
+        /// </summary>
+        void Carve(DigSite site, float v, float tiltIn, bool full, bool tippedDown, float dt)
+        {
+            int n = shellLocal.Length;
+            var m = bucketPivot.localToWorldMatrix;
+            bool fresh = !shellHasPrev || dt <= 1e-4f;
+            for (int i = 0; i < n; i++)
+            {
+                var w = m.MultiplyPoint3x4(shellLocal[i]);
+                shellVel[i] = fresh ? Vector3.zero : (w - shellPrev[i]) / dt;
+                shellPrev[i] = shellW[i] = w;
+            }
+            shellHasPrev = true;
+            if (fresh) return;
+            Vector3 fwd = Vector3.ProjectOnPlane(transform.forward, Vector3.up).normalized;
+            // (a stalled machine shoving at a heap still counts as driving into it: its bucket is pushing)
+            bool driving = v > 0.05f;
+            bool scooping = !full && (driving || (!tippedDown && tiltIn < -0.05f));
+            float scrape = 0.03f * dt;
+            for (int i = 0; i < n; i++)
+            {
+                Vector3 vel = shellVel[i];
+                if (driving) vel += fwd * Mathf.Max(0f, v - Vector3.Dot(vel, fwd)); // (shoving at a heap that holds the machine)
+                shellVel[i] = vel;
+                float sp = vel.magnitude;
+                if (sp < 0.01f || sp > 30f) { shellLim[i] = -1f; shellScoop[i] = false; continue; }
+                if (!scooping && vel.y < -0.5f * sp) { shellLim[i] = -1f; shellScoop[i] = false; continue; } // pressed down: packs
+                shellScoop[i] = scooping;
+                shellLim[i] = scooping ? 10f : scrape;
+            }
+            site.GroundNameAt(bucketTip.position, out float ease);
+            if (ease <= 0f) ease = 1f;
+            // how much unbroken ground the machine can cut this frame (driven in hard, or curled in)
+            float budget = (Mathf.Max(v, 0f) * fillRate * 1.6f + Mathf.Max(-tiltIn, 0f) * curlFillRate * 2f + 0.05f) * ease * dt;
+            float cut = site.CarveBelow(shellW, shellLim, shellScoop, shellVel, n, budget, out var sc, out var pu, out var sAt, out var pAt);
+            if (cut <= 0f) return;
+            Vector3 side = Vector3.Cross(Vector3.up, fwd);
+            if (!sc.IsEmpty)
+            {
+                var cc = GetComponent<ClumpContainer>();
+                float space = Mathf.Max(0f, bucketCapacity - bucketLoad.volume - (cc != null ? cc.HeldRockVolume : 0f));
+                var into = sc.Take(space);
+                bucketLoad.Add(into);
+                LastScooped = into.volume;
+                if (into.volume > 0f) { lastCutAt = Time.time; scoopedAt = sAt; }
+                // brim full: the rest heaps up in front of the edge, spread across its width (pushed along from there)
+                if (!sc.IsEmpty)
+                {
+                    float spread = Mathf.Max(site.Cell * 1.5f, shellHalfW * 0.4f);
+                    Vector3 at = bucketTip.position + fwd * spread;
+                    var third = sc.Scaled(1f / 3f);
+                    for (int k = -1; k <= 1; k++) site.Deposit(at + side * (k * shellHalfW * 0.6f), third, spread);
+                }
+            }
+            if (!pu.IsEmpty)
+            {
+                float spread = Mathf.Max(site.Cell * 1.5f, shellHalfW * 0.4f);
+                var third = pu.Scaled(1f / 3f);
+                for (int k = -1; k <= 1; k++) site.Deposit(pAt + side * (k * shellHalfW * 0.6f), third, spread);
+            }
         }
 
         void UpdateLoadVisual()

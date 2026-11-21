@@ -13,6 +13,23 @@ namespace FPSBase.Core
         /// <summary>Newest first.</summary>
         public static readonly Post[] Blog =
         {
+            new Post { date = "Update 32  ·  Nov 20, 2026", title = "Loader wheels and bucket, trailer grip and sway, blocks, the lifting chain, and smooth layers in cut walls",
+                body =
+                "• The wheel loader has its front wheels back. Both left wheels were saved under one name, so the rear one took the front one's tyre away.\n" +
+                "• The wheel loader's bucket really digs now. It used to take dirt from a small circle in the middle of its edge while the rest of the bucket slid through the heap. Now its whole width cuts: drive it flat into a heap and it fills, curl it back to top it up, and on flat ground with the arms right down it scrapes up a load. A full bucket pushes the rest ahead of it. The skid steers dig the same way.\n" +
+                "• Concrete blocks set down on a trailer deck are chained down by themselves once they stop moving, like parked machines. Undo the chains by hand and they stay loose until they're lifted off.\n" +
+                "• Chained blocks now count toward the trailer's weight, so a loaded trailer grips like a loaded one. The springs soften to what it's carrying, so an empty trailer no longer skips over bumps and slides in corners.\n" +
+                "• The hitch damps the trailer swinging, so after a sharp turn it settles straight behind the truck instead of wagging side to side.\n" +
+                "• Dirt dropped on a concrete block slides off beside it, instead of ending up in the ground under the block.\n" +
+                "• A block set down on loose dirt presses in by its weight: the dirt under it packs, some squeezes out round its edges, and the block sits down in it. A 3.65 t barrier block sinks in much further than a half block.\n" +
+                "• The excavator's lifting chain has a big yellow hook you can see from the cab.\n" +
+                "• Let down, the chain runs out a link at a time instead of appearing. Hanging free, it swings with the arm and lies on the ground when it reaches it. Stowed, it reels back up.\n" +
+                "• With the chain down, the dump marker becomes a small ring around the hook that shows how close a block's loop has to be. It turns green when a loop is in reach.\n" +
+                "• A block on the chain bangs into the bucket, the arm and everything else instead of passing through them.\n" +
+                "• The chain's length can be changed: Y lets it out and U takes it in (both can be rebound in Controls). It never gets shorter than it takes for a block to hang clear below the bucket.\n" +
+                "• Cut walls show their layers (topsoil, clay, sand, gravel) in level bands that run along the wall, instead of jagged teeth of one layer stabbing down into the next.\n" +
+                "• The wheel loader's bucket knows which way it opens, so a curled and raised bucket keeps its load instead of tipping it out.\n" +
+                "• The mouse stays inside the game window on the menus too, and the lock is set again whenever the game comes back into focus, so the cursor no longer wanders onto your other monitor." },
             new Post { date = "Update 31  ·  Nov 20, 2026", title = "No more dirt mound in front of the bucket",
                 body =
                 "• Digging with an excavator no longer builds a pointed mound of dirt in front of the bucket. A bucket dragged through the dirt now fills to three quarters even before you curl it, so far less dirt spills out of it while you dig.\n" +
@@ -282,11 +299,22 @@ namespace FPSBase.Core
                 "• Dozer berms build up properly in front of the blade." },
         };
 
-        public const string TestListVersion = "2026-11-20h";
+        public const string TestListVersion = "2026-11-20i";
 
         /// <summary>What's new in this build to try out.</summary>
         public static readonly string[] TestList =
         {
+            "Wheel loader: all four wheels are there",
+            "Wheel loader: bucket flat on the ground, drive into a heap: it fills across its width, curl back to top it up, raise and carry it to a truck without spilling",
+            "Wheel loader: arms right down on flat ground and drive: it scrapes up a load and stays on its wheels",
+            "Trailer: set blocks on the deck (excavator chain or the block yard): they get chained down by themselves once they stop; undo one by hand and it stays loose",
+            "Trailer: tow it empty and with the biggest block, take a sharp turn at speed: it grips, follows and settles straight with no wagging",
+            "Concrete block: set the barrier block on loose dirt: it sinks in and the dirt squeezes up round it; pour dirt on a block: it slides off the sides",
+            "Excavator chain: let it down: it runs out slowly, swings as you move the arm, lies on the ground; the yellow hook is easy to see",
+            "Excavator chain down: the marker is a small ring round the hook that turns green when a block loop is in reach",
+            "Excavator chain: hook a block and swing it into the bucket and arm: it hits them; Y and U make the chain longer and shorter, and it never gets so short the block hits the bucket",
+            "Dig a deep straight-sided cut with an excavator: the walls show the layers as level bands along the wall, no jagged teeth",
+            "Mouse: in the menus and in game (also after alt-tab), the cursor never leaves the game window for another monitor",
             "Main menu: watch the 20 t dig for a minute: no pointed mound of dirt grows in front of the bucket or at the end of the trench",
             "Excavator (20 t): dig a trench in fresh ground with the bucket open, pull the stick in: it fills without piling a mound in front, and a full bucket dragged on still moves and spills behind it",
             "Dozers: push a long heap with each dozer (small, 22 t, mining): the game stays smooth, the heap rolls and spills off the ends like before",

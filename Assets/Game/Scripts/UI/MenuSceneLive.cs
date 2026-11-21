@@ -95,6 +95,9 @@ namespace FPSBase.UI
             MakeCamera(main, new Vector3(over.x * 0.35f, 0f, lDigZ * 0.5f + 4f));
             t0 = Time.unscaledTime;
             ready = true;
+            // the automated screenshot run: where the frame time goes while the machines work
+            if (System.Environment.CommandLine.Contains("-menushot") && root.GetComponent<FPSBase.DebugTools.PerfProbe>() == null)
+                root.gameObject.AddComponent<FPSBase.DebugTools.PerfProbe>().label = "menu excavator";
             StartCoroutine(LiveStart());
             Debug.Log($"[MenuScene] live: real machines on the dirt field at {spot} (excavator over the truck at boom {lOverBoom:0}, stick {lOverStick:0})");
             return true;
@@ -158,6 +161,7 @@ namespace FPSBase.UI
             foreach (var go in liveMade) if (go != null) DestroyImmediate(go);
             liveMade.Clear();
             DirtGrains.ClearAll();
+            if (root != null && root.GetComponent<FPSBase.DebugTools.PerfProbe>() is var probe && probe != null) Destroy(probe);
             if (liveSite != null)
             {
                 Vector3 c = root != null ? root.position : Vector3.zero;

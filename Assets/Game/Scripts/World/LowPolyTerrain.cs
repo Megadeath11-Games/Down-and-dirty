@@ -152,8 +152,9 @@ namespace FPSBase.World
             float d2 = grassDrawDistance * grassDrawDistance;
             foreach (var (b, m) in grass)
             {
-                if (b.SqrDistance(cp) > d2 || !GeometryUtility.TestPlanesAABB(planes, b)) continue;
-                TuftRenderer.Draw(tuftMesh, tuftMaterial, m, b);
+                float bd2 = b.SqrDistance(cp);
+                if (bd2 > d2 || !GeometryUtility.TestPlanesAABB(planes, b)) continue;
+                TuftRenderer.Draw(tuftMesh, tuftMaterial, m, b, Mathf.Sqrt(bd2), grassDrawDistance);
             }
         }
     }

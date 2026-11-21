@@ -17,6 +17,9 @@ namespace FPSBase.Mining
     public class DirtGrains : MonoBehaviour
     {
         public const int MaxGrains = 4000;
+        // the cut in front of a blade or bucket becomes clods up to this many about at once; past it, the cut drops
+        // ahead the old way (each clod costs time every frame: 2000 of them took a third of a 60 fps frame)
+        const int BladeClodCap = 1500, SprayCap = 1700;
         const int MaxPerPour = 40;
         const float MaxStepDt = 1f / 30f;
 
@@ -83,7 +86,7 @@ namespace FPSBase.Mining
             Traits(load, out float gv, out float mu, out float bounce, out _, out _, out bool clod);
             gv = Mathf.Max(gv, minClod); // (a big blade's clods are bigger: fewer of them for the same heap)
             int n = Mathf.Clamp(Mathf.CeilToInt(load.volume / gv), 1, 24);
-            if (me.count + n > MaxGrains - 300) return false;
+            if (me.count + n > BladeClodCap) return false;
             var each = load.Scaled(1f / n);
             float r = RadiusOf(each.volume);
             for (int i = 0; i < n; i++)
@@ -434,7 +437,7 @@ namespace FPSBase.Mining
         public static void Spray(Vector3 at, Vector3 velocity, int cat = 0, float size = 0.06f)
         {
             var me = Instance;
-            if (me.count >= MaxGrains - 200 || me.spraysThisFrame > 90) return;
+            if (me.count >= SprayCap || me.spraysThisFrame > 90) return;
             me.spraysThisFrame++;
             at = OnTop(at, size);
             me.g[me.count++] = new Grain

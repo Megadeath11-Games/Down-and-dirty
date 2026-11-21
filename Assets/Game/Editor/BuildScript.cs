@@ -43,7 +43,8 @@ namespace FPSBase.EditorTools
                 scenes = scenes,
                 locationPathName = Out,
                 target = BuildTarget.StandaloneWindows64,
-                options = BuildOptions.None,
+                // (BUILD_DEV=1: a development build, for timing with Unity's own profiler markers)
+                options = System.Environment.GetEnvironmentVariable("BUILD_DEV") == "1" ? BuildOptions.Development : BuildOptions.None,
             });
 
             var s = report.summary;

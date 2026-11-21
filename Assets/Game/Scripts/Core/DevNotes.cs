@@ -13,6 +13,13 @@ namespace FPSBase.Core
         /// <summary>Newest first.</summary>
         public static readonly Post[] Blog =
         {
+            new Post { date = "Update 39  ·  Nov 21, 2026", title = "Smoother frame rate",
+                body =
+                "• The game draws about half as many things each frame. The diggable ground used to draw every patch as 11 layers (grass, topsoil, clay, sand, gravel and so on) even where it was all grass; now each patch draws only the kinds of ground it has.\n" +
+                "• The town's fixed parts (house walls, roofs, windows, steps, kerbs) are merged into a few big pieces when the game loads, like the trees already were. Fences, sheds and yard trees you can knock over stay as they were.\n" +
+                "• Grass far away is thinned out: all of it close up, fewer tufts the further off it is (they're specks at that distance).\n" +
+                "• Digging: the dirt clods a bucket or blade cuts are capped at 1,500 in the air at once (2,000 of them took a third of a frame); past that the cut drops straight into the heap like it used to. Redrawing dug ground gets a tighter time budget each frame.\n" +
+                "• In our test run, digging went from about 22-29 ms a frame to 16-22 ms on the main thread, and the draw calls from about 9,500-16,000 to 4,700-8,300." },
             new Post { date = "Update 38  ·  Nov 21, 2026", title = "New haul trucks and wheel loaders",
                 body =
                 "• New models for the haul fleet. The 25 t haul truck is now an articulated hauler: six wheels, all driven, a scow body, and it bends at the hitch to steer, with the front wheels going round with the cab.\n" +
@@ -344,11 +351,15 @@ namespace FPSBase.Core
                 "• Dozer berms build up properly in front of the blade." },
         };
 
-        public const string TestListVersion = "2026-11-21c";
+        public const string TestListVersion = "2026-11-21d";
 
         /// <summary>What's new in this build to try out.</summary>
         public static readonly string[] TestList =
         {
+            "Options, show FPS on: dig a trench with an excavator and push dirt with a dozer: the frame rate should hold steadier than before",
+            "Look round the town: every house has its walls, roof, windows, door and steps; knock a fence or a shed with a machine: it still tips over",
+            "The dirt field after digging: the cut shows topsoil, clay, sand and gravel colours as before; nothing see-through or missing on the ground",
+            "Grass: close up it's as thick as ever; far off it's thinner but there's no hard edge where it changes",
             "Dealer, Trucks: buy the Dump Truck 5 t and Dump Truck 10 t (end of the list): load them, drive, tip the box: the tailgate swings open; hitch a trailer to the pintle hook",
             "Articulated Haul Truck 25t: steer: it bends at the hitch and the front wheels swing with the cab; load it with an excavator, tip it out",
             "Articulated Haul Truck 50 t (was the 60 t mining truck): an old save that had the mining truck gives you this one; load, haul and tip",

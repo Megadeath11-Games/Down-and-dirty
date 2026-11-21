@@ -216,6 +216,7 @@ namespace FPSBase.Mining
                     var mr = go.AddComponent<MeshRenderer>();
                     mr.sharedMaterials = mats;
                     mr.shadowCastingMode = ShadowCastingMode.On;
+                    pieceRenderer[mesh] = mr;
                     chunkMesh[j, i] = mesh;
                     chunkGo ??= new GameObject[chunksZ, chunksX];
                     chunkGo[j, i] = go;
@@ -786,7 +787,7 @@ namespace FPSBase.Mining
         }
 
         // redraw what changed: as many pieces as fit in a few milliseconds (a busy heap stays smooth), nearest first
-        void LateUpdate() { UpdateLods(); Flush(64, 2.5f); CatchUpDecor(); }
+        void LateUpdate() { UpdateLods(); Flush(64, 2f); CatchUpDecor(); }
 
         /// <summary>Push height changes to the physics collider and rebuild up to `maxChunks` changed meshes.</summary>
         public void Flush(int maxChunks) => Flush(maxChunks, float.MaxValue);
@@ -820,7 +821,7 @@ namespace FPSBase.Mining
                     for (int j = 0; j < chunksZ; j++) for (int i = 0; i < chunksX; i++) if (chunkDecorStale[j, i]) RebuildDecor(i, j);
                 return;
             }
-            // nearest the camera first, and stop when the time's up (at least 4 a frame, so nothing waits forever)
+            // nearest the camera first, and stop when the time's up (at least 2 a frame, so nothing waits forever)
             // (the camera you're looking through: in a machine that's its own camera, not the player's)
             Vector3 eye = Eye();
             flushWatch.Restart();
@@ -837,7 +838,7 @@ namespace FPSBase.Mining
                     }
                 if (bi < 0) break;
                 RebuildChunk(bi, bj, eye); built++;
-                if (built >= 4 && flushWatch.Elapsed.TotalMilliseconds > maxMs) break;
+                if (built >= 2 && flushWatch.Elapsed.TotalMilliseconds > maxMs) break;
             }
             // then one piece the camera got nearer to (or further from), nearest first (two if the frame is quiet)
             if (chunkLodStale == null) return;
@@ -991,6 +992,7 @@ namespace FPSBase.Mining
             var mr = go.AddComponent<MeshRenderer>();
             mr.sharedMaterials = surfaceMaterials;
             mr.shadowCastingMode = ShadowCastingMode.On;
+            pieceRenderer[mesh] = mr;
             return qs[q] = mesh;
         }
 
@@ -1025,18 +1027,18 @@ namespace FPSBase.Mining
                     int qa = (q & 1) == 0 ? xa : Mathf.Min(hx, xb), qb = (q & 1) == 0 ? Mathf.Min(hx, xb) : xb;
                     int ra = (q & 2) == 0 ? za : Mathf.Min(hz, zb), rb = (q & 2) == 0 ? Mathf.Min(hz, zb) : zb;
                     var qm = Quarter(ci, cj, q);
-                    if (qb <= qa || rb <= ra) { qm.Clear(); continue; }
+                    if (qb <= qa || rb <= ra) { EmptyPiece(qm); continue; }
                     BuildPiece(qm, qa, qb, ra, rb, 1, out float lo, out float hi);
                     minY = Mathf.Min(minY, lo); maxY = Mathf.Max(maxY, hi);
                 }
-                if (was != 1) chunkMesh[cj, ci].Clear();
+                if (was != 1) EmptyPiece(chunkMesh[cj, ci]);
             }
             else
             {
                 BuildPiece(chunkMesh[cj, ci], xa, xb, za, zb, st, out minY, out maxY);
                 tm = System.Diagnostics.Stopwatch.GetTimestamp();
                 if (was == 1 && quarterMesh != null && quarterMesh[cj, ci] != null)
-                    foreach (var qm in quarterMesh[cj, ci]) if (qm != null) qm.Clear();
+                    foreach (var qm in quarterMesh[cj, ci]) if (qm != null) EmptyPiece(qm);
                 if (quarterDirty != null) quarterDirty[cj, ci] = 0;
             }
             chunkBounds[cj, ci] = new Bounds(
@@ -1113,8 +1115,14 @@ namespace FPSBase.Mining
             mesh.Clear();
             mesh.SetVertices(verts);
             mesh.SetNormals(norms);
-            mesh.subMeshCount = tris.Length;
-            for (int k = 0; k < tris.Length; k++) mesh.SetTriangles(tris[k], k, false);
+            // only the kinds of ground this piece has: each sub-mesh is a draw call (and another for its shadow) even
+            // with nothing in it, and most pieces are all grass (2 of the 11)
+            int mask = 0, used = 0;
+            for (int k = 0; k < tris.Length; k++) if (tris[k].Count > 0) { mask |= 1 << k; used++; }
+            if (used == 0) { mask = 1; used = 1; }
+            mesh.subMeshCount = used;
+            for (int k = 0, sm = 0; k < tris.Length; k++) if ((mask & (1 << k)) != 0) mesh.SetTriangles(tris[k], sm++, false);
+            SetPieceMaterials(mesh, mask);
             var lb = new Bounds();
             lb.SetMinMax(new Vector3(xa * cell, minY, za * cell), new Vector3(xb * cell, maxY, zb * cell));
             mesh.bounds = lb;
@@ -1122,6 +1130,33 @@ namespace FPSBase.Mining
         }
 
         public static double UploadMs, DecorMs, ColliderMs; public static long ColliderSamples, ColliderCalls;
+
+        // each ground piece's renderer, and which kinds of ground (materials) it's drawing now
+        readonly Dictionary<Mesh, MeshRenderer> pieceRenderer = new();
+        readonly Dictionary<Mesh, int> pieceMask = new();
+        readonly Dictionary<int, Material[]> matsForMask = new();
+
+        void SetPieceMaterials(Mesh mesh, int mask)
+        {
+            if (pieceMask.TryGetValue(mesh, out int was) && was == mask) return;
+            pieceMask[mesh] = mask;
+            if (!pieceRenderer.TryGetValue(mesh, out var mr) || mr == null) return;
+            if (!matsForMask.TryGetValue(mask, out var mats))
+            {
+                var list = new List<Material>();
+                for (int k = 0; k < surfaceMaterials.Length; k++) if ((mask & (1 << k)) != 0) list.Add(surfaceMaterials[k]);
+                matsForMask[mask] = mats = list.ToArray();
+            }
+            mr.sharedMaterials = mats;
+        }
+
+        /// <summary>A ground piece with nothing in it (drawn finer or coarser by another piece now).</summary>
+        void EmptyPiece(Mesh mesh)
+        {
+            mesh.Clear();
+            mesh.subMeshCount = 1;
+            SetPieceMaterials(mesh, 1);
+        }
         float[,] chunkDecorAt;
         bool[,] chunkDecorStale;
 
@@ -1329,6 +1364,7 @@ namespace FPSBase.Mining
                     p.y = SurfaceY(p);
                     list.Add(Matrix4x4.TRS(p, Quaternion.Euler(0f, rot, 0f), Vector3.one * sc));
                 }
+            TuftRenderer.Shuffle(list, ci * 7919 + cj * 104729 + seed);
         }
 
         bool IsGrass(int x, int z) => !trampled[z, x] && !hard[z, x] && loose[z, x] <= 0.005f && orig[z, x] - native[z, x] <= 0.03f;
@@ -1345,9 +1381,10 @@ namespace FPSBase.Mining
                     var list = chunkTufts[j, i];
                     if (list.Count == 0) continue;
                     var b = chunkBounds[j, i];
-                    if (b.SqrDistance(cam.transform.position) > grassDrawDistance * grassDrawDistance) continue;
+                    float d2 = b.SqrDistance(cam.transform.position);
+                    if (d2 > grassDrawDistance * grassDrawDistance) continue;
                     if (!GeometryUtility.TestPlanesAABB(planes, b)) continue;
-                    TuftRenderer.Draw(grassTuftMesh, grassTuftMaterial, list, b);
+                    TuftRenderer.Draw(grassTuftMesh, grassTuftMaterial, list, b, Mathf.Sqrt(d2), grassDrawDistance);
                 }
         }
     }
@@ -1371,6 +1408,28 @@ namespace FPSBase.Mining
         {
             GeometryUtility.CalculateFrustumPlanes(cam, planes);
             return planes;
+        }
+
+        /// <summary>
+        /// A patch's tufts, thinned out with distance: all of them close up, a fifth at the far edge of the grass.
+        /// (Each tuft drawn costs the CPU a little every frame; far off they're specks. The lists are in no order, so
+        /// the first so many are spread all over the patch.)
+        /// </summary>
+        public static void Draw(Mesh mesh, Material mat, List<Matrix4x4> instances, Bounds bounds, float distance, float maxDistance)
+        {
+            if (instances == null || instances.Count == 0) return;
+            const float full = 20f;
+            float f = distance <= full ? 1f : Mathf.Lerp(1f, 0.2f, (distance - full) / Mathf.Max(1f, maxDistance - full));
+            int n = Mathf.Clamp(Mathf.CeilToInt(instances.Count * f), 1, instances.Count);
+            var rp = new RenderParams(mat) { shadowCastingMode = ShadowCastingMode.Off, receiveShadows = true, worldBounds = bounds };
+            Graphics.RenderMeshInstanced(rp, mesh, 0, instances, n);
+        }
+
+        /// <summary>Put a patch's tufts in a random order (the same each time for the same seed).</summary>
+        public static void Shuffle(List<Matrix4x4> list, int seed)
+        {
+            var rng = new System.Random(seed);
+            for (int i = list.Count - 1; i > 0; i--) { int k = rng.Next(i + 1); (list[i], list[k]) = (list[k], list[i]); }
         }
 
         public static void Draw(Mesh mesh, Material mat, List<Matrix4x4> instances, Bounds bounds)

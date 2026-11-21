@@ -137,6 +137,7 @@ namespace FPSBase.Core
             screen = MenuScreen.Single; RefreshSaves(SaveGame.Mode.SinglePlayer); yield return Shot("menu_single.png");
             screen = MenuScreen.Multi; RefreshSaves(SaveGame.Mode.Multiplayer); yield return Shot("menu_multi.png");
             CloseMenu(); MapView.Instance?.BakeAll(); yield return Shot("game_hud.png");
+            if (gameObject.GetComponent<FPSBase.DebugTools.PerfProbe>() == null) gameObject.AddComponent<FPSBase.DebugTools.PerfProbe>().label = "in game";
             paused = true; yield return Shot("game_paused.png");
             paused = false;
             var dealer = FindFirstObjectByType<FPSBase.Mining.VehicleDealer>();

@@ -35,6 +35,7 @@ namespace FPSBase.DebugTools
                     switch (part.Trim())
                     {
                         case "dig": yield return DigCycleTests(); break;
+                        case "menudig": yield return MenuDigTests(); break;
                         case "bucket": yield return BucketTests(); break;
                         case "multi": yield return MultiControlTests(); break;
                         case "fleet2": yield return Fleet2Tests(); break;
@@ -283,6 +284,8 @@ namespace FPSBase.DebugTools
             yield return PlayerTests(site, truck);
 
             yield return DigCycleTests();
+            yield return MenuDigTests();
+            yield return DozerPerfTests();
             yield return BucketTests();
             yield return MultiControlTests();
             yield return SaveTests();
@@ -3413,6 +3416,113 @@ namespace FPSBase.DebugTools
                 Destroy(d.gameObject);
                 yield return null;
             }
+        }
+
+        /// <summary>
+        /// The main menu's excavator: the 20 t digs the same spot over and over (boom down, crowd, curl out, swing
+        /// round and tip), as behind the menu. After each cycle: the tallest point of dirt standing up over
+        /// everything round it, near the trench.
+        /// </summary>
+        IEnumerator MenuDigTests()
+        {
+            var site = DigSite.Instance;
+            var dealer = FindFirstObjectByType<VehicleDealer>();
+            GameObject prefab = null;
+            foreach (var l in dealer.listings) if (l.prefab != null && l.prefab.GetComponent<ExcavatorLinkage>() != null && l.name.Contains("20")) prefab = l.prefab;
+            var e = Instantiate(prefab, new Vector3(0f, -50f, 0f), Quaternion.identity).GetComponent<MiniExcavator>();
+            var rb = e.GetComponent<Rigidbody>();
+            Vector3 at = new Vector3(30f, 0f, -120f); at.y = site.SurfaceY(at);
+            rb.isKinematic = true;
+            e.transform.SetPositionAndRotation(at, Quaternion.identity);
+            e.SetPose(10f, -70f, 0f, 0f);
+            e.bucketLoad = default;
+            Physics.SyncTransforms();
+            for (int i = 0; i < 5; i++) yield return null;
+            float cap = e.bucketCapacity;
+            float P(float err, float band) => Mathf.Clamp(err / band, -1f, 1f);
+            IEnumerator To(float boom, float stick, float bucket, float swing, float secs)
+            {
+                for (float t = 0f; t < secs; t += Time.deltaTime)
+                {
+                    float eb = boom - e.BoomAngle, es = stick - e.StickAngle, ek = bucket - e.BucketAngle, ew = Mathf.DeltaAngle(e.SwingAngle, swing);
+                    if (Mathf.Abs(eb) < 1.5f && Mathf.Abs(es) < 2f && Mathf.Abs(ek) < 3f && Mathf.Abs(ew) < 1.5f) break;
+                    e.TestControl(new MiniExcavator.Inputs { boom = P(eb, 6f), stick = P(es, 8f), bucket = P(ek, 10f), swing = P(ew, 10f) });
+                    yield return null;
+                }
+                e.TestControl(new MiniExcavator.Inputs());
+            }
+            IEnumerator Hold(MiniExcavator.Inputs i, float secs, System.Func<bool> until = null)
+            {
+                for (float t = 0f; t < secs && (until == null || !until()); t += Time.deltaTime) { e.TestControl(i); yield return null; }
+                e.TestControl(new MiniExcavator.Inputs());
+            }
+            float worst = 0f, worstMound = 0f;
+            for (int cyc = 0; cyc < 6; cyc++)
+            {
+                yield return To(10f, -70f, 0f, 0f, 3f);
+                yield return Hold(new MiniExcavator.Inputs { boom = -1f }, 4f, () => site.IsUnderground(e.bucketTip.position + Vector3.down * 0.25f * e.sizeScale));
+                float t0c = Time.time;
+                yield return Hold(new MiniExcavator.Inputs { stick = -1f, bucket = -0.6f, boom = -0.15f }, 5f, () => e.bucketLoad.volume >= cap * 0.95f);
+                float crowdSecs = Time.time - t0c, atCrowd = e.bucketLoad.volume;
+                yield return Hold(new MiniExcavator.Inputs { bucket = -1f, boom = 1f }, 2.2f);
+                float got = e.bucketLoad.volume;
+                log.AppendLine($"INFO    crowding {crowdSecs:0.0} s to {atCrowd:0.00} m³");
+                yield return To(44f, -40f, -130f, e.SwingAngle, 2.5f);
+                yield return To(44f, -40f, -130f, 90f, 4f);
+                yield return To(44f, -40f, 18f, 90f, 2f);
+                yield return Hold(new MiniExcavator.Inputs(), 2.5f, () => e.bucketLoad.volume < cap * 0.03f);
+                yield return To(44f, -40f, -40f, 90f, 1.5f);
+                yield return To(44f, -70f, -40f, 0f, 4f);
+                // the tallest point standing up over everything round it (8 ways, two squares out), in front of the machine
+                float c = site.Cell, spike = 0f, r2 = 2f * c; Vector3 sp = at;
+                for (float x = -4f; x <= 4f; x += c)
+                    for (float z = 2f; z <= 14f; z += c)
+                    {
+                        Vector3 p = at + e.transform.right * x + e.transform.forward * z;
+                        float hh = site.SurfaceY(p), nb = float.MinValue;
+                        for (int a = 0; a < 8; a++)
+                        {
+                            float ang = a * Mathf.PI / 4f;
+                            nb = Mathf.Max(nb, site.SurfaceY(p + new Vector3(Mathf.Cos(ang), 0f, Mathf.Sin(ang)) * r2));
+                        }
+                        if (hh - nb > spike) { spike = hh - nb; sp = p; }
+                    }
+                worst = Mathf.Max(worst, spike);
+                // how steep the dirt stands at the steepest square near the trench
+                float steep = 0f; Vector3 stAt = at;
+                for (float x = -4f; x <= 4f; x += c)
+                    for (float z = 2f; z <= 14f; z += c)
+                    {
+                        Vector3 p = at + e.transform.right * x + e.transform.forward * z;
+                        if (site.SurfaceY(p) - site.NativeY(p) < 0.05f) continue; // (only loose dirt: a dug wall may stand)
+                        float hh = site.SurfaceY(p);
+                        for (int a = 0; a < 4; a++)
+                        {
+                            float ang = a * Mathf.PI / 2f;
+                            float s = Mathf.Atan2(hh - site.SurfaceY(p + new Vector3(Mathf.Cos(ang), 0f, Mathf.Sin(ang)) * c), c) * Mathf.Rad2Deg;
+                            if (s > steep) { steep = s; stAt = p; }
+                        }
+                    }
+                Vector3 lp = sp - at;
+                float mound = 0f, heapVol = 0f; Vector3 mAt = at;
+                for (float x = -4f; x <= 4f; x += c)
+                    for (float z = 1f; z <= 14f; z += c)
+                    {
+                        Vector3 p = at + e.transform.right * x + e.transform.forward * z;
+                        float hh = site.SurfaceY(p) - site.OriginalY(p);
+                        if (hh > 0f) heapVol += hh * c * c;
+                        if (hh > mound) { mound = hh; mAt = p; }
+                    }
+                worstMound = Mathf.Max(worstMound, mound);
+                log.AppendLine($"INFO    mound {mound:0.00} m above the ground ({heapVol:0.00} m³ above it in all) at {Vector3.Dot(mAt - at, e.transform.forward):0.0} out, {Vector3.Dot(mAt - at, e.transform.right):0.0} across");
+                log.AppendLine($"INFO  menu dig cycle {cyc + 1}: scooped {got:0.00} of {cap:0.00} m³; tallest spike {spike:0.00} m at {Vector3.Dot(lp, e.transform.right):0.0} across, {Vector3.Dot(lp, e.transform.forward):0.0} out (loose {site.SurfaceY(sp) - site.NativeY(sp):0.00} m, packed {site.PackedAt(sp):0.00}); steepest loose dirt {steep:0} deg at {Vector3.Dot(stAt - at, e.transform.forward):0.0} out (packed {site.PackedAt(stAt):0.00}), {DirtGrains.Live} clods about");
+            }
+            Check(worst < 0.2f, $"the menu's 20 t digging the same spot again and again leaves no spikes of dirt ({worst * 100f:0} cm tallest)");
+            // (it used to heap what it cut and couldn't hold in front of its mouth, cut it again and heap it again, into
+            // a pointed mound 0.7 m tall)
+            Check(worstMound < 0.5f, $"the menu's 20 t digging leaves no tall mound by the trench ({worstMound:0.00} m tallest above the ground)");
+            Destroy(e.gameObject);
+            yield return null;
         }
 
         IEnumerator DigCycleTests()

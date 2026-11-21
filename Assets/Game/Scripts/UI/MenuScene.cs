@@ -635,8 +635,19 @@ namespace FPSBase.UI
             MoveCamera(Time.unscaledTime - t0);
         }
 
+        /// <summary>Screenshots: the camera close in by the live excavator's trench (to look at the dirt it leaves).</summary>
+        public static bool CloseUp;
+
         void MoveCamera(float t)
         {
+            if (CloseUp && live && lEx != null)
+            {
+                Vector3 dig = root.TransformPoint(new Vector3(0f, 0f, lDigZ * 0.7f));
+                dig.y = liveSite != null ? liveSite.SurfaceY(dig) : dig.y;
+                Vector3 cp = dig + root.right * 6f + root.forward * 1.5f + Vector3.up * 2.2f;
+                cam.transform.SetPositionAndRotation(cp, Quaternion.LookRotation(dig - cp));
+                return;
+            }
             // a slow drift side to side and in and out
             Vector3 off = camBase + new Vector3(Mathf.Sin(t * 0.05f) * 3.5f, Mathf.Sin(t * 0.031f) * 1.0f, Mathf.Sin(t * 0.043f) * 2.5f);
             Vector3 p = root.TransformPoint(off);

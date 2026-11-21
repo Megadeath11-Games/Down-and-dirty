@@ -13,6 +13,12 @@ namespace FPSBase.Core
         /// <summary>Newest first.</summary>
         public static readonly Post[] Blog =
         {
+            new Post { date = "Update 31  ·  Nov 20, 2026", title = "No more dirt mound in front of the bucket",
+                body =
+                "• Digging with an excavator no longer builds a pointed mound of dirt in front of the bucket. A bucket dragged through the dirt now fills to three quarters even before you curl it, so far less dirt spills out of it while you dig.\n" +
+                "• Dirt a full bucket can't hold spills off the back onto the floor of the trench, spread across the bucket's width, instead of piling up in front of the mouth where the bucket kept cutting it again and again.\n" +
+                "• Dirt shoved by the back and sides of the bucket is spread out too, not dropped in one spot.\n" +
+                "• The machines behind the main menu dig the same way." },
             new Post { date = "Update 30  ·  Nov 20, 2026", title = "Smoother dozer pushing",
                 body =
                 "• Pushing dirt with a dozer runs a lot smoother. The clods in front of the blade work out what they bump into about twice as fast, so all three dozers hold a higher frame rate while the heap grows.\n" +
@@ -276,11 +282,13 @@ namespace FPSBase.Core
                 "• Dozer berms build up properly in front of the blade." },
         };
 
-        public const string TestListVersion = "2026-11-20g";
+        public const string TestListVersion = "2026-11-20h";
 
         /// <summary>What's new in this build to try out.</summary>
         public static readonly string[] TestList =
         {
+            "Main menu: watch the 20 t dig for a minute: no pointed mound of dirt grows in front of the bucket or at the end of the trench",
+            "Excavator (20 t): dig a trench in fresh ground with the bucket open, pull the stick in: it fills without piling a mound in front, and a full bucket dragged on still moves and spills behind it",
             "Dozers: push a long heap with each dozer (small, 22 t, mining): the game stays smooth, the heap rolls and spills off the ends like before",
             "Mining dozer: keep pushing one huge heap for half a minute: no freezes, and the heap settles into a normal slope (no tall spikes)",
             "Main menu: watch the machines behind it for a minute: the excavator digs and loads the truck, the truck tips, the dozer pushes dirt",

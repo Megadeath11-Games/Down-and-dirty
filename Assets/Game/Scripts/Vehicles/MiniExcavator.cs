@@ -369,25 +369,39 @@ namespace FPSBase.Vehicles
             if (cut <= 0f) return;
             if (!sc.IsEmpty)
             {
-                float space = Mathf.Max(0f, bucketCapacity * HoldFraction - bucketLoad.volume - (cc != null ? cc.HeldRockVolume : 0f));
+                // (dragged through the dirt, the ground packs the load in: an open bucket fills to three quarters before
+                // what it cuts heaps up in front of it, not a fifth; right to the brim still takes curling it in)
+                float space = Mathf.Max(0f, bucketCapacity * (scooping ? Mathf.Max(HoldFraction, 0.75f) : HoldFraction) - bucketLoad.volume - (cc != null ? cc.HeldRockVolume : 0f));
                 var into = sc.Take(space);
                 bucketLoad.Add(into);
                 LastScooped = into.volume;
                 scoopedAt = sAt;
-                if (!sc.IsEmpty) // heaped over: the rest rolls off the front
+                if (!sc.IsEmpty) // heaped over: the rest spills off the back of the full bucket
                 {
-                    // (past the furthest steel that way, so it doesn't land on the bucket)
-                    Vector3 dir = Vector3.ProjectOnPlane(mouthW, Vector3.up);
-                    dir = dir.sqrMagnitude > 1e-6f ? dir.normalized : transform.forward;
+                    // (onto the floor of the cut it has just come along, spread across its width: dropped in front of the
+                    // mouth or at its sides it was in the bucket's way or slid back into it, so it was cut again and
+                    // dropped again every frame, and piled up into a pointed mound; the next pass picks it up)
+                    Vector3 back = -Vector3.ProjectOnPlane(vTip, Vector3.up);
+                    back = back.sqrMagnitude > 1e-6f ? back.normalized : -Vector3.ProjectOnPlane(mouthW, Vector3.up).normalized;
+                    if (back.sqrMagnitude < 0.5f) back = -transform.forward;
                     float reach = 0f;
-                    for (int i = 0; i < n; i++) reach = Mathf.Max(reach, Vector3.Dot(shellW[i] - sAt, dir));
-                    // (spread across the width of the mouth, not dropped in one spot where it stacks up in a spike)
-                    float spread = Mathf.Max(site.Cell * 1.2f, BucketHalfWidth() * 0.8f);
-                    Vector3 off = sAt + dir * (reach + spread * 0.6f);
-                    site.Deposit(off, sc, spread);
+                    for (int i = 0; i < n; i++) reach = Mathf.Max(reach, Vector3.Dot(shellW[i] - sAt, back));
+                    float hw = BucketHalfWidth(), spread = Mathf.Max(site.Cell * 1.5f, hw * 0.45f);
+                    Vector3 off = sAt + back * (reach + spread), side = Vector3.Cross(Vector3.up, back);
+                    var third = sc.Scaled(1f / 3f);
+                    for (int k = -1; k <= 1; k++) site.Deposit(off + side * (k * hw * 0.65f), third, spread);
                 }
             }
-            if (!pu.IsEmpty) { site.Deposit(pAt, pu, site.Cell * 1.2f); LastSpread = pu.volume; }
+            if (!pu.IsEmpty)
+            {
+                // (shoved dirt spread across the bucket's width where it lands: dropped round one point a hand across,
+                // it stood up in a spike)
+                float hw = BucketHalfWidth(), spread = Mathf.Max(site.Cell * 1.5f, hw * 0.4f);
+                Vector3 pv = Vector3.ProjectOnPlane(vTip, Vector3.up), side = pv.sqrMagnitude > 1e-6f ? Vector3.Cross(Vector3.up, pv.normalized) : transform.right;
+                var third = pu.Scaled(1f / 3f);
+                for (int k = -1; k <= 1; k++) site.Deposit(pAt + side * (k * hw * 0.6f), third, spread);
+                LastSpread = pu.volume;
+            }
             strainAmount = Mathf.Max(strainAmount, Mathf.Clamp01(cut / dt / Mathf.Max(0.01f, digRate * 2f)));
             if (scooping && Random.value < 0.15f) PourFx.Dig(bucketTip.position);
         }

@@ -115,6 +115,10 @@ namespace FPSBase.Core
             // the machines at work behind the menu, without the menu, a few seconds apart
             menuBare = true;
             for (int k = 0; k < 6; k++) { yield return Shot($"menu_scene{k}.png"); float until = Time.unscaledTime + 7f; while (Time.unscaledTime < until) yield return null; }
+            // close by the excavator's trench, a few seconds apart (the dirt it digs and leaves)
+            FPSBase.UI.MenuScene.CloseUp = true;
+            for (int k = 0; k < 6; k++) { yield return Shot($"menu_dig{k}.png"); float until = Time.unscaledTime + 4f; while (Time.unscaledTime < until) yield return null; }
+            FPSBase.UI.MenuScene.CloseUp = false;
             menuBare = false;
             yield return Shot("menu_main.png");
             Debug.Log($"[Music] now playing: {MusicPlayer.NowPlaying ?? "(nothing)"}");

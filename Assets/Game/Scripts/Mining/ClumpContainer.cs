@@ -68,6 +68,83 @@ namespace FPSBase.Mining
 
         float Support => Mathf.Abs(mouth.x) * half.x + Mathf.Abs(mouth.y) * half.y + Mathf.Abs(mouth.z) * half.z;
 
+        // A bucket's floor runs on past the box's open face to its cutting edge (the lip plate and the teeth). Dirt
+        // sliding out rests on it until it goes off the end, instead of dropping straight through the steel.
+        int lipOpen = -1, lipFloor = -1;
+        float lipOpenSign, lipFloorSign, lipReach;
+        /// <summary>Test switch: off = the old way (nothing under a clump once it's out past the open face).</summary>
+        public static bool HoldOnLip = true;
+        /// <summary>How far the cutting edge sticks out past the dirt box (m).</summary>
+        public float TipPastBox { get; private set; }
+
+        /// <summary>
+        /// The bucket's cutting edge is at `tipWorld`: the floor carries on out past the open side to there.
+        /// (Call after the mouth is set.)
+        /// </summary>
+        public void SetLip(Vector3 tipWorld)
+        {
+            lipOpen = lipFloor = -1;
+            if (frame == null) return;
+            Vector3 t = ToLocal(tipWorld);
+            float best = 0f;
+            for (int k = 0; k < 3; k++)
+            {
+                if (!(openHi[k] || openLo[k]) || Mathf.Abs(mouth[k]) <= best) continue;
+                best = Mathf.Abs(mouth[k]); lipOpen = k; lipOpenSign = Mathf.Sign(mouth[k]);
+            }
+            if (lipOpen < 0) return;
+            lipReach = t[lipOpen] * lipOpenSign - half[lipOpen];
+            TipPastBox = Mathf.Max(0f, lipReach);
+            // the floor: the closed side the edge sticks out past the most
+            float far = 0f;
+            for (int k = 0; k < 3; k++)
+            {
+                if (k == lipOpen || openHi[k] || openLo[k]) continue;
+                float o = Mathf.Abs(t[k]) / Mathf.Max(1e-4f, half[k]);
+                if (o > far) { far = o; lipFloor = k; lipFloorSign = Mathf.Sign(t[k]); }
+            }
+            if (lipReach <= 0f || lipFloor < 0 || far < 0.5f) lipOpen = lipFloor = -1;
+        }
+
+        /// <summary>Out past the open face but over the lip plate or teeth, and not fallen through them.</summary>
+        bool OverLip(in Clump c)
+        {
+            if (lipOpen < 0 || !HoldOnLip) return false;
+            float outBy = c.p[lipOpen] * lipOpenSign - half[lipOpen];
+            if (outBy <= 0f || outBy > lipReach + c.r * 0.3f) return false;
+            return c.p[lipFloor] * lipFloorSign <= half[lipFloor] - c.r * 0.7f + c.r;
+        }
+
+        /// <summary>How far the floor runs on past the open side (m; 0 = no lip).</summary>
+        public float LipReach => lipOpen >= 0 ? lipReach : 0f;
+        /// <summary>Test check: clumps that left down through the lip plate or teeth (under the steel, pressed onto it).</summary>
+        public int SpillsThroughLip { get; private set; }
+        /// <summary>Test check: clumps under the lip plate or teeth right now.</summary>
+        public int UnderLip(Vector3 localG)
+        {
+            if (lipOpen < 0 || !PressedOnLip(localG)) return 0;
+            int n = 0;
+            foreach (var c in clumps)
+            {
+                float outBy = c.p[lipOpen] * lipOpenSign - half[lipOpen];
+                if (outBy > 0f && outBy < lipReach - c.r && c.p[lipFloor] * lipFloorSign > half[lipFloor] + c.r * 0.5f) n++;
+            }
+            return n;
+        }
+        public Vector3 LocalGravity => frame != null ? Quaternion.Inverse(Rot) * Physics.gravity : Vector3.down;
+
+        /// <summary>Gravity (and shaking) presses it down onto the lip, so the lip holds it.</summary>
+        bool PressedOnLip(Vector3 localG) => lipFloor >= 0 && localG[lipFloor] * lipFloorSign > 0f;
+
+        void LipFloor(ref Clump c, Vector3 g, float h)
+        {
+            int k = lipFloor;
+            float lim = half[k] - c.r * 0.7f;
+            if (c.p[k] * lipFloorSign <= lim) return;
+            c.p[k] = lim * lipFloorSign;
+            if (c.v[k] * lipFloorSign > 0f) Hit(ref c, k, lipFloorSign, g, h);
+        }
+
         /// <summary>
         /// Finds the open side of a bucket from its own shape: the direction (from the load) where the bucket's
         /// mesh is thinnest. `exclude` = renderers that aren't the bucket (the old load mound).
@@ -459,9 +536,16 @@ namespace FPSBase.Mining
                     if (openLo[k]) past = Mathf.Max(past, lo); else if (lo > c.r * 0.3f) offSide = true;
                 }
                 if (past <= 0f) continue;
+                // still riding out over the lip plate and teeth: it goes when it slides off the end
+                if (!offSide && OverLip(c) && PressedOnLip(localG)) continue;
                 // gone over the side, or falling away out of the mouth (gravity / the swing carries it out)
                 bool falling = past > 2f * c.r && Vector3.Dot(localG, mouth) > 0f;
                 if (!offSide && !falling && past < 10f * c.r) continue;
+                if (lipOpen >= 0 && PressedOnLip(localG))
+                {
+                    float outBy = c.p[lipOpen] * lipOpenSign - half[lipOpen];
+                    if (outBy > 0f && outBy < lipReach - c.r && c.p[lipFloor] * lipFloorSign > half[lipFloor] - c.r * 2f) SpillsThroughLip++;
+                }
                 var load = source();
                 int n = clumps.Count;
                 clumps[i] = clumps[n - 1];
@@ -490,7 +574,12 @@ namespace FPSBase.Mining
             bool open = !isPacked;
             if (open)
                 for (int k = 0; k < 3; k++)
-                    if ((openHi[k] && c.p[k] - c.r * 0.5f > half[k]) || (openLo[k] && c.p[k] + c.r * 0.5f < -half[k])) return;
+                    if ((openHi[k] && c.p[k] - c.r * 0.5f > half[k]) || (openLo[k] && c.p[k] + c.r * 0.5f < -half[k]))
+                    {
+                        // except a bucket's floor, which runs on out to the teeth
+                        if (OverLip(c)) LipFloor(ref c, g, h);
+                        return;
+                    }
             for (int k = 0; k < 3; k++)
             {
                 float lo = open && openLo[k] ? float.MinValue : -half[k] + c.r * 0.7f;

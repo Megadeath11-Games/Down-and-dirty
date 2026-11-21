@@ -98,6 +98,8 @@ namespace FPSBase.Vehicles
                 // the builder knows which way the bucket opens; otherwise find it from the bucket's shape
                 if (bucketMouth.sqrMagnitude > 0.01f) cc.SetMouth(bucketMouth.normalized);
                 else cc.AutoMouth(bucketLoadVisual.GetComponentsInChildren<Renderer>(true));
+                // the floor carries on out to the teeth: dirt sliding out rides over the lip plate, not through it
+                if (bucketTip != null) cc.SetLip(bucketTip.position);
                 // while the bucket is cutting into the ground the load is packed in: nothing falls out
                 // (the bucket cuts its own way now, so the teeth are never buried: cutting just now counts)
                 cc.packed = Packed;

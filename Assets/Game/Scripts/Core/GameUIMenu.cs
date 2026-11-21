@@ -33,6 +33,66 @@ namespace FPSBase.Core
 
         GUIStyle menuTitle, menuSub, menuButton, menuButton2, menuRich;
 
+        // ------------------------------------------------------------------ autosave
+
+        /// <summary>Seconds between autosaves while playing.</summary>
+        public const float AutoSaveEvery = 300f;
+        float nextAutoSave = -1f;
+        static int autoSaveOffState; // 0 = not checked yet, 1 = off, 2 = on
+        static bool autoSaveOff
+        {
+            get
+            {
+                // (the automated runs don't save)
+                if (autoSaveOffState == 0)
+                {
+                    var args = System.Environment.GetCommandLineArgs();
+                    autoSaveOffState = Application.isBatchMode || System.Array.IndexOf(args, "-menushot") >= 0 || System.Array.IndexOf(args, "-vehshot") >= 0 ? 1 : 2;
+                }
+                return autoSaveOffState == 1;
+            }
+        }
+
+        /// <summary>
+        /// The world to save into without asking: the one loaded or last saved, else the name typed in the pause
+        /// menu, else "Autosave". Null when this player can't save (in a friend's world).
+        /// </summary>
+        string AutoSaveName()
+        {
+            var net = FPSBase.Net.NetSession.Instance;
+            if (FPSBase.Net.NetSession.InSession && net != null && !net.IsHost) return null;
+            string n = SaveGame.CurrentName;
+            if (string.IsNullOrWhiteSpace(n)) n = saveName;
+            return string.IsNullOrWhiteSpace(n) ? "Autosave" : n.Trim();
+        }
+
+        /// <summary>Saves the world being played (quietly). Returns null when saved, else why not.</summary>
+        string SaveNow(string why)
+        {
+            if (autoSaveOff || menuOpen || loading) return "not playing";
+            string name = AutoSaveName();
+            if (name == null) return "in a friend's world";
+            var mode = FPSBase.Net.NetSession.InSession ? SaveGame.Mode.Multiplayer : SaveGame.Mode.SinglePlayer;
+            string err = SaveGame.Save(name, mode);
+            if (err == null) { saveName = name; Debug.Log($"[Save] {why}: saved \"{name}\""); }
+            else Debug.LogWarning($"[Save] {why}: couldn't save: {err}");
+            return err;
+        }
+
+        /// <summary>Every five minutes of play, the world saves itself.</summary>
+        void AutoSaveTick()
+        {
+            if (autoSaveOff) return;
+            float now = Time.unscaledTime;
+            if (nextAutoSave < 0f) { nextAutoSave = now + AutoSaveEvery; return; }
+            if (now < nextAutoSave) return;
+            nextAutoSave = now + AutoSaveEvery;
+            if (SaveNow("autosave") == null) Toast($"Autosaved \"{saveName}\"");
+        }
+
+        /// <summary>Closing the game saves it first.</summary>
+        void OnApplicationQuit() => SaveNow("closing the game");
+
         static string pendingMenuMessage;
 
         /// <summary>Back to the main menu with a fresh world (left a friend's game, or it closed). Unsaved progress is lost.</summary>
@@ -670,10 +730,11 @@ namespace FPSBase.Core
 
         void QuitToMenuButton()
         {
-            if (GUILayout.Button(confirmQuitToMenu ? "Unsaved progress is lost: sure?" : "Main Menu", GUILayout.Height(36), GUILayout.Width(confirmQuitToMenu ? 250 : 120)))
+            if (GUILayout.Button(confirmQuitToMenu ? "Save and leave: sure?" : "Main Menu", GUILayout.Height(36), GUILayout.Width(confirmQuitToMenu ? 200 : 120)))
             {
                 if (!confirmQuitToMenu) { confirmQuitToMenu = true; return; }
                 confirmQuitToMenu = false;
+                SaveNow("back to the main menu");
                 if (FPSBase.Net.NetSession.InSession) FPSBase.Net.NetSession.Instance.Leave(false);
                 SaveGame.CurrentName = null;
                 Time.timeScale = 1f;

@@ -129,6 +129,7 @@ namespace FPSBase.Core
                 ApplyCursor(Application.isFocused ? CursorLockMode.Confined : CursorLockMode.None, true);
                 return;
             }
+            AutoSaveTick();
             if (capturing.HasValue) CaptureKey(kb);
             else if (!paused && Controls.Pressed(GameAction.Map))
             {

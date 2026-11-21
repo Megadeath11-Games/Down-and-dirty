@@ -67,6 +67,7 @@ namespace FPSBase.DebugTools
                         case "update9": yield return Update9Tests(); break;
                         case "town": yield return TownTests(); break;
                         case "hitch": yield return DumpHitchTests(); break;
+                        case "lip": yield return BucketLipTests(); break;
                         case "slosh": yield return SloshTests(DigSite.Instance, FindFirstObjectByType<DumpPickup>()); break;
                         case "materials": yield return MaterialsTests(DigSite.Instance, Economy.Instance, FindFirstObjectByType<WashPlant>(), FindFirstObjectByType<DumpPickup>()); break;
                         default: log.AppendLine($"INFO  unknown quick test '{part}'"); break;
@@ -3558,6 +3559,69 @@ namespace FPSBase.DebugTools
         /// wheels with the tractor), and tip it out; the loaders steer by bending in the middle (arms, bucket and
         /// Z-bar going with it) and dig, fill, carry and scrape like the old loader.
         /// </summary>
+        /// <summary>
+        /// Every excavator, its bucket full and tipped slowly out to the dump angle: the dirt that slides out rides
+        /// over the lip plate and teeth and drops off their end; none falls down through the steel.
+        /// </summary>
+        IEnumerator BucketLipTests()
+        {
+            var dealer = FindFirstObjectByType<VehicleDealer>();
+            Vector3 padAt = new Vector3(-300f, 400f, -300f);
+            int k = 0;
+            foreach (var l in dealer.listings)
+            {
+                if (l.prefab == null || l.prefab.GetComponent<MiniExcavator>() == null) continue;
+                var ex = Instantiate(l.prefab, padAt + new Vector3(-120f + k * 30f, 6f, 0f), Quaternion.identity).GetComponent<MiniExcavator>();
+                k++;
+                ex.GetComponent<Rigidbody>().isKinematic = true;
+                yield return null;
+                var cc = ex.GetComponent<ClumpContainer>();
+                if (cc == null) { Check(false, $"{l.prefab.name}: the bucket holds its dirt as clumps"); Destroy(ex.gameObject); continue; }
+                Check(cc.LipReach > 0.01f || cc.TipPastBox < 0.05f, $"{l.prefab.name}: the bucket floor runs on out to the teeth ({cc.LipReach:0.00} m past the dirt box; the edge is {cc.TipPastBox:0.00} m out)");
+                float b0 = ex.bucketRange.x * 0.5f;
+                int through = 0, under = 0, c0 = 0; float v0 = 0f;
+                // the old way first (nothing under the dirt past the box), to show the check sees it; then as played
+                for (int pass = 0; pass < 2; pass++)
+                {
+                    ClumpContainer.HoldOnLip = pass == 1;
+                    ex.SetPose(10f, -40f, b0, 0f);
+                    Physics.SyncTransforms();
+                    ex.bucketLoad = MaterialLoad.Mix(ex.bucketCapacity, 0f, 0.2f, 0.2f, 0.2f);
+                    for (int i = 0; i < 60; i++) yield return null;
+                    int s0 = cc.SpillsThroughLip; c0 = cc.SpillCount; under = 0;
+                    v0 = ex.bucketLoad.volume;
+                    // tip it slowly out to just short of the dump angle, and hold it there
+                    bool shot = pass == 0 || !(k == 2 || l.prefab.name.Contains("50"));
+                    for (float t = 0f; t < 5f; t += Time.deltaTime)
+                    {
+                        if (!shot && t > 2.4f)
+                        {
+                            // (side on, as the dirt starts sliding out over the lip)
+                            shot = true;
+                            var tip = ex.bucketTip.position;
+                            float back = 2.5f + cc.LipReach * 5f;
+                            yield return ShotAt(tip + ex.upper.right * back + Vector3.up * 0.4f, tip, $"Screenshots/lip_{k}.png");
+                        }
+                        ex.SetPose(10f, -40f, Mathf.Lerp(b0, ex.dumpAngle - 1f, Mathf.Clamp01(t / 3f)), 0f);
+                        under = Mathf.Max(under, cc.UnderLip(cc.LocalGravity));
+                        yield return null;
+                    }
+                    through = cc.SpillsThroughLip - s0;
+                    if (pass == 0) log.AppendLine($"INFO  {l.prefab.name}, the old way: {through} of {cc.SpillCount - c0} clods went through the lip, {under} under it");
+                    DirtGrains.FastForward();
+                    ex.bucketLoad = default;
+                    for (int i = 0; i < 5; i++) yield return null;
+                }
+                ClumpContainer.HoldOnLip = true;
+                Check(through == 0 && under == 0,
+                    $"{l.prefab.name}: tipped to the dump angle, no dirt falls through the lip plate or teeth ({through} of {cc.SpillCount - c0} clods that slid out went through, {under} under the steel; {(v0 - ex.bucketLoad.volume) / Mathf.Max(1e-4f, v0) * 100f:0}% slid out)");
+                DirtGrains.FastForward();
+                Destroy(ex.gameObject);
+                yield return null;
+            }
+            Check(k >= 3, $"checked every excavator the dealer sells ({k})");
+        }
+
         IEnumerator NewFleetTests()
         {
             var dealer = FindFirstObjectByType<VehicleDealer>();

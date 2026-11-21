@@ -13,6 +13,11 @@ namespace FPSBase.Core
         /// <summary>Newest first.</summary>
         public static readonly Post[] Blog =
         {
+            new Post { date = "Update 40  ·  Nov 21, 2026", title = "Autosave, and dirt stays on the bucket lip",
+                body =
+                "• The game now saves itself every 5 minutes while you play (a small \"Autosaved\" note pops up), and it saves when you close the game or go back to the main menu. It saves into the world you loaded or last saved; a brand new world saves under the name you gave it.\n" +
+                "• In a friend's world only the host's game saves, as before.\n" +
+                "• Excavator buckets: tipping the bucket towards the dump angle, the dirt that slid out used to drop straight down through the grey lip plate and the teeth. Now it slides out over the lip and the teeth and falls off the end, on every excavator from the 5 t up (the 1.5 t mini's bucket has no lip sticking out)." },
             new Post { date = "Update 39  ·  Nov 21, 2026", title = "Smoother frame rate",
                 body =
                 "• The game draws about half as many things each frame. The diggable ground used to draw every patch as 11 layers (grass, topsoil, clay, sand, gravel and so on) even where it was all grass; now each patch draws only the kinds of ground it has.\n" +
@@ -351,11 +356,15 @@ namespace FPSBase.Core
                 "• Dozer berms build up properly in front of the blade." },
         };
 
-        public const string TestListVersion = "2026-11-21d";
+        public const string TestListVersion = "2026-11-21e";
 
         /// <summary>What's new in this build to try out.</summary>
         public static readonly string[] TestList =
         {
+            "Play for 5 minutes: an \"Autosaved\" note shows; quit and reload: the world is as you left it",
+            "Close the game window (or Quit) without saving: start it again and load the world: your last changes are there",
+            "Pause, Main Menu: it saves before it leaves; the world is in the Single Player list",
+            "50 t excavator, full bucket: tip it slowly out to the dump angle: the dirt slides over the grey lip and teeth and falls off the end, none falls through them",
             "Options, show FPS on: dig a trench with an excavator and push dirt with a dozer: the frame rate should hold steadier than before",
             "Look round the town: every house has its walls, roof, windows, door and steps; knock a fence or a shed with a machine: it still tips over",
             "The dirt field after digging: the cut shows topsoil, clay, sand and gravel colours as before; nothing see-through or missing on the ground",

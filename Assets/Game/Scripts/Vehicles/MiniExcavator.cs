@@ -798,8 +798,19 @@ namespace FPSBase.Vehicles
             ? $"Tracks: {N(GameAction.TracksForward)}/{N(GameAction.TracksBack)}/{N(GameAction.TracksLeft)}/{N(GameAction.TracksRight)}\n" +
               $"{N(GameAction.StickOut)}/{N(GameAction.StickIn)} stick out/in · {N(GameAction.SwingLeft)}/{N(GameAction.SwingRight)} swing\n" +
               $"{N(GameAction.BoomDown)}/{N(GameAction.BoomUp)} boom down/up · {N(GameAction.ExBucketCurl)}/{N(GameAction.ExBucketDump)} bucket curl/dump (or numpad 8/5, 4/6)\n" +
-              $"Dig: tip in the ground + curl or pull stick in · Dump: open bucket\n{N(GameAction.CabView)} cab view · {N(GameAction.Interact)} get out"
-            : $"{N(GameAction.DriveForward)}{N(GameAction.SteerLeft)}{N(GameAction.DriveBack)}{N(GameAction.SteerRight)}: drive tracks\nMouse X swing · Mouse Y boom · Scroll stick\nHold LMB curl/dig · Hold RMB dump\n{N(GameAction.CabView)} cab view · {N(GameAction.Interact)} get out";
+              $"Dig: tip in the ground + curl or pull stick in · Dump: open bucket\n{N(GameAction.CabView)} cab view · {N(GameAction.Interact)} get out" + ChainKeys()
+            : $"{N(GameAction.DriveForward)}{N(GameAction.SteerLeft)}{N(GameAction.DriveBack)}{N(GameAction.SteerRight)}: drive tracks\nMouse X swing · Mouse Y boom · Scroll stick\nHold LMB curl/dig · Hold RMB dump\n{N(GameAction.CabView)} cab view · {N(GameAction.Interact)} get out" + ChainKeys();
+
+        /// <summary>The bucket chain's keys: always the chain itself, and the block keys while one's on the hook.</summary>
+        string ChainKeys()
+        {
+            var c = GetComponent<BucketChain>();
+            if (c == null) return "";
+            string s = $"\nChain: {N(GameAction.Hook)} down / hook / let go · {N(GameAction.ChainLonger)}/{N(GameAction.ChainShorter)} longer/shorter";
+            if (c.Held != null)
+                s += $"\nBlock: {N(GameAction.ChainTurnLeft)}/{N(GameAction.ChainTurnRight)} turn · {N(GameAction.ChainLevel)} land level: {(BucketChain.LandLevel ? "ON" : "off")}";
+            return s;
+        }
 
         static string N(GameAction a) => Controls.N(a);
 

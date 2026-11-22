@@ -200,13 +200,58 @@ namespace FPSBase.City
         {
             LastSnapTo = null;
             if (HookedBy != null || !FindSnap(out var bestP, out var bestQ, out var bestB)) return false;
-            var body = Body;
-            transform.SetPositionAndRotation(bestP + Vector3.up * 0.004f, bestQ);
-            body.position = transform.position; body.rotation = bestQ;
-            if (!body.isKinematic) { body.linearVelocity = Vector3.zero; body.angularVelocity = Vector3.zero; }
-            lastPos = transform.position; lastRot = bestQ; still = 0f;
+            PlaceAt(bestP, bestQ);
             LastSnapTo = bestB;
+            return true;
+        }
+
+        void PlaceAt(Vector3 p, Quaternion q)
+        {
+            var body = Body;
+            transform.SetPositionAndRotation(p + Vector3.up * 0.004f, q);
+            body.position = transform.position; body.rotation = q;
+            if (!body.isKinematic) { body.linearVelocity = Vector3.zero; body.angularVelocity = Vector3.zero; }
+            lastPos = transform.position; lastRot = q; still = 0f;
             NetDirty = true;
+        }
+
+        /// <summary>
+        /// Where it would land level, let go here: straight down onto whatever's under it (the ground, a deck,
+        /// other blocks), sitting flat (upright, still turned the way it hangs) on the highest point under it.
+        /// </summary>
+        public bool FindLevel(out Vector3 p, out Quaternion q, Transform machine = null)
+        {
+            if (machine == null && HookedBy != null) machine = HookedBy.transform.root;
+            q = Quaternion.Euler(0f, Heading, 0f); p = default;
+            if (ChainedTo != null || !NetMine) return false;
+            Vector3 c = transform.TransformPoint(new Vector3(0f, Size.y * 0.5f, 0f));
+            float top = float.MinValue;
+            Vector3 right = q * Vector3.right, fwd = q * Vector3.forward;
+            foreach (var o in new[] { Vector2.zero, new Vector2(-1f, -1f), new Vector2(1f, -1f), new Vector2(-1f, 1f), new Vector2(1f, 1f) })
+            {
+                Vector3 at = c + right * (o.x * (Size.x * 0.5f - 0.05f)) + fwd * (o.y * (Size.z * 0.5f - 0.05f));
+                float best = float.MinValue;
+                foreach (var h in Physics.RaycastAll(at, Vector3.down, 40f, ~0, QueryTriggerInteraction.Ignore))
+                {
+                    if (h.collider.transform.IsChildOf(transform)) continue;
+                    if (machine != null && h.collider.transform.IsChildOf(machine)) continue; // (the machine holding it / letting it go)
+                    if (h.point.y > best) best = h.point.y;
+                }
+                if (best > top) top = best;
+            }
+            if (top == float.MinValue) return false;
+            p = new Vector3(transform.position.x, top, transform.position.z);
+            // straight down from its middle, not its bottom (a tilted block's bottom middle is off to one side)
+            Vector3 down = c - (q * Vector3.up) * (Size.y * 0.5f);
+            p.x = down.x; p.z = down.z;
+            return Free(p, q);
+        }
+
+        /// <summary>Set it down level where it would land (see <see cref="FindLevel"/>). Returns whether it could.</summary>
+        public bool SetLevel(Transform machine = null)
+        {
+            if (HookedBy != null || !FindLevel(out var p, out var q, machine)) return false;
+            PlaceAt(p, q);
             return true;
         }
 

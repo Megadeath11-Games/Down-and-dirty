@@ -13,6 +13,10 @@ namespace FPSBase.Core
         /// <summary>Newest first.</summary>
         public static readonly Post[] Blog =
         {
+            new Post { date = "Update 46  ·  Nov 22, 2026", title = "Blocks land level, and every chain key on screen",
+                body =
+                "• Land level: with a block on the excavator's chain, press / (by default) to switch it on or off. On (it starts on), a block you let go away from any wall is set down upright and flat right under where it hangs, still turned the way you turned it, on the highest point under it (dirt, a trailer deck or other blocks). A blue outline shows where it'll land; by a wall the outline is green and it snaps into the wall as before.\n" +
+                "• The excavator's panel in the bottom left now lists all the chain keys: the chain down / hook / let go, longer and shorter, and with a block on the hook, turning it and land level (and whether it's on). The panel grows to fit when there are more lines." },
             new Post { date = "Update 45  ·  Nov 21, 2026", title = "Blocks snap together for real",
                 body =
                 "• Concrete blocks snap into a wall when you let them go off the chain while they're still hanging in the air. Before, a block only snapped if you'd lowered it right down next to another one first, so most of the time it just dropped where it was.\n" +
@@ -381,11 +385,14 @@ namespace FPSBase.Core
                 "• Dozer berms build up properly in front of the blade." },
         };
 
-        public const string TestListVersion = "2026-11-21j";
+        public const string TestListVersion = "2026-11-22a";
 
         /// <summary>What's new in this build to try out.</summary>
         public static readonly string[] TestList =
         {
+            "Excavator chain: hook a block and swing it out away from any wall: a blue outline shows on the ground under it; let go: it sits there flat and square",
+            "With a block on the chain, press /: land level turns off (the panel says so); let go: it drops as it hangs. Press / again to turn it back on",
+            "In the excavator, the bottom-left panel lists the chain keys (H, Y/U, and with a block on: , . and /), nothing cut off",
             "Excavator chain: set one block down, lift another and hold it over the first: a green block shows on top; let go: it lands on top, lined up",
             "Hold a block on the chain off the end or the side of a block: the green block shows end to end or side by side; let go: it goes there, face to face",
             "Phone (P): Messages, Jobs, Build a house and Clean up tabs all show along the top, on every page",

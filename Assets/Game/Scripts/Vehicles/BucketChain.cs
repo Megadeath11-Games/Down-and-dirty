@@ -130,14 +130,29 @@ namespace FPSBase.Vehicles
             {
                 float tu = Controls.Axis(GameAction.ChainTurnRight, GameAction.ChainTurnLeft);
                 if (Mathf.Abs(tu) > 0.05f) TurnBy(tu * TurnSpeed * Time.deltaTime);
+                if (Controls.Pressed(GameAction.ChainLevel))
+                {
+                    LandLevel = !LandLevel;
+                    GameUI.Toast(LandLevel ? "Blocks land level when let go (the blue outline shows where)" : "Blocks drop as they hang when let go");
+                }
             }
         }
+
+        /// <summary>A block let go away from any wall is set down level (upright, flat) right under where it hangs. Kept between games.</summary>
+        public static bool LandLevel
+        {
+            get { if (landLevel < 0) landLevel = PlayerPrefs.GetInt("chain.landLevel", 1); return landLevel == 1; }
+            set { landLevel = value ? 1 : 0; PlayerPrefs.SetInt("chain.landLevel", landLevel); }
+        }
+        static int landLevel = -1;
 
         // ------------------------------------------------------------------ where the block on the chain will go
 
         GameObject ghost;
         float ghostAt;
-        static Material ghostMat;
+        static Material ghostMat, levelMat;
+        /// <summary>The outline shows a wall spot (green) rather than just landing level (blue) (for the test).</summary>
+        public bool SnapShownWall { get; private set; }
         /// <summary>Where the block on the chain would snap into the wall if let go now (for the test).</summary>
         public bool SnapShown => ghost != null && ghost.activeSelf;
 
@@ -147,30 +162,34 @@ namespace FPSBase.Vehicles
             if (Held == null || !Held.NetMine) { if (ghost != null) ghost.SetActive(false); return; }
             if (Time.time - ghostAt < 0.1f) return;
             ghostAt = Time.time;
-            if (!Held.FindSnap(out var p, out var q, out _)) { if (ghost != null) ghost.SetActive(false); return; }
+            bool wall = Held.FindSnap(out var p, out var q, out _);
+            if (!wall && !(LandLevel && Held.FindLevel(out p, out q))) { if (ghost != null) ghost.SetActive(false); return; }
+            SnapShownWall = wall;
             if (ghost == null)
             {
                 ghost = GameObject.CreatePrimitive(PrimitiveType.Cube);
                 ghost.name = "Block snap outline";
                 Destroy(ghost.GetComponent<Collider>());
-                if (ghostMat == null)
-                {
-                    ghostMat = new Material(Shader.Find("HDRP/Lit"));
-                    ghostMat.SetColor("_BaseColor", new Color(0.3f, 1f, 0.35f, 0.35f));
-                    ghostMat.SetFloat("_SurfaceType", 1f); ghostMat.SetFloat("_BlendMode", 0f); ghostMat.SetFloat("_ZWrite", 0f);
-                    ghostMat.SetFloat("_DoubleSidedEnable", 1f);
-                    try { UnityEngine.Rendering.HighDefinition.HDMaterial.ValidateMaterial(ghostMat); } catch { }
-                }
-                var r = ghost.GetComponent<MeshRenderer>();
-                r.sharedMaterial = ghostMat;
-                r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                if (ghostMat == null) { ghostMat = SeeThrough(new Color(0.3f, 1f, 0.35f, 0.35f)); levelMat = SeeThrough(new Color(0.35f, 0.65f, 1f, 0.3f)); }
+                ghost.GetComponent<MeshRenderer>().shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             }
+            ghost.GetComponent<MeshRenderer>().sharedMaterial = wall ? ghostMat : levelMat;
             ghost.SetActive(true);
             ghost.transform.SetPositionAndRotation(p + q * Vector3.up * (Held.Size.y * 0.5f + 0.01f), q);
             ghost.transform.localScale = Held.Size + Vector3.one * 0.02f;
         }
 
         void OnDestroy() { if (ghost != null) Destroy(ghost); }
+
+        static Material SeeThrough(Color c)
+        {
+            var m = new Material(Shader.Find("HDRP/Lit"));
+            m.SetColor("_BaseColor", c);
+            m.SetFloat("_SurfaceType", 1f); m.SetFloat("_BlendMode", 0f); m.SetFloat("_ZWrite", 0f);
+            m.SetFloat("_DoubleSidedEnable", 1f);
+            try { UnityEngine.Rendering.HighDefinition.HDMaterial.ValidateMaterial(m); } catch { }
+            return m;
+        }
 
         // ------------------------------------------------------------------ the free chain: links that swing and hang
 
@@ -337,6 +356,7 @@ namespace FPSBase.Vehicles
             if (fromNet) return;
             // let go by another block: it squares up and goes into the wall
             if (b.SnapToWall()) GameUI.Toast($"Set the {b.Info.name.ToLower()} into the wall");
+            else if (LandLevel && b.SetLevel(transform.root)) GameUI.Toast($"Set the {b.Info.name.ToLower()} down level");
             else GameUI.Toast($"Unhooked the {b.Info.name.ToLower()}");
         }
 

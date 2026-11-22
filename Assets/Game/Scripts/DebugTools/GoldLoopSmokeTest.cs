@@ -3862,6 +3862,23 @@ namespace FPSBase.DebugTools
             yield return HangAndLet("one let go hanging 1 m over a joint goes down on top across it", new Vector3(-0.12f, a.Size.y + 1f, -a.Size.z * 0.5f - 0.15f), 11f,
                 (h, l) => Square(h) && Mathf.Abs(l.y - a.Size.y) < 0.01f && Mathf.Abs(l.z + a.Size.z * 0.5f) < 0.01f && Mathf.Abs(l.x) < 0.01f);
 
+            // land level: let go hanging crooked, well away from the wall, it's set down flat right under where it hung
+            {
+                Vector3 over = wallAt + new Vector3(4.5f, 1.5f, 3f);
+                var lv = BlockYard.Spawn(1, over, Quaternion.Euler(14f, 40f, -9f));
+                lv.Claim(); extra.Add(lv);
+                var lvb = lv.Body; bool lk = lvb.isKinematic; lvb.isKinematic = true;
+                yield return new WaitForFixedUpdate();
+                lvb.isKinematic = lk;
+                float g = float.NaN; foreach (var gh in Physics.RaycastAll(over + Vector3.up, Vector3.down, 10f, ~0, QueryTriggerInteraction.Ignore)) if (!gh.collider.transform.IsChildOf(lv.transform) && (float.IsNaN(g) || gh.point.y > g)) g = gh.point.y;
+                bool snapped = lv.SnapToWall(), levelled = !snapped && lv.SetLevel();
+                float tilt = Vector3.Angle(lv.transform.up, Vector3.up), dy = lv.transform.position.y - g;
+                for (int i = 0; i < 50; i++) yield return new WaitForFixedUpdate();
+                float moved = Vector3.Distance(lv.transform.position, new Vector3(lv.transform.position.x, g + dy, lv.transform.position.z));
+                Check(levelled && tilt < 0.5f && Mathf.Abs(dy) < 0.08f && Mathf.Abs(Mathf.DeltaAngle(lv.Heading, 40f)) < 2f,
+                    $"land level: one let go hanging crooked away from the wall is set down flat under it, turned as it hung ({(snapped ? "snapped to the wall" : levelled ? "set level" : "not set")}, {tilt:0.0}° off level, {dy:+0.00;-0.00} m off the ground, facing {lv.Heading:0}°)");
+            }
+
             // far from anything: left where it is
             var e5 = BlockYard.Spawn(1, wallAt + new Vector3(0f, 0f, 6f), Quaternion.Euler(0f, 60f, 0f));
             e5.Claim(); yield return new WaitForFixedUpdate();
@@ -3892,6 +3909,9 @@ namespace FPSBase.DebugTools
                 f6.Claim(); yield return new WaitForFixedUpdate();
                 chain.Hook(f6);
                 for (int i = 0; i < 50 * 2; i++) yield return new WaitForFixedUpdate();
+                string keys = ex.HudControls;
+                Check(keys.Contains(Controls.N(GameAction.ChainLonger)) && keys.Contains(Controls.N(GameAction.ChainTurnLeft)) && keys.Contains(Controls.N(GameAction.ChainLevel)) && keys.Contains("land level"),
+                    $"with a block on the chain, the excavator's panel lists the chain keys (longer/shorter, turn, land level): {keys.Substring(Mathf.Max(0, keys.IndexOf("Chain:"))).Replace("\n", " / ")}");
                 float h0 = f6.Heading;
                 chain.TurnBy(90f);
                 for (int i = 0; i < 50 * 4; i++) yield return new WaitForFixedUpdate();

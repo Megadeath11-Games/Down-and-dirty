@@ -48,6 +48,8 @@ namespace FPSBase.Core
         ChuteLeft, ChuteRight, ChuteUp, ChuteDown, ConcretePour, ConcreteLoad,
         // turning a block on the excavator's chain
         ChainTurnLeft, ChainTurnRight,
+        // the block on the chain lands level when let go
+        ChainLevel,
     }
 
     /// <summary>Controller inputs (Xbox names; a PlayStation pad is the same places: A = Cross, B = Circle, X = Square, Y = Triangle).</summary>
@@ -131,6 +133,7 @@ namespace FPSBase.Core
             new(GameAction.ChainShorter, "Excavator chain", "Take the chain in shorter", Key.U),
             new(GameAction.ChainTurnLeft, "Excavator chain", "Turn the block on the chain left", Key.Comma),
             new(GameAction.ChainTurnRight, "Excavator chain", "Turn the block on the chain right", Key.Period),
+            new(GameAction.ChainLevel, "Excavator chain", "Land the block level when let go (on / off)", Key.Slash),
             new(GameAction.PlanRotateLeft, "Setting out a house", "Turn the plan left", Key.Q),
             new(GameAction.PlanRotateRight, "Setting out a house", "Turn the plan right", Key.E),
             new(GameAction.PlanRaise, "Setting out a house", "Pad higher (10 cm)", Key.PageUp),

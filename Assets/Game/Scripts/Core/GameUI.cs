@@ -234,11 +234,15 @@ namespace FPSBase.Core
             {
                 string body = ActiveVehicle.HudBody;
                 string controls = ActiveVehicle.HudControls;
-                var r = new Rect(10, Screen.height - 280, 470, 270);
+                // (as tall as the lines need: some machines have more keys than others)
+                float bh = Mathf.Max(112f, hudSmall.CalcHeight(new GUIContent(body), 450f));
+                float ch = Mathf.Max(116f, hudSmall.CalcHeight(new GUIContent(controls), 450f));
+                float h = 36f + bh + 2f + ch + 6f;
+                var r = new Rect(10, Screen.height - 10 - h, 470, h);
                 GUI.Box(r, GUIContent.none, box);
                 GUI.Label(new Rect(r.x + 10, r.y + 6, 450, 28), ActiveVehicle.HudTitle, hudBig);
-                GUI.Label(new Rect(r.x + 10, r.y + 36, 450, 112), body, hudSmall);
-                GUI.Label(new Rect(r.x + 10, r.y + 150, 450, 116), controls, hudSmall);
+                GUI.Label(new Rect(r.x + 10, r.y + 36, 450, bh), body, hudSmall);
+                GUI.Label(new Rect(r.x + 10, r.y + 38 + bh, 450, ch), controls, hudSmall);
             }
 
             // Big fill bar (bucket / dump box)

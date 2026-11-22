@@ -1269,9 +1269,15 @@ namespace FPSBase.Net
                 Vector3 s = cam.WorldToScreenPoint(head);
                 if (s.z <= 0f || s.z > 250f) continue;
                 var r = new Rect(s.x - 100f, Screen.height - s.y - 12f, 200f, 24f);
-                GUI.color = new Color(0f, 0f, 0f, 0.6f); GUI.Label(new Rect(r.x + 1, r.y + 1, r.width, r.height), a.name, nameTag);
-                GUI.color = Color.white; GUI.Label(r, a.name, nameTag);
+                // (smaller further off, and as see-through as the settings say)
+                var m0 = GUI.matrix;
+                float sc = GameSettings.LabelScale(s.z), op = GameSettings.LabelOpacity;
+                GUIUtility.ScaleAroundPivot(new Vector2(sc, sc), r.center);
+                GUI.color = new Color(0f, 0f, 0f, 0.6f * op); GUI.Label(new Rect(r.x + 1, r.y + 1, r.width, r.height), a.name, nameTag);
+                GUI.color = new Color(1f, 1f, 1f, op); GUI.Label(r, a.name, nameTag);
+                GUI.matrix = m0;
             }
+            GUI.color = Color.white;
         }
 
         Vector2 friendScroll;

@@ -29,6 +29,7 @@ namespace FPSBase.Core
         bool paused;
         bool controlsOpen;
         GameAction? capturing;
+        GameAction? capturingPad; // (waiting for a controller button for this action)
         Vector2 controlsScroll;
         string panelTitle;
         Action panelDraw;
@@ -118,6 +119,7 @@ namespace FPSBase.Core
             {
                 MenuUpdate();
                 if (capturing.HasValue) CaptureKey(kb);
+                else if (capturingPad.HasValue) CapturePad(kb);
                 else if (menuOpen && Controls.MenuBack(true))
                 {
                     if (controlsOpen) controlsOpen = false;
@@ -131,6 +133,7 @@ namespace FPSBase.Core
             }
             AutoSaveTick();
             if (capturing.HasValue) CaptureKey(kb);
+            else if (capturingPad.HasValue) CapturePad(kb);
             else if (!paused && Controls.Pressed(GameAction.Map))
             {
                 if (panelTitle == "Map" && panelDraw != null) ClosePanel(); else OpenPanel("Map", DrawMap, 1120f);
@@ -707,14 +710,28 @@ namespace FPSBase.Core
                 }
         }
 
+        /// <summary>Waiting for the controller button for an action (Esc / Menu cancels, Delete / Backspace clears it).</summary>
+        void CapturePad(Keyboard kb)
+        {
+            if (!capturingPad.HasValue) return;
+            var gp = Gamepad.current;
+            if ((kb != null && kb.escapeKey.wasPressedThisFrame) || (gp != null && gp.startButton.wasPressedThisFrame)) { capturingPad = null; return; }
+            if (kb != null && (kb.deleteKey.wasPressedThisFrame || kb.backspaceKey.wasPressedThisFrame)) { Controls.SetPad(capturingPad.Value, Pad.None); capturingPad = null; return; }
+            var p = Controls.PadJustPressed();
+            if (p == Pad.None) return;
+            Controls.SetPad(capturingPad.Value, p);
+            capturingPad = null;
+        }
+
         void DrawControlsMenu()
         {
-            float w = 680, h = Mathf.Min(780, Screen.height - 40);
+            float w = 860, h = Mathf.Min(780, Screen.height - 40);
             var r = new Rect((Screen.width - w) / 2f, (Screen.height - h) / 2f, w, h);
             GUI.Box(r, GUIContent.none, menuPanel);
             GUILayout.BeginArea(new Rect(r.x + 20, r.y + 14, w - 40, h - 28));
             GUILayout.Label("Controls", header);
             GUILayout.Label("Click a key, then press the new key (Esc cancels). Keys in different groups can share a key — e.g. W drives and walks. Orange = clash with another action used at the same time.", hudSmall);
+            GUILayout.Label("Controller: click the controller column, then press a button, trigger, D-pad direction or push a stick (Esc or Menu cancels, Delete clears it).", hudSmall);
             GUILayout.Space(6);
             controlsScroll = GUILayout.BeginScrollView(controlsScroll);
             string lastCat = null;
@@ -729,10 +746,13 @@ namespace FPSBase.Core
                     lastCat = b.category;
                 }
                 GUILayout.BeginHorizontal();
-                GUILayout.Label(b.label, hudSmall, GUILayout.Width(300));
+                GUILayout.Label(b.label, hudSmall, GUILayout.Width(280));
                 bool waiting = capturing == b.action;
                 string keyText = waiting ? "Press a key…" : Controls.N(b.action);
-                if (GUILayout.Button(keyText, GUILayout.Width(150), GUILayout.Height(26))) capturing = b.action;
+                if (GUILayout.Button(keyText, GUILayout.Width(130), GUILayout.Height(26))) { capturing = b.action; capturingPad = null; }
+                bool padWait = capturingPad == b.action;
+                string padText = padWait ? "Press a button…" : Controls.PadName(b.action) ?? "—";
+                if (GUILayout.Button(padText, GUILayout.Width(130), GUILayout.Height(26))) { capturingPad = b.action; capturing = null; }
                 string clash = Controls.Conflicts(b.action);
                 GUILayout.Label(clash ?? (Controls.Get(b.action) != b.key ? $"(default {Controls.KeyName(b.key)})" : ""), clash != null ? warn : hudSmall);
                 GUILayout.EndHorizontal();
@@ -740,8 +760,8 @@ namespace FPSBase.Core
             GUILayout.EndScrollView();
             GUILayout.Space(8);
             GUILayout.BeginHorizontal();
-            if (GUILayout.Button("Reset all to defaults", GUILayout.Height(32))) { Controls.ResetAll(); capturing = null; }
-            if (GUILayout.Button("Back", GUILayout.Height(32))) { controlsOpen = false; capturing = null; }
+            if (GUILayout.Button("Reset all to defaults", GUILayout.Height(32))) { Controls.ResetAll(); capturing = null; capturingPad = null; }
+            if (GUILayout.Button("Back", GUILayout.Height(32))) { controlsOpen = false; capturing = null; capturingPad = null; }
             GUILayout.EndHorizontal();
             GUILayout.EndArea();
         }
@@ -815,6 +835,12 @@ namespace FPSBase.Core
             if (wj != GameSettings.WheelJump) GameSettings.WheelJump = wj;
             bool auto = Toggle($"Auto bunny hop (hold {Controls.N(GameAction.Jump)} to keep hopping)", GameSettings.AutoBhop);
             if (auto != GameSettings.AutoBhop) GameSettings.AutoBhop = auto;
+
+            GUILayout.Space(8);
+            GUILayout.Label("Labels", hudBig);
+            float lo = Slider("Name tags and site labels: opacity", GameSettings.LabelOpacity, 0.15f, 1f, "{0:P0}");
+            if (Mathf.Abs(lo - GameSettings.LabelOpacity) > 0.005f) GameSettings.LabelOpacity = Mathf.Round(lo * 20f) / 20f;
+            GUILayout.Label("They also get smaller the further away they are.", hudSmall);
 
             GUILayout.Space(8);
             GUILayout.Label("Excavator controls", hudBig);

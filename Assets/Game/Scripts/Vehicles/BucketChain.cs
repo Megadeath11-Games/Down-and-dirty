@@ -272,6 +272,8 @@ namespace FPSBase.Vehicles
             {
                 var b = Nearest(Reach);
                 if (b != null) { Hook(b); return; }
+                // (by a block with another on top of it: that one's locked in under it)
+                if (Nearest(Reach, true) is ConcreteBlock under && under.Covered()) { GameUI.Toast($"That {under.Info.name.ToLower()} has a block on top of it: lift the top one off first"); return; }
                 Out = false; GameUI.Toast("Chain stowed"); return;
             }
             Out = true;
@@ -279,8 +281,11 @@ namespace FPSBase.Vehicles
             GameUI.Toast(near != null ? "Chain down: the hook's right by a block's loop, press again to hook it" : "Chain down: put the hook by a block's lifting loop and press again to hook it");
         }
 
-        /// <summary>The free block whose loop is nearest the hook, within `reach`.</summary>
-        public ConcreteBlock Nearest(float reach)
+        /// <summary>
+        /// The free block whose loop is nearest the hook, within `reach`. A block with another on top of it can't be
+        /// hooked (it's locked in under it), so a hook hanging low between the two goes to the one on top.
+        /// </summary>
+        public ConcreteBlock Nearest(float reach, bool evenCovered = false)
         {
             ConcreteBlock best = null; float bd = reach;
             Vector3 hook = HookEnd;
@@ -291,7 +296,12 @@ namespace FPSBase.Vehicles
                 // (the hook swings: anywhere along the lower half of the chain will do)
                 Vector3 e = b.eye.position;
                 float d = Mathf.Min(Vector3.Distance(e, hook), DistToSegment(e, mid, hook));
-                if (d < bd) { bd = d; best = b; }
+                if (d >= bd) continue;
+                // (one with another on top: the hook goes to the top of the stack instead)
+                var pick = b;
+                if (!evenCovered) for (int k = 0; k < 8 && pick.Covered(out var over); k++) pick = over;
+                if (pick.HookedBy != null) continue;
+                bd = d; best = pick;
             }
             return best;
         }

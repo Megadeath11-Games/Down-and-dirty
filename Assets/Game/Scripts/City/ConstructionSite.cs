@@ -277,6 +277,22 @@ namespace FPSBase.City
         readonly List<Vector3>[] verts = { new(), new(), new(), new(), new() };
         readonly List<int>[] tris = { new(), new(), new(), new(), new() };
 
+        /// <summary>Does a square (plan, half its side `half`) overlap one of the footing trenches (`w` wide)?</summary>
+        bool OverFooting(Vector2 c, float half, float w)
+        {
+            foreach (var (a, b) in pieces)
+            {
+                Vector2 ab = b - a; float len = ab.magnitude;
+                if (len < 1e-4f) continue;
+                Vector2 dir = ab / len, side = new Vector2(-dir.y, dir.x), d = c - a;
+                // (in the trench's own frame: the square's reach along and across it)
+                float r = half * (Mathf.Abs(dir.x) + Mathf.Abs(dir.y));
+                float along = Vector2.Dot(d, dir), across = Mathf.Abs(Vector2.Dot(d, side));
+                if (along > -w * 0.5f - r + 0.01f && along < len + w * 0.5f + r - 0.01f && across < w * 0.5f + r - 0.01f) return true;
+            }
+            return false;
+        }
+
         void Redraw()
         {
             if (layers == null || Plan == null) return;
@@ -312,12 +328,23 @@ namespace FPSBase.City
                 {
                     var t = tiles[i];
                     if (tileN[i] == 0) continue;
-                    if (tileHigh[i] >= tileN[i] * 0.6f) AddBox(Layer.Orange, t, Vector2.right, Mathf.Max(0f, tileTop[i] - PadY) + 0.03f, 0.96f, 0.96f, 0.05f); // (mostly high: one orange patch)
-                    else if (tileOk[i] >= tileN[i] * 0.85f && tileHigh[i] == 0) AddBox(Layer.Green, t, Vector2.right, 0.03f, 0.96f, 0.96f, 0.05f);
-                    else if (tileLow[i] > 0 || tileOk[i] > 0) AddBox(tileLow[i] >= tileOk[i] ? Layer.Blue : Layer.Green, t, Vector2.right, 0.03f, 0.96f, 0.96f, 0.05f);
+                    Layer l; float up = 0.03f;
+                    if (tileHigh[i] >= tileN[i] * 0.6f) { l = Layer.Orange; up = Mathf.Max(0f, tileTop[i] - PadY) + 0.03f; } // (mostly high: one orange patch)
+                    else if (tileOk[i] >= tileN[i] * 0.85f && tileHigh[i] == 0) l = Layer.Green;
+                    else if (tileLow[i] > 0 || tileOk[i] > 0) l = tileLow[i] >= tileOk[i] ? Layer.Blue : Layer.Green;
+                    else continue;
+                    // (not over the footings: those have their own marks. A patch at the edge is drawn in quarters, the
+                    // ones clear of the trench)
+                    if (!OverFooting(t, 0.48f, w)) { AddBox(l, t, Vector2.right, up, 0.96f, 0.96f, 0.05f); continue; }
+                    for (int qx = -1; qx <= 1; qx += 2)
+                        for (int qz = -1; qz <= 1; qz += 2)
+                        {
+                            Vector2 c = t + new Vector2(qx, qz) * 0.24f;
+                            if (!OverFooting(c, 0.23f, w)) AddBox(l, c, Vector2.right, up, 0.46f, 0.46f, 0.05f);
+                        }
                 }
                 float sq = Site.Cell * 1.05f;
-                foreach (var (p, up, ti) in highSquares) if (tileHigh[ti] < tileN[ti] * 0.6f) AddBox(Layer.Orange, p, Vector2.right, up + 0.04f, sq, sq, 0.06f); // (a lump in a patch that's otherwise level or low)
+                foreach (var (p, up, ti) in highSquares) if (tileHigh[ti] < tileN[ti] * 0.6f && !OverFooting(p, sq * 0.5f, w)) AddBox(Layer.Orange, p, Vector2.right, up + 0.04f, sq, sq, 0.06f); // (a lump in a patch that's otherwise level or low)
             }
             if (Preview)
             {

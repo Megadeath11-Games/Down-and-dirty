@@ -75,6 +75,7 @@ namespace FPSBase.DebugTools
                         case "blockbed": yield return BlockBedTests(); break;
                         case "cabtilt": yield return CabTiltTests(); break;
                         case "blocksave": yield return BlockSaveTests(); break;
+                        case "dozerread": yield return DozerReadTests(); break;
                         case "slosh": yield return SloshTests(DigSite.Instance, FindFirstObjectByType<DumpPickup>()); break;
                         case "materials": yield return MaterialsTests(DigSite.Instance, Economy.Instance, FindFirstObjectByType<WashPlant>(), FindFirstObjectByType<DumpPickup>()); break;
                         default: log.AppendLine($"INFO  unknown quick test '{part}'"); break;
@@ -1851,6 +1852,23 @@ namespace FPSBase.DebugTools
                 Physics.SyncTransforms();
                 blk.Body.isKinematic = false;
             }
+            // another block set on top of it: the one under is locked in, the hook (low, right by the bottom one's
+            // loop) goes to the top one
+            {
+                var top = FPSBase.City.BlockYard.Spawn(1, blk.transform.position + blk.transform.up * blk.Size.y + Vector3.up * 0.002f, blk.transform.rotation);
+                top.Body.isKinematic = true; blk.Body.isKinematic = true;
+                Physics.SyncTransforms();
+                yield return null;
+                var pick = chain.Nearest(BucketChain.Reach);
+                log.AppendLine($"INFO  hook by the bottom block's loop with one on top: bottom {Vector3.Distance(blk.eye.position, chain.HookEnd):0.00} m, top {Vector3.Distance(top.eye.position, chain.HookEnd):0.00} m from the hook; picks {(pick == top ? "the top one" : pick == blk ? "the bottom one" : "none")}");
+                Check(blk.Covered() && !top.Covered() && pick != blk, $"a block with another on top can't be hooked (covered {blk.Covered()}, the hook picks {(pick == top ? "the top one" : pick == blk ? "the bottom one" : "none")})");
+                Check(pick == top, "the hook low by the bottom block's loop takes the top one instead");
+                Destroy(top.gameObject);
+                yield return null;
+                Physics.SyncTransforms();
+                blk.Body.isKinematic = false;
+                Check(!blk.Covered(), "with the top one lifted off, the bottom one can be hooked again");
+            }
             chain.Toggle();
             Check(chain.Held == blk && blk.HookedBy == chain, "chain key again with the hook by the loop hooks the block");
             {
@@ -3596,6 +3614,47 @@ namespace FPSBase.DebugTools
         /// let go by a set-down block snap into a wall off it (end to end, on top over the joint, at a corner);
         /// a block on the chain turns with the keys; the phone's clean up collects only the loose ones.
         /// </summary>
+        /// <summary>The dozer's "dirt in front of the blade": driving over deep loose dirt with the blade up it reads about nothing; blade down pushing, it fills.</summary>
+        IEnumerator DozerReadTests()
+        {
+            var site = DigSite.Instance;
+            var dealer = FindFirstObjectByType<VehicleDealer>();
+            GameObject dzPrefab = null;
+            foreach (var l in dealer.listings) if (dzPrefab == null && l.prefab != null && l.prefab.GetComponent<Bulldozer>() != null) dzPrefab = l.prefab;
+            Check(site != null && dzPrefab != null, "a dig site and a dozer for sale");
+            if (site == null || dzPrefab == null) yield break;
+            Vector3 at = new Vector3(40f, 0f, -150f); at.y = site.SurfaceY(at);
+            // a field of deep loose fill
+            for (int i = -2; i <= 2; i++)
+                for (int j = -1; j <= 8; j++)
+                {
+                    Vector3 q = at + new Vector3(i * 1.5f, 0f, j * 1.5f); q.y = site.SurfaceY(q);
+                    site.Deposit(q, MaterialLoad.Mix(2.5f, 0f, 0f, 0f, 0f), 1.4f);
+                }
+            site.SettleNow();
+            for (int i = 0; i < 30; i++) yield return new WaitForFixedUpdate();
+            Vector3 from = at + Vector3.back * 4f; from.y = site.SurfaceY(from);
+            var d = Instantiate(dzPrefab, from + Vector3.up * 0.4f, Quaternion.identity).GetComponent<Bulldozer>();
+            var drb = d.GetComponent<Rigidbody>();
+            d.SetBlade(d.bladeRange.y);
+            for (int i = 0; i < 80; i++) yield return new WaitForFixedUpdate();
+            d.fuel = d.fuelCapacity;
+            float most = 0f;
+            d.TestDrive(0.6f);
+            for (int i = 0; i < 50 * 5; i++) { d.SetBlade(d.bladeRange.y); yield return new WaitForFixedUpdate(); if (i > 50) most = Mathf.Max(most, d.HeapVolume); }
+            d.TestDrive(0f);
+            log.AppendLine($"INFO  dozer over deep loose fill, blade up: most it read {most:0.00} m³ in front of the blade");
+            Check(most < 0.4f, $"blade up over loose fill, the dozer doesn't read dirt in front of the blade ({most:0.00} m³)");
+            // blade down: it does
+            float got = 0f;
+            d.TestDrive(0.6f);
+            for (int i = 0; i < 50 * 5; i++) { d.SetBlade(-0.15f); yield return new WaitForFixedUpdate(); got = Mathf.Max(got, d.HeapVolume); }
+            d.TestDrive(0f);
+            Check(got > 0.5f, $"blade down in it, the dirt it's pushing shows ({got:0.00} m³)");
+            Destroy(d.gameObject);
+            yield return null;
+        }
+
         /// <summary>Saved and loaded: set-down blocks come back exactly where they were, and a machine's arm where it was left.</summary>
         IEnumerator BlockSaveTests()
         {
@@ -4022,7 +4081,7 @@ namespace FPSBase.DebugTools
             }
             bool Square(ConcreteBlock h) => Mathf.Abs(Mathf.Repeat(Mathf.DeltaAngle(a.Heading, h.Heading) + 45f, 90f) - 45f) < 0.5f;
             // hanging 1.6 m up, off the far end of the first block (the other end from the second)
-            yield return HangAndLet("one let go hanging 1.6 m up off the first block's other end drops into place end to end", new Vector3(0.35f, 1.6f, -a.Size.z - 0.5f), -9f,
+            yield return HangAndLet("one let go hanging 1.6 m up off the first block's other end drops into place end to end", new Vector3(0.18f, 1.6f, -a.Size.z - 0.5f), -9f,
                 (h, l) => Square(h) && Mathf.Abs(l.x) < 0.01f && Mathf.Abs(l.z + a.Size.z) < 0.01f && Mathf.Abs(l.y) < 0.06f);
             // hanging 1.2 m up beside it: side by side, face to face
             yield return HangAndLet("one let go hanging 1.2 m up beside the first block goes in side by side against it", new Vector3(-a.Size.x - 0.45f, 1.2f, 0.2f), 6f,
@@ -4526,13 +4585,16 @@ namespace FPSBase.DebugTools
             var dealer = FindFirstObjectByType<VehicleDealer>();
             GameObject dzPrefab = null;
             foreach (var l in dealer.listings) if (dzPrefab == null && l.prefab != null && l.prefab.GetComponent<Bulldozer>() != null) dzPrefab = l.prefab;
-            if (dzPrefab != null)
+            for (int pass = 0; pass < 2 && dzPrefab != null; pass++)
             {
-                Vector3 bAt = at + Vector3.right * 12f; bAt.y = site.SurfaceY(bAt);
+                Vector3 bAt = at + Vector3.right * (12f + 8f * pass); bAt.y = site.SurfaceY(bAt);
                 var blk2 = FPSBase.City.BlockYard.Spawn(5, bAt + Vector3.up * 0.05f, Quaternion.identity);
                 for (int i = 0; i < 50 * 3; i++) yield return new WaitForFixedUpdate();
-                Check(blk2.Pinned, "a block set down on firm ground is pinned there too");
-                Destroy(blk.gameObject); blk = blk2;
+                // (pass 1: put in its place with land level, as off the chain)
+                if (pass == 1) { blk2.Claim(); blk2.SetLevel(); for (int i = 0; i < 20; i++) yield return new WaitForFixedUpdate(); }
+                Check(blk2.Pinned, $"a block {(pass == 0 ? "dropped" : "set down level")} on firm ground is pinned there too (locked {blk2.Locked})");
+                if (blk != null) Destroy(blk.gameObject);
+                blk = blk2;
                 Vector3 bp = blk.transform.position;
                 Vector3 from = bp + Vector3.back * 9f; from.y = site.SurfaceY(from);
                 var d = Instantiate(dzPrefab, new Vector3(0f, -50f, 0f), Quaternion.identity).GetComponent<Bulldozer>();
@@ -4551,8 +4613,10 @@ namespace FPSBase.DebugTools
                 d.TestDrive(0f);
                 float shoved = Vector3.Distance(new Vector3(blk.transform.position.x, 0f, blk.transform.position.z), new Vector3(bp.x, 0f, bp.z));
                 log.AppendLine($"INFO  dozer driven into the set-down block: block moved {shoved:0.00} m, knocked loose {FPSBase.City.ConcreteBlock.Shoves - sh0} times, last touch {FPSBase.City.ConcreteBlock.LastTouch}, dozer closest {closest:0.0} m");
-                Check(shoved < 0.05f && blk.Pinned, $"a machine driven into a set-down block doesn't move it: only the chain does (moved {shoved:0.00} m, bumped {FPSBase.City.ConcreteBlock.Shoves - sh0} times, pinned {blk.Pinned})");
+                if (pass == 0) Check(shoved > 0.3f, $"a dozer driven into a dropped block shoves it (moved {shoved:0.00} m, bumped {FPSBase.City.ConcreteBlock.Shoves - sh0} times)");
+                else Check(shoved < 0.05f && blk.Pinned, $"a machine driven into a block set in its place doesn't move it: only the chain does (moved {shoved:0.00} m, bumped {FPSBase.City.ConcreteBlock.Shoves - sh0} times, pinned {blk.Pinned})");
                 Destroy(d.gameObject);
+                for (int i = 0; i < 5; i++) yield return null;
             }
             Destroy(blk.gameObject);
             yield return null;

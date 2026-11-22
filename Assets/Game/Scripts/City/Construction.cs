@@ -442,7 +442,14 @@ namespace FPSBase.City
                 var gc = new GUIContent(text);
                 float w = Mathf.Min(520f, label.CalcSize(gc).x + 16f);
                 float h = label.CalcHeight(gc, w);
+                // (smaller further off, and as see-through as the settings say)
+                var m0 = GUI.matrix; var c0 = GUI.color;
+                float sc = GameSettings.LabelScale(d);
+                Vector2 piv = new Vector2(sp.x, Screen.height - sp.y);
+                GUIUtility.ScaleAroundPivot(new Vector2(sc, sc), piv);
+                GUI.color = new Color(c0.r, c0.g, c0.b, c0.a * GameSettings.LabelOpacity);
                 GUI.Box(new Rect(sp.x - w / 2f, Screen.height - sp.y - h / 2f, w, h + 6), gc, label);
+                GUI.matrix = m0; GUI.color = c0;
             }
         }
 

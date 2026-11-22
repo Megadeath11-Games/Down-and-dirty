@@ -49,6 +49,17 @@ namespace FPSBase.Core
         }
         static float? sens;
 
+        /// <summary>How solid the labels over things are (name tags, the house site's label): 0.15 faint .. 1 solid.</summary>
+        public static float LabelOpacity
+        {
+            get => labelOpacity ??= GetF("set.labelOpacity", 1f);
+            set { labelOpacity = Mathf.Clamp(value, 0.15f, 1f); SetF("set.labelOpacity", labelOpacity.Value); }
+        }
+        static float? labelOpacity;
+
+        /// <summary>How big a label over something `d` m away is drawn: full size close up, smaller further off.</summary>
+        public static float LabelScale(float d) => Mathf.Clamp(14f / Mathf.Max(1f, d), 0.45f, 1f);
+
         public static bool InvertY
         {
             get => invertY ??= GetI("set.invertY", 0) == 1;

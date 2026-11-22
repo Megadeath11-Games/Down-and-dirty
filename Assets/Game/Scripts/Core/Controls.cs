@@ -198,7 +198,44 @@ namespace FPSBase.Core
             [GameAction.GraderPitchForward] = Pad.DUp, [GameAction.GraderPitchBack] = Pad.Y, [GameAction.GraderRipperDown] = Pad.B,
         };
 
-        public static Pad PadOf(GameAction a) => PadMap.TryGetValue(a, out var p) ? p : Pad.None;
+        /// <summary>The controller input for an action: the player's own choice if they've changed it, else the default layout.</summary>
+        public static Pad PadOf(GameAction a)
+        {
+            padOver ??= LoadPad();
+            if (padOver.TryGetValue(a, out var o)) return o;
+            return PadMap.TryGetValue(a, out var p) ? p : Pad.None;
+        }
+        static Dictionary<GameAction, Pad> padOver;
+        static Dictionary<GameAction, Pad> LoadPad()
+        {
+            var d = new Dictionary<GameAction, Pad>();
+            foreach (GameAction a in System.Enum.GetValues(typeof(GameAction)))
+                if (PlayerPrefs.HasKey("pad." + a)) d[a] = (Pad)PlayerPrefs.GetInt("pad." + a);
+            return d;
+        }
+        /// <summary>Bind an action to a controller input (Pad.None: no controller input for it).</summary>
+        public static void SetPad(GameAction a, Pad p)
+        {
+            padOver ??= LoadPad();
+            padOver[a] = p;
+            PlayerPrefs.SetInt("pad." + a, (int)p);
+            PlayerPrefs.Save();
+        }
+        /// <summary>The controller's default for an action.</summary>
+        public static Pad DefaultPad(GameAction a) => PadMap.TryGetValue(a, out var p) ? p : Pad.None;
+
+        /// <summary>Whichever controller input was just pressed this frame (buttons, triggers, D-pad, stick pushes), or None. Menu is never one (it pauses).</summary>
+        public static Pad PadJustPressed()
+        {
+            if (Gamepad.current == null) return Pad.None;
+            foreach (Pad p in System.Enum.GetValues(typeof(Pad)))
+            {
+                if (p == Pad.None || p == Pad.Start) continue;
+                var c = PadCtl(p);
+                if (c != null && c.wasPressedThisFrame) return p;
+            }
+            return Pad.None;
+        }
 
         static ButtonControl PadCtl(Pad p)
         {
@@ -275,7 +312,8 @@ namespace FPSBase.Core
         public static void ResetAll()
         {
             Load();
-            foreach (var d in Defaults) { map[d.action] = d.key; PlayerPrefs.DeleteKey("key." + d.action); }
+            foreach (var d in Defaults) { map[d.action] = d.key; PlayerPrefs.DeleteKey("key." + d.action); PlayerPrefs.DeleteKey("pad." + d.action); }
+            padOver = new Dictionary<GameAction, Pad>();
             PlayerPrefs.Save();
         }
 

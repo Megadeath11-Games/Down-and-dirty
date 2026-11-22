@@ -227,12 +227,13 @@ namespace FPSBase.Core
 
         const int BlockTag = 0x424C4B53; // "BLKS": the concrete blocks (where each is, and whether it's chained down)
         const int BlockTag2 = 0x424C4B32; // "BLK2": the same, and whether each is set down (pinned where it stands)
+        const int BlockTag3 = 0x424C4B33; // "BLK3": the same, and whether it was put in its place on purpose (snapped / land level: locked)
 
         static void WriteBlocks(BinaryWriter w)
         {
             var list = new List<FPSBase.City.ConcreteBlock>();
             foreach (var b in FPSBase.City.ConcreteBlock.All) if (b != null) list.Add(b);
-            w.Write(BlockTag2); w.Write(list.Count);
+            w.Write(BlockTag3); w.Write(list.Count);
             foreach (var b in list)
             {
                 w.Write((byte)b.kind);
@@ -240,24 +241,27 @@ namespace FPSBase.Core
                 w.Write(t.position.x); w.Write(t.position.y); w.Write(t.position.z);
                 w.Write(t.rotation.x); w.Write(t.rotation.y); w.Write(t.rotation.z); w.Write(t.rotation.w);
                 w.Write(b.ChainedTo != null);
-                w.Write(b.Pinned);
+                w.Write((byte)((b.Pinned ? 1 : 0) | (b.Locked ? 2 : 0)));
             }
         }
 
-        static List<(int kind, Vector3 p, Quaternion q, bool chained, bool pinned)> ReadBlocks(BinaryReader r)
+        static List<(int kind, Vector3 p, Quaternion q, bool chained, bool pinned, bool locked)> ReadBlocks(BinaryReader r)
         {
-            var list = new List<(int, Vector3, Quaternion, bool, bool)>();
+            var list = new List<(int, Vector3, Quaternion, bool, bool, bool)>();
             if (r.BaseStream.Length - r.BaseStream.Position < 8) return list;
             long at = r.BaseStream.Position;
             int tag = r.ReadInt32();
-            if (tag != BlockTag && tag != BlockTag2) { r.BaseStream.Position = at; return list; }
+            if (tag != BlockTag && tag != BlockTag2 && tag != BlockTag3) { r.BaseStream.Position = at; return list; }
             int n = r.ReadInt32();
             for (int i = 0; i < n; i++)
             {
                 int k = r.ReadByte(); var p = RV3(r); var q = RQ(r); bool c = r.ReadBoolean();
                 // (older saves didn't say: an upright block that isn't chained down was set down)
-                bool pin = tag == BlockTag2 ? r.ReadBoolean() : !c && Vector3.Dot(q * Vector3.up, Vector3.up) > 0.96f;
-                list.Add((k, p, q, c, pin));
+                // (older saves didn't say whether it was locked: one set down was, as it was then)
+                bool pin, locked;
+                if (tag == BlockTag3) { int f = r.ReadByte(); pin = (f & 1) != 0; locked = (f & 2) != 0; }
+                else { pin = tag == BlockTag2 ? r.ReadBoolean() : !c && Vector3.Dot(q * Vector3.up, Vector3.up) > 0.96f; locked = pin; }
+                list.Add((k, p, q, c, pin, locked));
             }
             return list;
         }
@@ -379,7 +383,7 @@ namespace FPSBase.Core
             var machines = new List<VehicleBase>();
             var lowboys = new List<(SemiTruck semi, byte state, Vector3 p, Quaternion q)>();
             string error = null;
-            List<(int kind, Vector3 p, Quaternion q, bool chained, bool pinned)> blocks = null;
+            List<(int kind, Vector3 p, Quaternion q, bool chained, bool pinned, bool locked)> blocks = null;
             try
             {
                 int n = r.ReadInt32();
@@ -475,26 +479,26 @@ namespace FPSBase.Core
             // the concrete blocks: put back where they were, still; the ones that were chained down, chained again
             if (blocks != null && blocks.Count > 0)
             {
-                var placed = new List<(FPSBase.City.ConcreteBlock b, bool chained, bool pinned)>();
+                var placed = new List<(FPSBase.City.ConcreteBlock b, bool chained, bool pinned, bool locked)>();
                 // (bottom ones first: a block on top holds its ground through the one under it)
                 blocks.Sort((a, c) => a.p.y.CompareTo(c.p.y));
-                foreach (var (kind, p, q, chained, pinned) in blocks)
+                foreach (var (kind, p, q, chained, pinned, locked) in blocks)
                 {
                     var b = FPSBase.City.BlockYard.Spawn(kind, p, q);
                     if (b == null) continue;
                     b.Body.isKinematic = true;
-                    placed.Add((b, chained, pinned));
+                    placed.Add((b, chained, pinned, locked));
                 }
                 Physics.SyncTransforms();
                 yield return null;
                 Physics.SyncTransforms();
-                foreach (var (b, chained, pinned) in placed)
+                foreach (var (b, chained, pinned, locked) in placed)
                 {
                     if (b == null) continue;
                     b.Claim();
                     // set down: exactly where it was, locked in (not let loose for the physics to shift)
                     if (chained && b.CarrierBelow(out var deck)) b.ChainTo(deck, true);
-                    else if (pinned) b.RestoreSetDown();
+                    else if (pinned) b.RestoreSetDown(locked);
                     else b.Body.isKinematic = false;
                 }
             }

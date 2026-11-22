@@ -290,7 +290,10 @@ namespace FPSBase.Mining
         }
 
         /// <summary>Loose dirt (m^3) and its gold within `radius` of a point.</summary>
-        public float LooseVolume(Vector3 center, float radius, out float gold)
+        public float LooseVolume(Vector3 center, float radius, out float gold) => LooseVolume(center, radius, out gold, float.MinValue);
+
+        /// <summary>Loose dirt within `radius`, only the part standing above height `above` (world m).</summary>
+        public float LooseVolume(Vector3 center, float radius, out float gold, float above)
         {
             gold = 0f; float v = 0f;
             Range(center, radius, out int x0, out int z0, out int x1, out int z1);
@@ -299,7 +302,10 @@ namespace FPSBase.Mining
                 {
                     float ddx = origin.x + x * cell - center.x, ddz = origin.z + z * cell - center.z;
                     if (ddx * ddx + ddz * ddz > radius * radius) continue;
-                    v += loose[z, x] * cellArea; gold += looseGold[z, x];
+                    float l = loose[z, x];
+                    if (l <= 0f) continue;
+                    float part = above == float.MinValue ? l : Mathf.Clamp(Surf(x, z) - above, 0f, l);
+                    v += part * cellArea; gold += looseGold[z, x] * (part / l);
                 }
             return v;
         }

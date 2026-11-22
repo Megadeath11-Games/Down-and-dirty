@@ -478,6 +478,7 @@ namespace FPSBase.Core
         }
 
         GUIStyle testStyle, testHead;
+        int lastTicked = -1;
 
         /// <summary>The "what to test" checklist down the left of the screen. Tick items off in a menu (the mouse is free there).</summary>
         void DrawTestList(bool clickable)
@@ -485,37 +486,40 @@ namespace FPSBase.Core
             if (!GameSettings.ShowTestList) return;
             testStyle ??= new GUIStyle(hudSmall) { fontSize = 13, wordWrap = true, richText = true };
             testHead ??= new GUIStyle(hudSmall) { fontSize = 14, fontStyle = FontStyle.Bold, richText = true };
-            var items = DevNotes.TestList;
+            // (ticked off: gone from the list for good)
+            var all = DevNotes.TestList;
+            var left = new System.Collections.Generic.List<int>();
+            for (int i = 0; i < all.Length; i++) if (!DevNotes.Done(i)) left.Add(i);
             float w = Mathf.Clamp(Screen.width * 0.22f, 240f, 330f);
             float x = 10f, y = menuOpen ? 40f : 84f; // in the game: under the key hints
             float maxH = Screen.height - y - (ActiveVehicle != null && !menuOpen ? 230f : 20f);
             // measure
             float h = 46f;
-            var heights = new float[items.Length];
-            for (int i = 0; i < items.Length; i++) { heights[i] = Mathf.Max(18f, testStyle.CalcHeight(new GUIContent(items[i]), w - 36f)) + 2f; h += heights[i]; }
+            var heights = new float[left.Count];
+            for (int k = 0; k < left.Count; k++) { heights[k] = Mathf.Max(18f, testStyle.CalcHeight(new GUIContent(all[left[k]]), w - 36f)) + 2f; h += heights[k]; }
             if (clickable) h += 24f;
             h = Mathf.Min(h, maxH);
             GUI.color = Color.white;
             GUI.Box(new Rect(x, y, w, h), GUIContent.none, menuOpen ? menuPanel : box);
             GUI.BeginGroup(new Rect(x, y, w, h));
-            GUI.Label(new Rect(8, 4, w - 16, 20), $"What to test  <color=#aaa>({DevNotes.DoneCount()}/{items.Length} done)</color>", testHead);
-            GUI.Label(new Rect(8, 22, w - 16, 18), clickable ? "<color=#aaa>click to tick off</color>" : "<color=#aaa>tick off in the pause menu (Esc)</color>", testStyle);
+            GUI.Label(new Rect(8, 4, w - 16, 20), $"What to test  <color=#aaa>({left.Count} left)</color>", testHead);
+            GUI.Label(new Rect(8, 22, w - 16, 18), clickable ? "<color=#aaa>click to tick off (it goes for good)</color>" : "<color=#aaa>tick off in the pause menu (Esc)</color>", testStyle);
             float cy = 44f;
-            for (int i = 0; i < items.Length && cy < h - 4f; i++)
+            for (int k = 0; k < left.Count && cy < h - 4f; k++)
             {
-                bool done = DevNotes.Done(i);
-                string text = done ? $"<color=#8c8>{items[i]}</color>" : items[i];
+                int i = left[k];
                 if (clickable)
                 {
-                    bool now = GUI.Toggle(new Rect(8, cy, 18, 18), done, GUIContent.none);
-                    if (GUI.Button(new Rect(28, cy, w - 36, heights[i]), GUIContent.none, GUIStyle.none)) now = !done;
-                    if (now != done) DevNotes.SetDone(i, now);
+                    bool now = GUI.Toggle(new Rect(8, cy, 18, 18), false, GUIContent.none);
+                    if (GUI.Button(new Rect(28, cy, w - 36, heights[k]), GUIContent.none, GUIStyle.none)) now = true;
+                    if (now) { DevNotes.SetDone(i, true); lastTicked = i; }
                 }
-                else GUI.Label(new Rect(8, cy, 18, 18), done ? "<color=#8c8>[x]</color>" : "•", testStyle);
-                GUI.Label(new Rect(28, cy, w - 36, heights[i]), text, testStyle);
-                cy += heights[i];
+                else GUI.Label(new Rect(8, cy, 18, 18), "•", testStyle);
+                GUI.Label(new Rect(28, cy, w - 36, heights[k]), all[i], testStyle);
+                cy += heights[k];
             }
-            if (clickable && cy + 22f <= h && GUI.Button(new Rect(8, h - 24f, 110, 20), "Clear ticks")) DevNotes.ClearTicks();
+            // (a slip of the mouse: the last one ticked can be put back)
+            if (clickable && lastTicked >= 0 && cy + 22f <= h && GUI.Button(new Rect(8, h - 24f, 150, 20), "Undo last tick")) { DevNotes.SetDone(lastTicked, false); lastTicked = -1; }
             GUI.EndGroup();
         }
 

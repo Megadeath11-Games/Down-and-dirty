@@ -200,6 +200,7 @@ namespace FPSBase.City
         {
             LastSnapTo = null;
             if (HookedBy != null || !FindSnap(out var bestP, out var bestQ, out var bestB)) return false;
+            Unregister(); // (wherever it was resting as it swung, it lets go of that ground)
             // set in beside a block on the dirt: the ground under it levelled to a flat bed at that block's height
             DigSite site = snapOnGround && OnDirt(bestP, bestQ) ? DigSite.At(bestP) : null;
             if (site != null && site.Contains(bestP))
@@ -216,8 +217,7 @@ namespace FPSBase.City
             else site = null;
             PlaceAt(bestP, bestQ);
             LastSnapTo = bestB;
-            // (bedded: it doesn't press itself down into the bed it was just given)
-            if (site != null) { still = 1f; pressedAt = new Vector3(bestP.x, 0f, bestP.z); Register(); Pin(); }
+            SetInPlace(bestP);
             return true;
         }
 
@@ -310,12 +310,29 @@ namespace FPSBase.City
         public bool SetLevel(Transform machine = null)
         {
             if (HookedBy != null || !FindLevel(out var p, out var q, machine)) return false;
+            Unregister();
             // on the dirt: the ground under it levelled to a flat bed first
             if (bedSite != null) { bedSite.BedUnder(bedCells, p.y, true); bedSite.SettleNow(); }
             PlaceAt(p, q);
-            // and it's set down on it straight away: it holds its ground and is pinned (it doesn't rock or roll off)
-            if (bedSite != null) { still = 1f; pressedAt = new Vector3(p.x, 0f, p.z); Register(); Pin(); } // (pinned now: the ground's collider catches up with the bed a frame or two later)
+            SetInPlace(p);
             return true;
+        }
+
+        /// <summary>
+        /// Put in its place (snapped in, or set down level): locked and pinned there straight away, before anything can
+        /// nudge it (a block still swinging on the chain beside it, the ground's collider catching up with a fresh bed).
+        /// It doesn't press itself down into the bed it was just given. On a trailer or a truck it's left to ride along.
+        /// </summary>
+        void SetInPlace(Vector3 p)
+        {
+            still = 1f;
+            pressedAt = new Vector3(p.x, 0f, p.z);
+            if (CarrierBelow(out _)) { Locked = false; return; }
+            // (locked straight in: exactly on its spot, not the hair above it a loose block is let go from)
+            transform.position = p; Body.position = p; lastPos = p;
+            Register();
+            Locked = true;
+            Pin();
         }
 
         /// <summary>
@@ -519,13 +536,43 @@ namespace FPSBase.City
         /// </summary>
         public bool Pinned { get; private set; }
         float pinCheck;
+        /// <summary>
+        /// Put in its place on purpose (snapped into a wall, or set down with land level): a machine bumping it doesn't
+        /// shift it, only the chain. A block just dropped, or knocked off, isn't: the bucket, a blade or a truck shoves it.
+        /// </summary>
+        public bool Locked { get; private set; }
+
+        static readonly Collider[] above = new Collider[16];
+        /// <summary>
+        /// Another block sitting on top of this one (in a wall, or stacked on a trailer): it can't be hooked till
+        /// that one's lifted off.
+        /// </summary>
+        public bool Covered() => Covered(out _);
+
+        public bool Covered(out ConcreteBlock over)
+        {
+            over = null;
+            if (HookedBy != null) return false;
+            Vector3 h = Size * 0.5f;
+            Vector3 c = transform.TransformPoint(new Vector3(0f, Size.y + 0.06f, 0f));
+            int n = Physics.OverlapBoxNonAlloc(c, new Vector3(Mathf.Max(0.05f, h.x - 0.08f), 0.05f, Mathf.Max(0.05f, h.z - 0.08f)), above, transform.rotation, ~0, QueryTriggerInteraction.Ignore);
+            for (int i = 0; i < n; i++)
+            {
+                var c2 = above[i];
+                if (c2 == null || c2.transform.IsChildOf(transform)) continue;
+                var o = c2.GetComponentInParent<ConcreteBlock>();
+                if (o != null && o != this && o.HookedBy == null && o.transform.position.y > transform.position.y + Size.y * 0.5f) { over = o; return true; }
+            }
+            return false;
+        }
 
         /// <summary>
         /// From the save: it was set down here, so it's set down here again, just as it was: holding its ground and
         /// pinned, not dropped in loose for the physics to nudge, and not pressed into the dirt a second time.
         /// </summary>
-        public void RestoreSetDown()
+        public void RestoreSetDown(bool locked = true)
         {
+            Locked = locked;
             var body = Body;
             body.isKinematic = true;
             lastPos = transform.position; lastRot = transform.rotation;
@@ -546,6 +593,7 @@ namespace FPSBase.City
 
         void Unpin()
         {
+            Locked = false;
             if (!Pinned) return;
             Pinned = false;
             if (ChainedTo == null) { Body.isKinematic = !NetMine; Body.WakeUp(); }
@@ -574,9 +622,12 @@ namespace FPSBase.City
         void Shoved(Collision c)
         {
             if (c.collider != null) LastTouch = $"{c.collider.name} ({(c.collider.attachedRigidbody != null ? c.collider.attachedRigidbody.name : "static")}), pinned {Pinned}";
-            // (set down, a machine bumping it doesn't move it: only the chain does)
+            // (locked in its place, a machine bumping it doesn't move it: only the chain does. Just dropped, it's shoved)
             if (!Pinned || !IsEquipment(c.collider)) return;
             Shoves++;
+            if (Locked) return;
+            Unregister();
+            still = 0f;
         }
         /// <summary>How many times equipment has knocked a set-down block loose (for the test).</summary>
         public static int Shoves;
@@ -605,6 +656,7 @@ namespace FPSBase.City
         void RestCheck(float dt)
         {
             if (Pinned && (HookedBy != null || ChainedTo != null || !NetMine)) Unpin();
+            if (Locked && (HookedBy != null || ChainedTo != null)) Locked = false;
             if (Pinned) PinGround(dt);
             // (still: not going anywhere. Settling dirt under it nudges it a millimetre now and then, which mustn't
             // keep it from ever being set down and holding its ground)
@@ -696,6 +748,8 @@ namespace FPSBase.City
                 }
             }
             pinCheck = 0f; // (set down: pinned as soon as no machine is against it; only equipment moves it then)
+            // (pressed down into loose dirt: pinned there now, before it can rock over in the hole it pressed)
+            if (LastSink > 0.005f && HookedBy == null && ChainedTo == null && !TouchingEquipment()) Pin();
         }
 
         bool OnABlock()

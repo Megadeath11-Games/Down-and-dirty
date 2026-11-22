@@ -262,7 +262,9 @@ namespace FPSBase.Vehicles
             if ((heapTimer -= dt) <= 0f || dt > 0.015f && moved > 0f)
             {
                 heapTimer = 0.2f;
-                heapVolume = site.LooseVolume(edge + f * (pushAhead + 0.1f), bladeWidth * 0.55f, out heapGold);
+                // (only what stands up against the blade, above its cutting edge: a field of loose dirt it's driving
+                // over with the blade up isn't a load)
+                heapVolume = site.LooseVolume(edge + f * (pushAhead + 0.1f), bladeWidth * 0.55f, out heapGold, edge.y - 0.03f);
                 // plus the clods rolling in front of the blade (cut dirt the blade is shoving along)
                 heapVolume += FPSBase.Mining.DirtGrains.VolumeNear(edge + f * (pushAhead * 0.5f + 0.3f), bladeWidth * 0.6f, out float clodGold);
                 heapGold += clodGold;

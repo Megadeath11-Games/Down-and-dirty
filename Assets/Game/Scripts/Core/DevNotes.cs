@@ -13,6 +13,16 @@ namespace FPSBase.Core
         /// <summary>Newest first.</summary>
         public static readonly Post[] Blog =
         {
+            new Post { date = "Update 50  ·  Nov 22, 2026", title = "Locked blocks, a controller column, quieter labels",
+                body =
+                "• A block with another block on top of it can't be hooked till the top one's lifted off. With the hook hanging low by the bottom block's loop, it takes the top one. Press the chain key by a covered block and it tells you.\n" +
+                "• Blocks you put in their place (snapped into a wall, or set down with land level) are locked: a machine bumping them doesn't move them, only the chain. A block just dropped isn't: the bucket, a blade or a truck shoves it about.\n" +
+                "• Snapping a block in while it swings no longer knocks the one below out of line: it's locked in exactly on its spot the instant it snaps, before anything can nudge it.\n" +
+                "• House site: the pad's level marks no longer sit over the footings. Patches at the edge of the pad are drawn only where they're clear of the trench.\n" +
+                "• Settings > Game > Labels: an opacity slider for players' name tags and the house site's label. Both also get smaller the further away they are.\n" +
+                "• Settings > Controls: a controller column next to the keys. Click it, then press any button, trigger, D-pad direction or stick push to bind it (Delete clears it). The chain keys can go on the D-pad if you like.\n" +
+                "• Dozer: \"Dirt in front of the blade\" only counts dirt standing up against the blade. Driving over deep loose fill with the blade up no longer reads it as a full blade.\n" +
+                "• What to test: an item you tick off is gone for good, through saves and new updates. \"Undo last tick\" puts back a slip of the mouse." },
             new Post { date = "Update 49  ·  Nov 22, 2026", title = "Saves keep your blocks and your arm up",
                 body =
                 "• Loading a save put every block back loose: the physics nudged them about and each one pressed itself into the dirt again, so a straight wall came back crooked. Now a block you set down comes back exactly where it was, locked in, every time you load.\n" +
@@ -403,11 +413,19 @@ namespace FPSBase.Core
                 "• Dozer berms build up properly in front of the blade." },
         };
 
-        public const string TestListVersion = "2026-11-22d";
+        public const string TestListVersion = "2026-11-22e";
 
         /// <summary>What's new in this build to try out.</summary>
         public static readonly string[] TestList =
         {
+            "Stack a block on another, put the hook low by the bottom one's loop and press the chain key: it hooks the top one",
+            "Drop a block (land level off, away from a wall), drive into it with the dozer: it shoves it. Snap one into a wall and bump it: it doesn't move",
+            "Let a block go swinging next to a wall: it snaps in and the block below stays in line",
+            "House site: the level marks on the pad don't cover the orange/green footing marks",
+            "Esc > Settings > Game: turn the label opacity down: the house site label fades; walk away: it gets smaller",
+            "Esc > Settings > Controls: bind the chain key to a D-pad direction on the controller and use it in the excavator",
+            "Dozer: drive over loose dirt with the blade up: dirt in front of the blade stays near 0",
+            "Tick something off this list: it disappears, and stays gone after you quit and load",
             "Build a few blocks in a wall, save, quit and load: every block is exactly where it was, still straight",
             "Leave the excavator with its arm all the way up, save, quit and load: the arm is still up",
             "Load blocks onto the semi's lowboy: the bottom-left panel shows the tonnes on and the tonnes free",
@@ -579,10 +597,19 @@ namespace FPSBase.Core
             "Read the Dev Blog on the main menu",
         };
 
-        static string Key(int i) => $"test.{TestListVersion}.{i}";
-        public static bool Done(int i) => PlayerPrefs.GetInt(Key(i), 0) == 1;
-        public static void SetDone(int i, bool done) { PlayerPrefs.SetInt(Key(i), done ? 1 : 0); PlayerPrefs.Save(); }
+        // A tick is kept by the item's own words, not its place in the list or the build: ticked off, an item is gone
+        // for good, through new builds and new items. It only comes back if it's reworded (there's still a problem with it).
+        static string Key(int i) => $"testdone.{Hash(TestList[i])}";
+        static string OldKey(int i) => $"test.{TestListVersion}.{i}"; // (ticked before ticks were kept by the words)
+        static uint Hash(string s) { uint h = 2166136261; foreach (char c in s) { h ^= c; h *= 16777619; } return h; }
+        public static bool Done(int i)
+        {
+            if (PlayerPrefs.GetInt(Key(i), 0) == 1) return true;
+            if (PlayerPrefs.GetInt(OldKey(i), 0) != 1) return false;
+            PlayerPrefs.SetInt(Key(i), 1); PlayerPrefs.DeleteKey(OldKey(i)); PlayerPrefs.Save();
+            return true;
+        }
+        public static void SetDone(int i, bool done) { PlayerPrefs.SetInt(Key(i), done ? 1 : 0); PlayerPrefs.DeleteKey(OldKey(i)); PlayerPrefs.Save(); }
         public static int DoneCount() { int n = 0; for (int i = 0; i < TestList.Length; i++) if (Done(i)) n++; return n; }
-        public static void ClearTicks() { for (int i = 0; i < TestList.Length; i++) PlayerPrefs.DeleteKey(Key(i)); PlayerPrefs.Save(); }
     }
 }

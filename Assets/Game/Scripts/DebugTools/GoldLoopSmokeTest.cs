@@ -82,6 +82,7 @@ namespace FPSBase.DebugTools
                         case "steer": yield return SteeringTests(); break;
                         case "bodyshove": yield return BodyShoveTests(); break;
                         case "cabreach": yield return CabReachTests(); break;
+                        case "clods": yield return ClodLandingTests(); break;
                         case "slosh": yield return SloshTests(DigSite.Instance, FindFirstObjectByType<DumpPickup>()); break;
                         case "materials": yield return MaterialsTests(DigSite.Instance, Economy.Instance, FindFirstObjectByType<WashPlant>(), FindFirstObjectByType<DumpPickup>()); break;
                         default: log.AppendLine($"INFO  unknown quick test '{part}'"); break;
@@ -3790,6 +3791,52 @@ namespace FPSBase.DebugTools
             BodyDirt.On = true;
             Check(shoved > 0.01f, $"a truck's bumper hitting a clump of dirt shoves some of it aside ({shoved:0.00} m3)");
             Check(went[1] > 19f && went[1] >= went[0] - 0.5f, $"with the clump its bumper hits shoved over, the truck keeps going ({went[1]:0.0} m, against {went[0]:0.0} m hitting it like a wall)");
+        }
+
+        /// <summary>
+        /// Clods poured out of a bucket: dropped from high up they go into the ground almost at once, and poured onto
+        /// the side of a heap they don't roll far down it (each compared with the old way).
+        /// </summary>
+        IEnumerator ClodLandingTests()
+        {
+            var site = DigSite.Instance;
+            float[] flatAir = new float[2], flatRoll = new float[2], slopeRoll = new float[2], lowRoll = new float[2];
+            for (int run = 0; run < 2; run++)
+            {
+                DirtGrains.Thud = run == 1;
+                string what = run == 1 ? "new" : "old";
+                Vector3 flat = new Vector3(60f + run * 40f, 0f, -170f), heap = flat + Vector3.forward * 12f;
+                if (!site.Contains(flat) || !site.Contains(heap + Vector3.forward * 4f)) { Check(false, $"clod test ground is on the dirt field ({flat})"); yield break; }
+                // 1. a bucketful let go 3 m over flat ground
+                DirtGrains.ClearAll(); DirtGrains.ResetStats();
+                flat.y = site.SurfaceY(flat);
+                DirtGrains.Pour(flat + Vector3.up * 3f, new MaterialLoad(0.4f, 0f), null);
+                for (float t = 0f; t < 1.1f; t += Time.deltaTime) yield return null;
+                flatAir[run] = DirtGrains.InFlight / 0.4f;
+                for (float t = 0f; t < 8f && DirtGrains.InFlight > 1e-4f; t += Time.deltaTime) yield return null;
+                flatRoll[run] = DirtGrains.MaxRoll;
+                // 2. tipped onto the side of a heap from 2.5 m, the bucket swinging out a little
+                site.Deposit(heap, new MaterialLoad(3f, 0f), 1.6f);
+                site.SettleNow(); site.Flush(0);
+                Vector3 side = heap + Vector3.right * 1.3f; side.y = site.SurfaceY(side);
+                Vector3 nrm = site.SurfaceNormal(side);
+                float slope = Vector3.Angle(nrm, Vector3.up);
+                DirtGrains.ClearAll(); DirtGrains.ResetStats();
+                DirtGrains.Pour(side + Vector3.up * 2.5f, new MaterialLoad(0.4f, 0f), null, Vector3.right * 0.6f);
+                for (float t = 0f; t < 8f && DirtGrains.InFlight > 1e-4f; t += Time.deltaTime) yield return null;
+                slopeRoll[run] = DirtGrains.MaxRoll;
+                // 3. let go just over the heap's side (a low, gentle pour)
+                Vector3 side2 = heap - Vector3.right * 1.3f; side2.y = site.SurfaceY(side2);
+                DirtGrains.ClearAll(); DirtGrains.ResetStats();
+                DirtGrains.Pour(side2 + Vector3.up * 0.35f, new MaterialLoad(0.2f, 0f), null);
+                for (float t = 0f; t < 8f && DirtGrains.InFlight > 1e-4f; t += Time.deltaTime) yield return null;
+                lowRoll[run] = DirtGrains.MaxRoll;
+                log.AppendLine($"INFO  clods {what}: 3 m drop on flat: {flatAir[run] * 100f:0}% still loose after 1.1 s, furthest {flatRoll[run]:0.00} m out; onto a {slope:0}° heap side from 2.5 m: furthest {slopeRoll[run]:0.00} m; low pour on its other side: furthest {lowRoll[run]:0.00} m");
+            }
+            DirtGrains.Thud = true;
+            Check(flatAir[1] < 0.15f, $"dirt dropped 3 m goes into the ground almost at once ({flatAir[1] * 100f:0}% still loose after 1.1 s, against {flatAir[0] * 100f:0}% the old way)");
+            Check(slopeRoll[1] < 1.0f && slopeRoll[1] <= slopeRoll[0], $"dumped onto the side of a heap it doesn't roll off down it ({slopeRoll[1]:0.00} m furthest, against {slopeRoll[0]:0.00} m the old way)");
+            Check(lowRoll[1] < 1.0f && lowRoll[1] <= lowRoll[0] + 0.1f, $"a low pour onto a heap's side stays put too ({lowRoll[1]:0.00} m, against {lowRoll[0]:0.00} m)");
         }
 
         /// <summary>Sat in every machine for sale: the palms are on the grips (or the wheel) and the balls of the feet on the pedals.</summary>

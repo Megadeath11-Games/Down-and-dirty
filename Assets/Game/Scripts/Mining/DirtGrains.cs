@@ -36,6 +36,7 @@ namespace FPSBase.Mining
             public bool pushed;   // cut by a blade: part of the heap rolling in front of it
             public float shoved;  // seconds since a blade last shoved it
             public bool onClod;   // sitting on other clods (last step)
+            public float groundT; // seconds it has been on the dirt (rolling or not)
             public Vector3 born;  // where it started (for the tests)
         }
 
@@ -465,9 +466,10 @@ namespace FPSBase.Mining
             for (int i = 0; i < n; i++)
             {
                 Vector2 d = Random.insideUnitCircle * spread;
+                Vector3 at = from + new Vector3(d.x, Random.Range(-0.08f, 0.08f), d.y);
                 g[count++] = new Grain
                 {
-                    p = from + new Vector3(d.x, Random.Range(-0.08f, 0.08f), d.y),
+                    p = at, born = at,
                     v = vel + new Vector3(Random.Range(-0.35f, 0.35f), Random.Range(-0.6f, 0f), Random.Range(-0.35f, 0.35f)),
                     rot = Random.rotation, spinAxis = Random.onUnitSphere, spin = Random.Range(60f, 400f),
                     r = r * Random.Range(0.85f, 1.15f), mu = mu, bounce = bounce, settleTime = settle,
@@ -600,19 +602,36 @@ namespace FPSBase.Mining
                             }
                             q.p.y = s + sink;
                             float vn = Vector3.Dot(q.v, n);
-                            if (vn < 0f)
+                            if (vn < 0f && Thud && !held && !q.pushed && -vn > 3.2f)
+                            {
+                                // dropped from high up: it goes into the dirt where it hits (a puff of crumbs flies off)
+                                if (Random.value < 0.35f) Spray(q.p, n * Random.Range(0.6f, 1.4f) + Random.insideUnitSphere * 0.7f, q.cat, q.r * 0.4f);
+                                if (!q.visual) Land(site, ref q);
+                                gone = true;
+                            }
+                            else if (vn < 0f)
                             {
                                 if (q.clod && !q.visual && -vn > 4.5f && count < MaxGrains - 4) Break(i, n);
                                 else q.v -= (1f + q.bounce) * vn * n;
                                 if (-vn > 2.5f && Random.value < 0.25f) Spray(q.p, Vector3.Reflect(q.v, n) * 0.4f + Random.insideUnitSphere * 0.8f, q.cat, q.r * 0.4f);
+                                if (Thud && !q.pushed)
+                                {
+                                    // (a lump of dirt doesn't skate: the hit takes most of its speed across the ground too)
+                                    Vector3 vnn = Vector3.Dot(q.v, n) * n;
+                                    q.v = vnn + (q.v - vnn) * Mathf.Clamp01(1f - -vn * 0.4f);
+                                }
                             }
+                            if (!gone) {
                             Friction(ref q, n, dt);
                             onSomething = true;
-                            if (q.v.sqrMagnitude < 0.04f) q.rest += dt; else q.rest = 0f;
-                            if (!held && (q.rest > q.settleTime || q.age > 10f))
+                            q.groundT += dt;
+                            if (q.v.sqrMagnitude < (Thud ? 0.09f : 0.04f)) q.rest += dt; else q.rest = 0f;
+                            // (and it doesn't roll about for long: a moment on the dirt and it's part of it)
+                            if (!held && (q.rest > q.settleTime || q.age > 10f || (Thud && !q.pushed && q.groundT > 0.8f)))
                             {
                                 if (!q.visual) Land(site, ref q);
                                 gone = true;
+                            }
                             }
                         }
                     }
@@ -684,7 +703,16 @@ namespace FPSBase.Mining
 
         /// <summary>For the tests: the fastest a clod went up, the furthest one was lifted out of the ground in a step, most at once.</summary>
         public static float MaxUp, MaxLift; public static string MaxUpWhat = "", MaxLiftWhat = ""; public static int MostLive;
-        public static void ResetStats() { MaxUp = MaxLift = 0f; MaxUpWhat = MaxLiftWhat = ""; MostLive = 0; }
+        /// <summary>For the tests: the furthest across the ground a clod ended up from where it was poured (m).</summary>
+        public static float MaxRoll;
+        public static void ResetStats() { MaxUp = MaxLift = MaxRoll = 0f; MaxUpWhat = MaxLiftWhat = ""; MostLive = 0; }
+
+        /// <summary>
+        /// Dirt lands like dirt (off only for the tests' comparison): a clod that hits the ground hard (dropped from
+        /// half a metre or more) thuds into it right where it hits instead of bouncing and rolling off; a softer
+        /// landing still loses most of its sideways speed in the hit, and nothing rolls about on the dirt for long.
+        /// </summary>
+        public static bool Thud = true;
         static string Describe(in Grain q) => $"{(q.visual ? "show " : "")}{(q.pushed ? "pushed " : "")}{(q.clod ? "clod " : "grain ")}r {q.r:0.00} age {q.age:0.00} at {q.p}, started at {q.born}, going {q.v}";
 
         /// <summary>Coulomb-style friction: gravity along a slope steeper than atan(mu) keeps it sliding, gentler slopes stop it.</summary>
@@ -765,6 +793,8 @@ namespace FPSBase.Mining
 
         void Land(DigSite site, ref Grain q)
         {
+            float roll = new Vector2(q.p.x - q.born.x, q.p.z - q.born.z).magnitude;
+            if (!q.pushed && q.born != Vector3.zero && roll > MaxRoll) MaxRoll = roll;
             var rec = ReceiverAt(q.p); // e.g. the sand & gravel yard's bay sits on the dirt field
             if (rec != null && TryGive(rec, ref q)) return;
             site.Land(q.p, q.load);

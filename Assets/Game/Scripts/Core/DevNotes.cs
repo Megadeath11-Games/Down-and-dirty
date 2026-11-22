@@ -13,6 +13,10 @@ namespace FPSBase.Core
         /// <summary>Newest first.</summary>
         public static readonly Post[] Blog =
         {
+            new Post { date = "Update 53  ·  Nov 22, 2026", title = "Dirt that stays where you drop it",
+                body =
+                "• Dirt out of a bucket lands like dirt: dropped from half a metre or more, a clod goes into the ground right where it hits instead of bouncing and rolling off. A bucketful let go 3 m up is all in the ground about a second later.\n" +
+                "• Dumped on a slope or the side of a heap, the clods don't roll away down it any more (about half as far as before): your pile stays where you put it instead of running into whatever is below." },
             new Post { date = "Update 52  ·  Nov 22, 2026", title = "Steam overlay, a cleaner trench, firmer steering",
                 body =
                 "• Shift+Tab opens the Steam overlay. Steam only puts its overlay into games it starts itself, so add the game to Steam once (Games > Add a Non-Steam Game to My Library, pick Down and Dirty) and start it from there. Started from its folder, Shift+Tab tells you this instead of doing nothing.\n" +
@@ -433,6 +437,8 @@ namespace FPSBase.Core
         /// <summary>What's new in this build to try out.</summary>
         public static readonly string[] TestList =
         {
+            "Dump a bucket from high up: the dirt thuds into the ground where it lands instead of bouncing about",
+            "Dump a bucket on a slope or the side of a pile: it stays there instead of rolling down",
             "Add the game to Steam (Games > Add a Non-Steam Game), start it from Steam, press Shift+Tab: the Steam overlay opens",
             "Look out of a cab: the glass is clear, not blue",
             "20, 50 or 90 t excavator: dig a trench, then pull a full bucket in along it: the heap comes towards you and the trench behind the bucket stays clean",

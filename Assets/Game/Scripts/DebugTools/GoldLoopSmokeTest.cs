@@ -3837,6 +3837,31 @@ namespace FPSBase.DebugTools
             bool s3 = d4.SnapToWall();
             float turn = Mathf.DeltaAngle(a.Heading, d4.Heading);
             Check(s3 && Mathf.Abs(Mathf.Abs(turn) - 90f) < 0.5f, $"one let go turned near square goes in square, a corner ({turn:0.0}°)");
+            // the way you really let go: still hanging in the air, a bit off and turned a bit
+            var extra = new System.Collections.Generic.List<ConcreteBlock>();
+            IEnumerator HangAndLet(string what, Vector3 local, float yawOff, System.Func<ConcreteBlock, Vector3, bool> ok)
+            {
+                var h = BlockYard.Spawn(1, a.transform.TransformPoint(local), Quaternion.Euler(0f, a.Heading + yawOff, 0f));
+                h.Claim(); extra.Add(h);
+                var hb = h.Body; bool wasK = hb.isKinematic; hb.isKinematic = true; // (held still in the air, as if on the chain)
+                yield return new WaitForFixedUpdate();
+                hb.isKinematic = wasK;
+                bool sn = h.SnapToWall();
+                Vector3 l = a.transform.InverseTransformPoint(h.transform.position);
+                Check(sn && ok(h, l), $"{what} ({(sn ? $"snapped against {(h.LastSnapTo == a ? "the first block" : "the next")}, at {l.x:0.00}, {l.y:0.00}, {l.z:0.00} from the first, turned {Mathf.DeltaAngle(a.Heading, h.Heading):0.0}°" : "didn't snap")})");
+                for (int i = 0; i < 25; i++) yield return new WaitForFixedUpdate();
+            }
+            bool Square(ConcreteBlock h) => Mathf.Abs(Mathf.Repeat(Mathf.DeltaAngle(a.Heading, h.Heading) + 45f, 90f) - 45f) < 0.5f;
+            // hanging 1.6 m up, off the far end of the first block (the other end from the second)
+            yield return HangAndLet("one let go hanging 1.6 m up off the first block's other end drops into place end to end", new Vector3(0.35f, 1.6f, -a.Size.z - 0.5f), -9f,
+                (h, l) => Square(h) && Mathf.Abs(l.x) < 0.01f && Mathf.Abs(l.z + a.Size.z) < 0.01f && Mathf.Abs(l.y) < 0.06f);
+            // hanging 1.2 m up beside it: side by side, face to face
+            yield return HangAndLet("one let go hanging 1.2 m up beside the first block goes in side by side against it", new Vector3(-a.Size.x - 0.45f, 1.2f, 0.2f), 6f,
+                (h, l) => Square(h) && Mathf.Abs(l.x + a.Size.x) < 0.01f && Mathf.Abs(l.y) < 0.06f);
+            // hanging 1 m over the joint between the first block and the one just put on its end (the top's free there): it goes on top
+            yield return HangAndLet("one let go hanging 1 m over a joint goes down on top across it", new Vector3(-0.12f, a.Size.y + 1f, -a.Size.z * 0.5f - 0.15f), 11f,
+                (h, l) => Square(h) && Mathf.Abs(l.y - a.Size.y) < 0.01f && Mathf.Abs(l.z + a.Size.z * 0.5f) < 0.01f && Mathf.Abs(l.x) < 0.01f);
+
             // far from anything: left where it is
             var e5 = BlockYard.Spawn(1, wallAt + new Vector3(0f, 0f, 6f), Quaternion.Euler(0f, 60f, 0f));
             e5.Claim(); yield return new WaitForFixedUpdate();
@@ -3878,11 +3903,17 @@ namespace FPSBase.DebugTools
                 var g7 = BlockYard.Spawn(1, b2.transform.position + b2.transform.forward * (b2.Size.z + 0.5f) + Vector3.up * 0.4f, Quaternion.Euler(0f, b2.Heading + 4f, 0f));
                 g7.Claim(); yield return new WaitForFixedUpdate();
                 chain.Hook(g7);
-                chain.Release(); // (let go where it is: the chain's not long enough to reach from the machine)
-                Check(g7.LastSnapTo == b2, $"a block let go off the chain by the end of the wall goes into it ({(g7.LastSnapTo != null ? "against the " + (g7.LastSnapTo == b2 ? "end block" : "another block") : "not snapped")})");
+                var g7b = g7.Body; bool g7k = g7b.isKinematic; g7b.isKinematic = true; // (held where it is: the chain's not long enough to reach from the machine)
+                for (float t = 0f; t < 0.3f; t += Time.deltaTime) yield return null;
+                bool shown = chain.SnapShown;
+                g7b.isKinematic = g7k;
+                chain.Release();
+                Check(shown, "while a block hangs on the chain by the wall, a green outline shows where it'll go");
+                Check(g7.LastSnapTo != null && g7.InWall(), $"a block let go off the chain by the end of the wall goes into it ({(g7.LastSnapTo != null ? "against the " + (g7.LastSnapTo == b2 ? "end block" : "another block") : "not snapped")})");
                 Destroy(ex.gameObject); Destroy(g7.gameObject);
             }
             foreach (var bk in new[] { a, b2, c3, d4 }) if (bk != null) Destroy(bk.gameObject);
+            foreach (var bk in extra) if (bk != null) Destroy(bk.gameObject);
             yield return null;
         }
 

@@ -170,14 +170,18 @@ namespace FPSBase.City
 
         // ------------------------------------------------------------------ walls: blocks snap together
 
-        /// <summary>How close a block let go off the chain has to be to a spot against another block to snap into it (m).</summary>
-        public const float SnapReach = 0.9f;
+        /// <summary>How close (side to side) a block let go off the chain has to be to a spot against another block to snap into it (m).</summary>
+        public const float SnapReach = 1.3f;
+        /// <summary>How high over the spot it can still be hanging and snap down into it (m).</summary>
+        public const float SnapDrop = 2.5f;
         /// <summary>Test switch: off = blocks are set down wherever they're let go.</summary>
         public static bool SnapOn = true;
         /// <summary>The block it last snapped against (for the test).</summary>
         [System.NonSerialized] public ConcreteBlock LastSnapTo;
 
         bool Upright => Vector3.Dot(transform.up, Vector3.up) > 0.985f;
+        /// <summary>Near enough upright to build against (one on bumpy dirt leans a little).</summary>
+        bool UprightEnough => Vector3.Dot(transform.up, Vector3.up) > 0.96f;
         /// <summary>Set down and still (on the ground, on a wall, on a deck): something to build against.</summary>
         bool SetDown => HookedBy == null && (Pinned || Registered || ChainedTo != null || Body.isKinematic || Body.IsSleeping() || Body.linearVelocity.sqrMagnitude < 0.01f);
 
@@ -195,16 +199,38 @@ namespace FPSBase.City
         public bool SnapToWall()
         {
             LastSnapTo = null;
-            if (!SnapOn || ChainedTo != null || HookedBy != null || !NetMine) return false;
+            if (HookedBy != null || !FindSnap(out var bestP, out var bestQ, out var bestB)) return false;
+            var body = Body;
+            transform.SetPositionAndRotation(bestP + Vector3.up * 0.004f, bestQ);
+            body.position = transform.position; body.rotation = bestQ;
+            if (!body.isKinematic) { body.linearVelocity = Vector3.zero; body.angularVelocity = Vector3.zero; }
+            lastPos = transform.position; lastRot = bestQ; still = 0f;
+            LastSnapTo = bestB;
+            NetDirty = true;
+            return true;
+        }
+
+        /// <summary>
+        /// Where this block would go into a wall if it were let go now (also while it hangs on the chain, for the
+        /// green outline): the nearest spot, measured side to side, against a block that's set down, with this one
+        /// anywhere from a little below it to <see cref="SnapDrop"/> above it. Over a block it goes on top; beside
+        /// one, end to end or side by side.
+        /// </summary>
+        public bool FindSnap(out Vector3 bestP, out Quaternion bestQ, out ConcreteBlock bestB)
+        {
+            bestP = default; bestQ = default; bestB = null;
+            if (!SnapOn || ChainedTo != null || !NetMine) return false;
             Vector3 here = transform.position; // (the bottom middle)
             float myYaw = Yaw(transform);
-            float bd = SnapReach; Vector3 bestP = default; Quaternion bestQ = default; ConcreteBlock bestB = null;
+            float bd = float.MaxValue;
             var cand = new List<Vector3>();
             foreach (var o in all)
             {
-                if (o == null || o == this || !o.Upright || !o.SetDown) continue;
+                if (o == null || o == this || !o.UprightEnough || !o.SetDown) continue;
                 Vector3 N = o.Size;
-                if ((o.transform.position - here).magnitude > (N.magnitude + Size.magnitude) * 0.5f + SnapReach + 0.5f) continue;
+                Vector3 off = o.transform.position - here;
+                if (new Vector2(off.x, off.z).magnitude > (N.magnitude + Size.magnitude) * 0.5f + SnapReach + 0.5f) continue;
+                if (off.y > 0.6f || off.y < -(SnapDrop + N.y + 0.5f)) continue;
                 float turn = Mathf.Round(Mathf.DeltaAngle(Yaw(o.transform), myYaw) / 90f) * 90f;
                 Quaternion q = o.transform.rotation * Quaternion.Euler(0f, turn, 0f);
                 Vector3 e = SizeIn(Size, turn);
@@ -222,7 +248,10 @@ namespace FPSBase.City
                 foreach (var l in cand)
                 {
                     Vector3 p = o.transform.TransformPoint(l);
-                    float d = Vector3.Distance(p, here);
+                    // side to side how far, and it has to be over the spot (hanging above it) or about level with it
+                    float flat = new Vector2(p.x - here.x, p.z - here.z).magnitude, rise = here.y - p.y;
+                    if (flat > SnapReach || rise < -0.35f || rise > SnapDrop) continue;
+                    float d = flat + Mathf.Abs(rise) * 0.1f;
                     if (d >= bd) continue;
                     if (l.y < 0.01f) p = OnGround(p);
                     if (!Free(p, q)) continue;
@@ -230,15 +259,7 @@ namespace FPSBase.City
                     bd = d; bestP = p; bestQ = q; bestB = o;
                 }
             }
-            if (bestB == null) return false;
-            var body = Body;
-            transform.SetPositionAndRotation(bestP + Vector3.up * 0.004f, bestQ);
-            body.position = transform.position; body.rotation = bestQ;
-            if (!body.isKinematic) { body.linearVelocity = Vector3.zero; body.angularVelocity = Vector3.zero; }
-            lastPos = transform.position; lastRot = bestQ; still = 0f;
-            LastSnapTo = bestB;
-            NetDirty = true;
-            return true;
+            return bestB != null;
         }
 
         /// <summary>Beside a block on the ground: on the dirt there if it's higher than the block beside it stands.</summary>

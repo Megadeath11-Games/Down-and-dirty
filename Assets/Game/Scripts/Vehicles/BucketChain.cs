@@ -118,6 +118,7 @@ namespace FPSBase.Vehicles
         void Update()
         {
             RopeStep(Time.deltaTime);
+            ShowSnap();
             if (ex == null || !ex.Occupied || ex.NetRemote) return;
             if (Controls.Pressed(GameAction.Hook)) Toggle();
             if (Out || Held != null)
@@ -131,6 +132,45 @@ namespace FPSBase.Vehicles
                 if (Mathf.Abs(tu) > 0.05f) TurnBy(tu * TurnSpeed * Time.deltaTime);
             }
         }
+
+        // ------------------------------------------------------------------ where the block on the chain will go
+
+        GameObject ghost;
+        float ghostAt;
+        static Material ghostMat;
+        /// <summary>Where the block on the chain would snap into the wall if let go now (for the test).</summary>
+        public bool SnapShown => ghost != null && ghost.activeSelf;
+
+        /// <summary>A see-through green block where the one on the chain will go into the wall when it's let go.</summary>
+        void ShowSnap()
+        {
+            if (Held == null || !Held.NetMine) { if (ghost != null) ghost.SetActive(false); return; }
+            if (Time.time - ghostAt < 0.1f) return;
+            ghostAt = Time.time;
+            if (!Held.FindSnap(out var p, out var q, out _)) { if (ghost != null) ghost.SetActive(false); return; }
+            if (ghost == null)
+            {
+                ghost = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                ghost.name = "Block snap outline";
+                Destroy(ghost.GetComponent<Collider>());
+                if (ghostMat == null)
+                {
+                    ghostMat = new Material(Shader.Find("HDRP/Lit"));
+                    ghostMat.SetColor("_BaseColor", new Color(0.3f, 1f, 0.35f, 0.35f));
+                    ghostMat.SetFloat("_SurfaceType", 1f); ghostMat.SetFloat("_BlendMode", 0f); ghostMat.SetFloat("_ZWrite", 0f);
+                    ghostMat.SetFloat("_DoubleSidedEnable", 1f);
+                    try { UnityEngine.Rendering.HighDefinition.HDMaterial.ValidateMaterial(ghostMat); } catch { }
+                }
+                var r = ghost.GetComponent<MeshRenderer>();
+                r.sharedMaterial = ghostMat;
+                r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            }
+            ghost.SetActive(true);
+            ghost.transform.SetPositionAndRotation(p + q * Vector3.up * (Held.Size.y * 0.5f + 0.01f), q);
+            ghost.transform.localScale = Held.Size + Vector3.one * 0.02f;
+        }
+
+        void OnDestroy() { if (ghost != null) Destroy(ghost); }
 
         // ------------------------------------------------------------------ the free chain: links that swing and hang
 

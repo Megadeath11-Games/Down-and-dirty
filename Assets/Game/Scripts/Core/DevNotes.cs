@@ -13,6 +13,12 @@ namespace FPSBase.Core
         /// <summary>Newest first.</summary>
         public static readonly Post[] Blog =
         {
+            new Post { date = "Update 45  ·  Nov 21, 2026", title = "Blocks snap together for real",
+                body =
+                "• Concrete blocks snap into a wall when you let them go off the chain while they're still hanging in the air. Before, a block only snapped if you'd lowered it right down next to another one first, so most of the time it just dropped where it was.\n" +
+                "• Let a block go hanging over another block and it drops onto the top of it (or across the joint between two, like brickwork); beside one and it goes end to end or side by side, face to face. It can be hanging up to 2.5 m above the spot and up to about 1.3 m off to the side.\n" +
+                "• While a block hangs on the chain near a wall, a see-through green block shows exactly where it'll go when you let go. Move the arm or turn the block (, and .) until the green block is where you want it, then unhook.\n" +
+                "• The first block of a wall can sit a little crooked on bumpy dirt and the rest still line up off it." },
             new Post { date = "Update 44  ·  Nov 21, 2026", title = "The house tab is back on the phone",
                 body =
                 "• The phone's Build a house and Clean up tabs were hidden behind the messages on the Messages and Jobs pages, so you couldn't find them. They now sit in a row along the top next to Messages and Jobs, on every page." },
@@ -375,11 +381,13 @@ namespace FPSBase.Core
                 "• Dozer berms build up properly in front of the blade." },
         };
 
-        public const string TestListVersion = "2026-11-21i";
+        public const string TestListVersion = "2026-11-21j";
 
         /// <summary>What's new in this build to try out.</summary>
         public static readonly string[] TestList =
         {
+            "Excavator chain: set one block down, lift another and hold it over the first: a green block shows on top; let go: it lands on top, lined up",
+            "Hold a block on the chain off the end or the side of a block: the green block shows end to end or side by side; let go: it goes there, face to face",
             "Phone (P): Messages, Jobs, Build a house and Clean up tabs all show along the top, on every page",
             "Mixer truck (or any machine) parked in the dirt field against a bank or in a dug hole: look at it: Reposition and Call a tow truck are there to use",
             "Backfill dirt all round a machine, then dig one side clear down to its wheels: it's free (Reposition works, it drives out)",

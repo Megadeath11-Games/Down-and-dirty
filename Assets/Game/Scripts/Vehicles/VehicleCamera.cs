@@ -77,7 +77,11 @@ namespace FPSBase.Vehicles
             if (cabView)
             {
                 transform.position = seat.position;
-                transform.rotation = Quaternion.Euler(10f + pitchOffset, baseYaw + yawOffset, 0f);
+                // looking round from the seat is relative to the machine: on a slope you tilt with the cab (turned round
+                // on a hill, you're still looking out of the windscreen, not at the roof or the floor)
+                transform.rotation = followTargetYaw
+                    ? target.rotation * Quaternion.Euler(10f + pitchOffset, yawOffset, 0f)
+                    : Quaternion.Euler(10f + pitchOffset, baseYaw + yawOffset, 0f);
                 return;
             }
 

@@ -73,6 +73,7 @@ namespace FPSBase.DebugTools
                         case "blockyard": yield return BlockYardTests(); break;
                         case "mixerpit": yield return MixerPitTests(); break;
                         case "blockbed": yield return BlockBedTests(); break;
+                        case "cabtilt": yield return CabTiltTests(); break;
                         case "slosh": yield return SloshTests(DigSite.Instance, FindFirstObjectByType<DumpPickup>()); break;
                         case "materials": yield return MaterialsTests(DigSite.Instance, Economy.Instance, FindFirstObjectByType<WashPlant>(), FindFirstObjectByType<DumpPickup>()); break;
                         default: log.AppendLine($"INFO  unknown quick test '{part}'"); break;
@@ -1889,6 +1890,25 @@ namespace FPSBase.DebugTools
                 log.AppendLine($"INFO  let go block: under it{under}; pinned {blk.Pinned}, kinematic {blk.Body.isKinematic}, speed {blk.Body.linearVelocity.magnitude:0.00}, surface {site.SurfaceY(blk.transform.position):0.00}, y {blk.transform.position.y:0.00}");
             }
             Check(blk.Registered, $"set down on the dig ground, it holds the ground it stands on ({(blk.Registered ? "yes" : "no")}, {blk.transform.position.y - site.SurfaceY(blk.transform.position):0.00} m up)");
+            // knocked with the bucket (boom down on it and swung back and forth through it): it doesn't budge
+            {
+                Vector3 bp0 = blk.transform.position; Quaternion br0 = blk.transform.rotation;
+                int sh0 = FPSBase.City.ConcreteBlock.Shoves;
+                ex.TestControl(new MiniExcavator.Inputs { boom = -1f });
+                for (int i = 0; i < 40; i++) yield return new WaitForFixedUpdate();
+                foreach (float sw in new[] { -1f, 1f, -1f })
+                {
+                    ex.TestControl(new MiniExcavator.Inputs { swing = sw, boom = -0.3f });
+                    for (int i = 0; i < 70; i++) yield return new WaitForFixedUpdate();
+                }
+                ex.TestControl(new MiniExcavator.Inputs { boom = 1f });
+                for (int i = 0; i < 60; i++) yield return new WaitForFixedUpdate();
+                ex.TestControl(new MiniExcavator.Inputs());
+                float bm = Vector3.Distance(bp0, blk.transform.position), ba = Quaternion.Angle(br0, blk.transform.rotation);
+                int bumps = FPSBase.City.ConcreteBlock.Shoves - sh0;
+                log.AppendLine($"INFO  bucket knocked into the set-down block {bumps} times: moved {bm:0.000} m, turned {ba:0.0}°");
+                Check(bm < 0.02f && ba < 0.5f, $"set down, the bucket knocking into it doesn't move it ({bumps} knocks, moved {bm:0.000} m, turned {ba:0.0}°)");
+            }
             ex.TestControl(null);
             Destroy(blk.gameObject); Destroy(ex.gameObject);
 
@@ -3570,6 +3590,32 @@ namespace FPSBase.DebugTools
         /// let go by a set-down block snap into a wall off it (end to end, on top over the joint, at a corner);
         /// a block on the chain turns with the keys; the phone's clean up collects only the loose ones.
         /// </summary>
+        /// <summary>The cab view tilts with the machine: turned round on a slope, you still look out of the windscreen.</summary>
+        IEnumerator CabTiltTests()
+        {
+            var dealer = FindFirstObjectByType<VehicleDealer>();
+            var pf = Prefab0(dealer, "Compact Excavator");
+            Check(pf != null, "the dealer sells the 5 t excavator");
+            if (pf == null) yield break;
+            var ex = Instantiate(pf, new Vector3(0f, 60f, 0f), Quaternion.identity).GetComponent<VehicleBase>();
+            ex.GetComponent<Rigidbody>().isKinematic = true;
+            var cam = ex.GetComponentInChildren<VehicleCamera>(true);
+            Check(cam != null, "it has a cab camera");
+            if (cam == null) yield break;
+            cam.gameObject.SetActive(true);
+            foreach (var pose in new[] { Quaternion.Euler(-15f, 0f, 0f), Quaternion.Euler(-15f, 180f, 0f) * Quaternion.Euler(0f, 0f, 0f), Quaternion.Euler(12f, 90f, 8f) })
+            {
+                ex.transform.rotation = pose;
+                for (int i = 0; i < 3; i++) { cam.TestCabView(true, 0f, 0f); yield return null; }
+                Vector3 want = ex.transform.rotation * Quaternion.Euler(10f, 0f, 0f) * Vector3.forward;
+                float off = Vector3.Angle(cam.transform.forward, want), roll = Vector3.Angle(cam.transform.up, ex.transform.rotation * Quaternion.Euler(10f, 0f, 0f) * Vector3.up);
+                Check(off < 1f && roll < 1f, $"in the cab with the machine at {pose.eulerAngles}, the view is square to the cab ({off:0.0}° off, {roll:0.0}° of roll)");
+            }
+            cam.TestCabView(false);
+            Destroy(ex.gameObject);
+            yield return null;
+        }
+
         /// <summary>Land level on bumpy dirt: the block gets a flat bed and stays put, square and upright.</summary>
         IEnumerator BlockBedTests()
         {
@@ -4391,7 +4437,7 @@ namespace FPSBase.DebugTools
             for (int i = 0; i < 50 * 4; i++) yield return new WaitForFixedUpdate();
             float g1 = site.SurfaceY(at);
             float ring = site.SurfaceY(ringAt) - ring0;
-            log.AppendLine($"INFO  barrier block on {bed:0.00} m of loose dirt: ground under it went down {(g0 - g1) * 100f:0} cm (pressed {blk.LastSink * 100f:0} cm), packed {site.PackedAt(at):0.00}, dirt squeezed up beside it {ring * 100f:0} cm, block bottom {(blk.transform.position.y - g0) * 100f:0} cm from where the top was, holding {blk.Registered}");
+            log.AppendLine($"INFO  barrier block on {bed:0.00} m of loose dirt: ground under it went down {(g0 - g1) * 100f:0} cm (pressed {blk.LastSink * 100f:0} cm), packed {site.PackedAt(at):0.00}, dirt squeezed up beside it {ring * 100f:0} cm, block bottom {(blk.transform.position.y - g0) * 100f:0} cm from where the top was, holding {blk.Registered} ({blk.RegWhy}), at {blk.transform.position}, up {blk.transform.up.y:0.00}");
             Check(blk.Registered && g0 - g1 > 0.04f && site.PackedAt(at) > 0.3f, $"set down on loose dirt, the 3.65 t barrier block presses into it ({(g0 - g1) * 100f:0} cm down, packed {site.PackedAt(at):0.00})");
             Check(blk.transform.position.y < g0 - 0.02f, $"and it sits down in it, not on the fluffy top ({(blk.transform.position.y - g0) * 100f:0} cm)");
             // dirt poured onto its top
@@ -4446,7 +4492,7 @@ namespace FPSBase.DebugTools
                 d.TestDrive(0f);
                 float shoved = Vector3.Distance(new Vector3(blk.transform.position.x, 0f, blk.transform.position.z), new Vector3(bp.x, 0f, bp.z));
                 log.AppendLine($"INFO  dozer driven into the set-down block: block moved {shoved:0.00} m, knocked loose {FPSBase.City.ConcreteBlock.Shoves - sh0} times, last touch {FPSBase.City.ConcreteBlock.LastTouch}, dozer closest {closest:0.0} m");
-                Check(shoved > 0.3f, $"a machine driven into a set-down block pushes it ({shoved:0.00} m)");
+                Check(shoved < 0.05f && blk.Pinned, $"a machine driven into a set-down block doesn't move it: only the chain does (moved {shoved:0.00} m, bumped {FPSBase.City.ConcreteBlock.Shoves - sh0} times, pinned {blk.Pinned})");
                 Destroy(d.gameObject);
             }
             Destroy(blk.gameObject);
@@ -4619,7 +4665,24 @@ namespace FPSBase.DebugTools
             }
             Check(s.TrenchDone >= plan.needTrench, $"the footings dug to {plan.footingDepth:0.0#} m count as dug ({s.TrenchDone * 100f:0}%)");
             Check(s.State == FPSBase.City.SiteState.ReadyForConcrete, $"pad level and footings dug: ready for concrete ({s.State}; {s.Status})");
+            Check(s.OrangeFootings == 0, $"dug to depth, no footing's marked orange ({s.OrangeFootings} orange)");
+            int readyOrange = s.OrangeMarks, readyHigh = s.PadHigh;
             yield return ShotAt(eye, s.Center + Vector3.down * 0.5f, "Screenshots/house_ready.png");
+            // a small lump dropped on the level pad: it's marked orange, even in a patch that's otherwise level
+            {
+                var bnd = plan.Bounds;
+                Vector2 lumpAt = new Vector2(bnd.center.x + 0.3f, bnd.center.y + 0.2f);
+                if (plan.FootingDistance(lumpAt, out _) < 1f) lumpAt += new Vector2(1.2f, 0f);
+                Vector3 lw = s.ToWorld(lumpAt); lw.y = site.SurfaceY(lw);
+                site.Deposit(lw, MaterialLoad.Mix(0.05f, 0f, 0f, 0f, 0f), 0.15f);
+                s.Check();
+                int lumpHigh = s.PadHigh, lumpOrange = s.OrangeMarks;
+                yield return ShotAt(lw + new Vector3(2.5f, 2.5f, -2.5f), lw, "Screenshots/house_lump.png");
+                Check(lumpHigh > readyHigh && lumpHigh - readyHigh < 16 && lumpOrange > readyOrange, $"a small lump on the level pad is marked orange ({lumpHigh - readyHigh} more squares too high, {lumpOrange - readyOrange} more orange marks): {s.PadHint()}");
+                lw.y = padY; site.Dig(lw, 0.35f, 1f);
+                for (int i = 0; i < 10; i++) yield return new WaitForFixedUpdate();
+                s.Check();
+            }
             // saved and loaded back
             var ms = new MemoryStream();
             con.Write(new BinaryWriter(ms));

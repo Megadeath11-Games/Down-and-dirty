@@ -109,7 +109,7 @@ namespace FPSBase.City
             var plan = placing;
             CancelPlacing();
             var made = Place(plan, site, at, yaw, padY);
-            GameUI.Toast($"{plan.title} set out. Level the pad to the outline and dig the footings {plan.footingDepth:0.0#} m below it: patches and trenches turn green as they're done");
+            GameUI.Toast($"{plan.title} set out. Level the pad to the outline and dig the footings {plan.footingDepth:0.0#} m below it: orange is still to dig down, blue to fill, and it all turns green as it's done");
             Debug.Log($"[Construction] {plan.title} set out at {made.Center} (pad {padY:0.00}, turned {yaw:0}°)");
         }
 
@@ -296,7 +296,7 @@ namespace FPSBase.City
                 $"Pad: level to ±{plan.padTolerance * 100f:0.#} cm over {plan.needPad * 100f:0}% of it\n" +
                 $"Footings: to within {plan.trenchTolerance * 100f:0} cm of depth over {plan.needTrench * 100f:0}% of them\n" +
                 $"Concrete: about {plan.ConcreteVolume:0.#} m³ ({(plan.slab ? "footings and a slab" : "footings, crawl space")})\n\n" +
-                "Set it out on open ground on a dig field: the blue outline shows the pad and the footing trenches. Level the pad, dig the trenches, and it's ready for concrete.";
+                "Set it out on open ground on a dig field: the blue outline shows the pad and the footing trenches. Level the pad, dig the trenches, and it's ready for concrete. On site, orange is still to dig down (high spots and trenches), blue is still to fill, green is done.";
             GUI.Label(facts, fx, ShopTheme.Small);
             var eco = Economy.Instance;
             bool afford = eco == null || eco.CanAfford(plan.price);
@@ -436,7 +436,8 @@ namespace FPSBase.City
                     : s.State == SiteState.ReadyForConcrete ? $"{s.Plan.title}  ·  ready for concrete ({s.Plan.ConcreteVolume:0.#} m³)"
                     : s.State >= SiteState.PouringConcrete ? $"{s.Plan.title}  ·  {StageText(s)}" +
                         (s.State == SiteState.PouringConcrete && !s.Curing ? $" ({s.ConcretePoured:0.0} of {s.ConcreteNeeded:0.0} m³)" + (d < 35f && s.PourSide.Length > 0 ? $"\nStill to fill: mostly the {s.PourSide} side" : "") : "")
-                    : $"{s.Plan.title}  ·  pad {s.PadDone * 100f:0}% level  ·  footings {s.TrenchDone * 100f:0}% dug ({s.Plan.footingDepth:0.0#} m)";
+                    : $"{s.Plan.title}  ·  pad {s.PadDone * 100f:0}% level  ·  footings {s.TrenchDone * 100f:0}% dug ({s.Plan.footingDepth:0.0#} m)" +
+                      (d < 35f ? "\nOrange: dig down  ·  blue: fill  ·  green: done" : "");
                 if (d < 35f && s.State < SiteState.ReadyForConcrete && s.PadHigh + s.PadLow > 0 && s.PadDone < s.Plan.needPad) text += "\n" + s.PadHint();
                 var gc = new GUIContent(text);
                 float w = Mathf.Min(520f, label.CalcSize(gc).x + 16f);

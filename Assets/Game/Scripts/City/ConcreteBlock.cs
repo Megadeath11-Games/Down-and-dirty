@@ -205,12 +205,14 @@ namespace FPSBase.City
             if (site != null && site.Contains(bestP))
             {
                 FootprintCells(site, bestP, bestQ, bedCells);
-                if (bedCells.Count > 0) { site.BedUnder(bedCells, bestP.y, true); site.SettleNow(); } else site = null;
+                // (within reason: a hollow of up to 45 cm under it is packed up; deeper than that it's left as it is)
+                if (bedCells.Count > 0 && bestP.y - site.MeanHeight(bedCells) < 0.45f) { site.BedUnder(bedCells, bestP.y, true); site.SettleNow(); } else site = null;
             }
             else site = null;
             PlaceAt(bestP, bestQ);
             LastSnapTo = bestB;
-            if (site != null) { still = 1f; Register(); if (Registered) Pin(); }
+            // (bedded: it doesn't press itself down into the bed it was just given)
+            if (site != null) { still = 1f; pressedAt = new Vector3(bestP.x, 0f, bestP.z); Register(); if (Registered) Pin(); }
             return true;
         }
 
@@ -307,7 +309,7 @@ namespace FPSBase.City
             if (bedSite != null) { bedSite.BedUnder(bedCells, p.y); bedSite.SettleNow(); }
             PlaceAt(p, q);
             // and it's set down on it straight away: it holds its ground and is pinned (it doesn't rock or roll off)
-            if (bedSite != null) { still = 1f; Register(); if (Registered) Pin(); } // (pinned now: the ground's collider catches up with the bed a frame or two later)
+            if (bedSite != null) { still = 1f; pressedAt = new Vector3(p.x, 0f, p.z); Register(); if (Registered) Pin(); } // (pinned now: the ground's collider catches up with the bed a frame or two later)
             return true;
         }
 
@@ -506,9 +508,9 @@ namespace FPSBase.City
         // ------------------------------------------------------------------ set down, it stays put
 
         /// <summary>
-        /// Set down on the ground it's pinned where it stands: dirt and clods landing round it, the ground rising beside
-        /// it, a block knocked against it don't shift it. Only equipment moves it (a machine pushing it, a block on a
-        /// chain swung into it, hooking it), or the ground going from under it.
+        /// Set down it's pinned where it stands: dirt and clods landing round it, the ground rising beside it, a bucket,
+        /// a blade or a track bumping it, a block swung into it: none of it shifts it. Only hooking it on the chain
+        /// again (or chaining it to a trailer) frees it, or the ground dug out from under it.
         /// </summary>
         public bool Pinned { get; private set; }
         float pinCheck;
@@ -552,8 +554,9 @@ namespace FPSBase.City
         void Shoved(Collision c)
         {
             if (c.collider != null) LastTouch = $"{c.collider.name} ({(c.collider.attachedRigidbody != null ? c.collider.attachedRigidbody.name : "static")}), pinned {Pinned}";
+            // (set down, a machine bumping it doesn't move it: only the chain does)
             if (!Pinned || !IsEquipment(c.collider)) return;
-            Unpin(); Unregister(); still = 0f; Shoves++;
+            Shoves++;
         }
         /// <summary>How many times equipment has knocked a set-down block loose (for the test).</summary>
         public static int Shoves;
@@ -583,7 +586,9 @@ namespace FPSBase.City
         {
             if (Pinned && (HookedBy != null || ChainedTo != null || !NetMine)) Unpin();
             if (Pinned) PinGround(dt);
-            bool moving = (transform.position - lastPos).sqrMagnitude > 1e-6f || Quaternion.Angle(transform.rotation, lastRot) > 0.05f;
+            // (still: not going anywhere. Settling dirt under it nudges it a millimetre now and then, which mustn't
+            // keep it from ever being set down and holding its ground)
+            bool moving = (transform.position - lastPos).sqrMagnitude > 9e-6f || Quaternion.Angle(transform.rotation, lastRot) > 0.15f;
             lastPos = transform.position; lastRot = transform.rotation;
             // holding the ground, it lets go only when it's really moved (lifted, shoved, toppled), not for a
             // millimetre of settling: let go, the dirt round it ran in under it and kept nudging it
@@ -598,13 +603,24 @@ namespace FPSBase.City
             if (moving || HookedBy != null || ChainedTo != null) { still = 0f; if (Registered) Unregister(); return; }
             still += dt;
             if (!Registered && still > 0.6f) Register();
+            // set down somewhere that isn't the dirt (a concrete pad, a road): pinned there too, but not on a trailer
+            // or a truck (it rides along there, chained down)
+            if (!Registered && !Pinned && still > 0.6f && NetMine && (pinCheck -= dt) <= 0f)
+            {
+                pinCheck = 0.3f;
+                if (Upright && !CarrierBelow(out _) && !TouchingEquipment()) Pin();
+            }
         }
 
         /// <summary>The ground squares under it: dirt can't flow into them, and they hold up to its top.</summary>
+        /// <summary>Why it last didn't take hold of the ground (for the test).</summary>
+        public string RegWhy => $"{regWhy}, still {still:0.0} s, kinematic {(Body != null && Body.isKinematic)}, mine {NetMine}, hooked {HookedBy != null}, chained {ChainedTo != null}";
+        string regWhy = "never tried";
+
         void Register()
         {
             var site = DigSite.At(transform.position);
-            if (site == null || !site.Contains(transform.position)) return;
+            if (site == null || !site.Contains(transform.position)) { regWhy = "not on a dig field"; return; }
             // only standing on the dirt (or on blocks that do): resting on a machine or a heap of something else it holds nothing
             // (measured from its lowest corner, so a block knocked over onto its side still holds its ground)
             Vector3 h = Size * 0.5f;
@@ -614,7 +630,15 @@ namespace FPSBase.City
                 Vector3 c = transform.TransformPoint(new Vector3((i & 1) == 0 ? -h.x : h.x, (i & 2) == 0 ? 0f : Size.y, (i & 4) == 0 ? -h.z : h.z));
                 if (c.y < lowY) { lowY = c.y; low = c; }
             }
-            if (lowY - site.SurfaceY(low) > 0.25f && !OnABlock()) { still = -2f; return; }
+            // (on the ground: some part of its bottom on it. A block resting a little crooked on a lump of loose dirt has
+            // its low corner hanging clear of the ground on the downhill side, and is still on the ground)
+            float gap = float.MaxValue;
+            for (int i = 0; i < 5; i++)
+            {
+                Vector3 c = transform.TransformPoint(i == 4 ? Vector3.zero : new Vector3((i & 1) == 0 ? -h.x : h.x, 0f, (i & 2) == 0 ? -h.z : h.z));
+                gap = Mathf.Min(gap, c.y - site.SurfaceY(c));
+            }
+            if (gap > 0.25f && lowY - site.SurfaceY(low) > 0.25f && !OnABlock()) { still = -2f; regWhy = $"its bottom {gap:0.00} m over the ground"; return; }
             restCells.Clear();
             float top = float.MinValue;
             var b = new Bounds(transform.position, Vector3.zero);
@@ -628,7 +652,8 @@ namespace FPSBase.City
                 Vector3 l = transform.InverseTransformPoint(p);
                 return Mathf.Abs(l.x) <= h.x && Mathf.Abs(l.z) <= h.z;
             }, restCells);
-            if (restCells.Count == 0) return;
+            if (restCells.Count == 0) { regWhy = "no squares under it"; return; }
+            regWhy = "held";
             restSite = site;
             site.AddSolid(this, restCells, top);
             regPos = transform.position; regRot = transform.rotation;

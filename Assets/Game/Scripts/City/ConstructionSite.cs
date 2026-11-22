@@ -42,6 +42,8 @@ namespace FPSBase.City
 
         // the squares under it, packed (z * res + x)
         readonly List<int> padCells = new(), trenchCells = new();
+        /// <summary>Every square of pad that stands too high: where on the plan, and how far above the pad (each one marked orange).</summary>
+        readonly List<(Vector2 plan, float above, int tile)> highSquares = new();
         readonly List<int> padTileOf = new(), trenchPieceOf = new();
         // the pad in 1 m patches and the footings in ~1 m stretches (plan metres), for the colours
         readonly List<Vector2> tiles = new();
@@ -181,13 +183,14 @@ namespace FPSBase.City
             float tol = Plan.padTolerance;
             int ok = 0, high = 0, low = 0;
             Vector2 offSum = Vector2.zero;
+            highSquares.Clear();
             for (int i = 0; i < padCells.Count; i++)
             {
                 Site.CellXZ(padCells[i], out int x, out int z);
                 float s = Site.CellSurface(x, z);
                 int t = padTileOf[i];
                 tileN[t]++; tileTop[t] = Mathf.Max(tileTop[t], s);
-                if (s > PadY + tol) { high++; tileHigh[t]++; }
+                if (s > PadY + tol) { high++; tileHigh[t]++; highSquares.Add((ToPlan(Site.CellPos(x, z)), s - PadY, t)); }
                 else if (s < PadY - tol) { low++; tileLow[t]++; }
                 else { ok++; tileOk[t]++; continue; }
                 var cp = Site.CellPos(x, z); offSum += new Vector2(cp.x - Center.x, cp.z - Center.z);
@@ -227,6 +230,7 @@ namespace FPSBase.City
             string side = string.IsNullOrEmpty(PadWorstSide) ? "" : $", mostly on the {PadWorstSide} side";
             if (PadHigh > 0 && PadLow > 0) return $"{PadHigh * Site.Cell * Site.Cell:0.#} m² of pad still too high (orange) and {PadLow * Site.Cell * Site.Cell:0.#} m² too low{side}.";
             if (PadHigh > 0) return $"{PadHigh * Site.Cell * Site.Cell:0.#} m² of pad still too high (orange){side}: cut it down.";
+            if (PadLow == 0) return "";
             return $"{PadLow * Site.Cell * Site.Cell:0.#} m² of pad too low{side}: fill it and level it off.";
         }
 
@@ -277,6 +281,7 @@ namespace FPSBase.City
         {
             if (layers == null || Plan == null) return;
             for (int i = 0; i < verts.Length; i++) { verts[i].Clear(); tris[i].Clear(); }
+            OrangeMarks = 0; OrangeFootings = 0;
             float w = Plan.footingWidth, depth = Plan.footingDepth;
             const float above = 0.3f; // the trench boxes stand up out of the grass so you see them
             bool bad = Preview && !PreviewValid;
@@ -288,7 +293,9 @@ namespace FPSBase.City
                 var (a, b) = pieces[i];
                 bool done = pieceN[i] > 0 && pieceOk[i] >= pieceN[i] * 0.85f;
                 float top = Proud((a + b) * 0.5f) + above;
-                AddBox(done ? Layer.Green : Layer.Blue, (a + b) * 0.5f, b - a, (top - depth) * 0.5f, Vector2.Distance(a, b) + 0.02f, w, depth + top);
+                // (still to dig down: orange, like the pad's high spots; dug to depth: green)
+                if (!done) OrangeFootings++;
+                AddBox(done ? Layer.Green : Layer.Orange, (a + b) * 0.5f, b - a, (top - depth) * 0.5f, Vector2.Distance(a, b) + 0.02f, w, depth + top);
             }
             if (Preview)
                 foreach (var (a, b) in Plan.Footings())
@@ -296,17 +303,21 @@ namespace FPSBase.City
                     float top = Proud((a + b) * 0.5f) + above;
                     AddBox(bad ? Layer.Bad : Layer.Blue, (a + b) * 0.5f, b - a, (top - depth) * 0.5f, Vector2.Distance(a, b) + w, w, depth + top);
                 }
-            // the pad, patch by patch: level (green, at the pad), still to fill (blue, at the pad), standing proud (orange, on top of the dirt)
+            // the pad, patch by patch: level (green, at the pad), still to fill (blue, at the pad); and every
+            // square that stands too high marked orange on top of the dirt there, however few (a patch that's
+            // mostly level or low with a lump in it still shows the lump)
             if (!Preview && !poured)
-            for (int i = 0; i < tiles.Count; i++)
             {
-                var t = tiles[i];
-                Layer l; float y = 0f;
-                if (tileN[i] == 0) continue;
-                if (tileOk[i] >= tileN[i] * 0.85f) l = Layer.Green;
-                else if (tileHigh[i] >= tileLow[i]) { l = Layer.Orange; y = Mathf.Max(0f, tileTop[i] - PadY); }
-                else l = Layer.Blue;
-                AddBox(l, t, Vector2.right, y + 0.03f, 0.96f, 0.96f, 0.05f);
+                for (int i = 0; i < tiles.Count; i++)
+                {
+                    var t = tiles[i];
+                    if (tileN[i] == 0) continue;
+                    if (tileHigh[i] >= tileN[i] * 0.6f) AddBox(Layer.Orange, t, Vector2.right, Mathf.Max(0f, tileTop[i] - PadY) + 0.03f, 0.96f, 0.96f, 0.05f); // (mostly high: one orange patch)
+                    else if (tileOk[i] >= tileN[i] * 0.85f && tileHigh[i] == 0) AddBox(Layer.Green, t, Vector2.right, 0.03f, 0.96f, 0.96f, 0.05f);
+                    else if (tileLow[i] > 0 || tileOk[i] > 0) AddBox(tileLow[i] >= tileOk[i] ? Layer.Blue : Layer.Green, t, Vector2.right, 0.03f, 0.96f, 0.96f, 0.05f);
+                }
+                float sq = Site.Cell * 1.05f;
+                foreach (var (p, up, ti) in highSquares) if (tileHigh[ti] < tileN[ti] * 0.6f) AddBox(Layer.Orange, p, Vector2.right, up + 0.04f, sq, sq, 0.06f); // (a lump in a patch that's otherwise level or low)
             }
             if (Preview)
             {
@@ -354,8 +365,14 @@ namespace FPSBase.City
         }
 
         /// <summary>A box on the plan (local to the site: y up from the pad), centred at `c`, its length along `along`.</summary>
+        /// <summary>How many orange marks (still to dig down) were drawn last time, for the test.</summary>
+        public int OrangeMarks { get; private set; }
+        /// <summary>How many footing stretches were drawn orange (still to dig) last time, for the test.</summary>
+        public int OrangeFootings { get; private set; }
+
         void AddBox(Layer layer, Vector2 c, Vector2 along, float cy, float length, float width, float height)
         {
+            if (layer == Layer.Orange) OrangeMarks++;
             var v = verts[(int)layer]; var t = tris[(int)layer];
             Vector2 f = along.sqrMagnitude > 1e-8f ? along.normalized : Vector2.up;
             Vector3 fw = new Vector3(f.x, 0f, f.y) * (length * 0.5f), rt = new Vector3(f.y, 0f, -f.x) * (width * 0.5f), up = Vector3.up * (height * 0.5f);

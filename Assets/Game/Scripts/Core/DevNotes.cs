@@ -13,6 +13,13 @@ namespace FPSBase.Core
         /// <summary>Newest first.</summary>
         public static readonly Post[] Blog =
         {
+            new Post { date = "Update 48  ·  Nov 22, 2026", title = "Blocks stay put, walls hold, the cab tilts with you",
+                body =
+                "• House site: a square of the pad that's too high is marked orange now, so the \"0.7 too high\" in the label shows you where. Footings still to dig are orange too (they used to show blue, which means fill). Near the site the label spells it out: orange dig down, blue fill, green done.\n" +
+                "• A block that's set down only moves if you chain it and lift it again. Knocking it with the bucket, the blade or a truck doesn't shove it out of line any more.\n" +
+                "• A block snapped onto the end of a wall where the dirt is a little lower than the block it's going against gets dirt topped up under it so it sits level with the wall (up to about 45 cm; any lower and it's set down as it falls).\n" +
+                "• Block walls hold back the dirt properly at the bottom: a block on loose or lumpy dirt now takes hold of the ground, so dirt that settles against the bottom course stays behind the wall instead of leaking out under it.\n" +
+                "• In the cab, the view tilts with the machine. Turned round on a slope you're still looking out of the windscreen, not at the roof or the floor." },
             new Post { date = "Update 47  ·  Nov 22, 2026", title = "Blocks bed in on bumpy dirt",
                 body =
                 "• A block set down level on the dirt field used to sit on the highest lump under it, rock over and roll off. Now the dirt under it is levelled into a flat bed first (the high spots cut down into the low ones, nothing gained or lost), and the block sits square on it and is locked in straight away.\n" +
@@ -390,11 +397,16 @@ namespace FPSBase.Core
                 "• Dozer berms build up properly in front of the blade." },
         };
 
-        public const string TestListVersion = "2026-11-22b";
+        public const string TestListVersion = "2026-11-22c";
 
         /// <summary>What's new in this build to try out.</summary>
         public static readonly string[] TestList =
         {
+            "House site: where the pad is too high, orange squares show on it; footings still to dig show orange, not blue",
+            "Set a block down, then bump it with the bucket and the dozer blade: it doesn't move or tilt",
+            "Snap a block onto the end of a wall where the dirt dips a little: dirt fills in under it and it sits level with the wall",
+            "Build a short block wall on the dirt and push dirt up against it: it stays behind the wall, none leaks out at the bottom",
+            "Excavator on a slope: go into the cab (V), turn the house round: you still look out of the windscreen, not at the roof or floor",
             "Dirt field, lumpy ground: hook a block, land level on, let it go over the lumps: it sits flat and square and doesn't rock or roll",
             "Carry on a wall along bumpy dirt: each block snaps in level with the last and stays put",
             "Excavator chain: hook a block and swing it out away from any wall: a blue outline shows on the ground under it; let go: it sits there flat and square",

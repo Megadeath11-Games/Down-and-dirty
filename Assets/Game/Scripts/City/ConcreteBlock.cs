@@ -200,8 +200,17 @@ namespace FPSBase.City
         {
             LastSnapTo = null;
             if (HookedBy != null || !FindSnap(out var bestP, out var bestQ, out var bestB)) return false;
+            // set in beside a block on the dirt: the ground under it levelled to a flat bed at that block's height
+            DigSite site = snapOnGround && OnDirt(bestP, bestQ) ? DigSite.At(bestP) : null;
+            if (site != null && site.Contains(bestP))
+            {
+                FootprintCells(site, bestP, bestQ, bedCells);
+                if (bedCells.Count > 0) { site.BedUnder(bedCells, bestP.y, true); site.SettleNow(); } else site = null;
+            }
+            else site = null;
             PlaceAt(bestP, bestQ);
             LastSnapTo = bestB;
+            if (site != null) { still = 1f; Register(); if (Registered) Pin(); }
             return true;
         }
 
@@ -226,17 +235,19 @@ namespace FPSBase.City
             if (ChainedTo != null || !NetMine) return false;
             Vector3 c = transform.TransformPoint(new Vector3(0f, Size.y * 0.5f, 0f));
             float top = float.MinValue;
+            bool allDirt = true; // (every corner over the dirt field: it's given a flat bed there instead)
             Vector3 right = q * Vector3.right, fwd = q * Vector3.forward;
             foreach (var o in new[] { Vector2.zero, new Vector2(-1f, -1f), new Vector2(1f, -1f), new Vector2(-1f, 1f), new Vector2(1f, 1f) })
             {
                 Vector3 at = c + right * (o.x * (Size.x * 0.5f - 0.05f)) + fwd * (o.y * (Size.z * 0.5f - 0.05f));
-                float best = float.MinValue;
+                float best = float.MinValue; Collider bestC = null;
                 foreach (var h in Physics.RaycastAll(at, Vector3.down, 40f, ~0, QueryTriggerInteraction.Ignore))
                 {
                     if (h.collider.transform.IsChildOf(transform)) continue;
                     if (machine != null && h.collider.transform.IsChildOf(machine)) continue; // (the machine holding it / letting it go)
-                    if (h.point.y > best) best = h.point.y;
+                    if (h.point.y > best) { best = h.point.y; bestC = h.collider; }
                 }
+                if (bestC == null || bestC.GetComponentInParent<DigSite>() == null) allDirt = false;
                 if (best > top) top = best;
             }
             if (top == float.MinValue) return false;
@@ -244,14 +255,59 @@ namespace FPSBase.City
             // straight down from its middle, not its bottom (a tilted block's bottom middle is off to one side)
             Vector3 down = c - (q * Vector3.up) * (Size.y * 0.5f);
             p.x = down.x; p.z = down.z;
+            // on the dirt: on a flat bed at the ground's mean height under it (the bumps levelled off), not perched on the highest one
+            bedSite = null;
+            if (allDirt)
+            {
+                var site = DigSite.At(p);
+                if (site != null && site.Contains(p))
+                {
+                    FootprintCells(site, p, q, bedCells);
+                    if (bedCells.Count > 0) { p.y = site.MeanHeight(bedCells); bedSite = site; }
+                }
+            }
             return Free(p, q);
+        }
+
+        DigSite bedSite;
+        bool snapOnGround;
+
+        /// <summary>Stood at p, turned q, would it stand on the dirt field itself (not a pad, a deck or a road over it)?</summary>
+        bool OnDirt(Vector3 p, Quaternion q)
+        {
+            Vector3 h = Size * 0.5f;
+            foreach (var o in new[] { Vector2.zero, new Vector2(-1f, -1f), new Vector2(1f, -1f), new Vector2(-1f, 1f), new Vector2(1f, 1f) })
+            {
+                Vector3 at = p + q * new Vector3(o.x * (h.x - 0.05f), 0.4f, o.y * (h.z - 0.05f));
+                Collider first = null; float fd = float.MaxValue;
+                foreach (var hit in Physics.RaycastAll(at, Vector3.down, 1.5f, ~0, QueryTriggerInteraction.Ignore))
+                    if (!hit.collider.transform.IsChildOf(transform) && hit.distance < fd) { fd = hit.distance; first = hit.collider; }
+                if (first != null && first.GetComponentInParent<DigSite>() == null) return false;
+            }
+            return true;
+        }
+        readonly List<int> bedCells = new();
+
+        /// <summary>The dirt field's squares under the block's footprint stood at p, turned q.</summary>
+        void FootprintCells(DigSite site, Vector3 p, Quaternion q, List<int> into)
+        {
+            into.Clear();
+            Vector3 h = Size * 0.5f;
+            var b = new Bounds(p, Vector3.zero);
+            for (int i = 0; i < 4; i++) b.Encapsulate(p + q * new Vector3((i & 1) == 0 ? -h.x : h.x, 0f, (i & 2) == 0 ? -h.z : h.z));
+            var inv = Quaternion.Inverse(q);
+            site.CellsUnder(b, w => { Vector3 l = inv * (w - p); return Mathf.Abs(l.x) <= h.x && Mathf.Abs(l.z) <= h.z; }, into);
         }
 
         /// <summary>Set it down level where it would land (see <see cref="FindLevel"/>). Returns whether it could.</summary>
         public bool SetLevel(Transform machine = null)
         {
             if (HookedBy != null || !FindLevel(out var p, out var q, machine)) return false;
+            // on the dirt: the ground under it levelled to a flat bed first
+            if (bedSite != null) { bedSite.BedUnder(bedCells, p.y); bedSite.SettleNow(); }
             PlaceAt(p, q);
+            // and it's set down on it straight away: it holds its ground and is pinned (it doesn't rock or roll off)
+            if (bedSite != null) { still = 1f; Register(); if (Registered) Pin(); } // (pinned now: the ground's collider catches up with the bed a frame or two later)
             return true;
         }
 
@@ -301,7 +357,7 @@ namespace FPSBase.City
                     if (l.y < 0.01f) p = OnGround(p);
                     if (!Free(p, q)) continue;
                     if (l.y > 0.01f && !Supported(p, q)) continue;
-                    bd = d; bestP = p; bestQ = q; bestB = o;
+                    bd = d; bestP = p; bestQ = q; bestB = o; snapOnGround = l.y < 0.01f;
                 }
             }
             return bestB != null;

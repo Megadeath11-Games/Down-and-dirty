@@ -13,6 +13,11 @@ namespace FPSBase.Core
         /// <summary>Newest first.</summary>
         public static readonly Post[] Blog =
         {
+            new Post { date = "Update 47  ·  Nov 22, 2026", title = "Blocks bed in on bumpy dirt",
+                body =
+                "• A block set down level on the dirt field used to sit on the highest lump under it, rock over and roll off. Now the dirt under it is levelled into a flat bed first (the high spots cut down into the low ones, nothing gained or lost), and the block sits square on it and is locked in straight away.\n" +
+                "• A block snapped into a wall on the dirt gets the same: a flat bed at the height of the block it's going against, so the wall stays level along bumpy ground.\n" +
+                "• On a concrete pad, a trailer deck or a road nothing changes: they're flat already." },
             new Post { date = "Update 46  ·  Nov 22, 2026", title = "Blocks land level, and every chain key on screen",
                 body =
                 "• Land level: with a block on the excavator's chain, press / (by default) to switch it on or off. On (it starts on), a block you let go away from any wall is set down upright and flat right under where it hangs, still turned the way you turned it, on the highest point under it (dirt, a trailer deck or other blocks). A blue outline shows where it'll land; by a wall the outline is green and it snaps into the wall as before.\n" +
@@ -385,11 +390,13 @@ namespace FPSBase.Core
                 "• Dozer berms build up properly in front of the blade." },
         };
 
-        public const string TestListVersion = "2026-11-22a";
+        public const string TestListVersion = "2026-11-22b";
 
         /// <summary>What's new in this build to try out.</summary>
         public static readonly string[] TestList =
         {
+            "Dirt field, lumpy ground: hook a block, land level on, let it go over the lumps: it sits flat and square and doesn't rock or roll",
+            "Carry on a wall along bumpy dirt: each block snaps in level with the last and stays put",
             "Excavator chain: hook a block and swing it out away from any wall: a blue outline shows on the ground under it; let go: it sits there flat and square",
             "With a block on the chain, press /: land level turns off (the panel says so); let go: it drops as it hangs. Press / again to turn it back on",
             "In the excavator, the bottom-left panel lists the chain keys (H, Y/U, and with a block on: , . and /), nothing cut off",

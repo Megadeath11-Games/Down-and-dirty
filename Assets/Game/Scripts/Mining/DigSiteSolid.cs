@@ -106,6 +106,52 @@ namespace FPSBase.Mining
             return (before - after) / cells.Count;
         }
 
+        /// <summary>The mean height of the ground over these squares (world m).</summary>
+        public float MeanHeight(List<int> cells)
+        {
+            if (cells == null || cells.Count == 0) return 0f;
+            float sum = 0f;
+            foreach (int i in cells) sum += Surf(i % res, i / res);
+            return sum / cells.Count;
+        }
+
+        /// <summary>
+        /// A flat bed for a block set down level: the ground over these squares is levelled to `y` (the high spots
+        /// cut down and the dirt put in the low ones, so with `y` their mean height nothing's gained or lost).
+        /// </summary>
+        public void BedUnder(List<int> cells, float y, bool topUp = false)
+        {
+            if (cells == null || cells.Count == 0) return;
+            var cut = new MaterialLoad();
+            foreach (int i in cells)
+            {
+                int x = i % res, z = i / res;
+                float s = Surf(x, z);
+                if (s > y + 0.002f) { cut.Add(Remove(x, z, s - y, float.MinValue)); Touch(x, z); }
+            }
+            foreach (int i in cells)
+            {
+                int x = i % res, z = i / res;
+                float s = Surf(x, z);
+                if (s >= y - 0.002f) continue;
+                // (levelled to the block beside it rather than to its own mean: any hollow left is packed up with fresh dirt)
+                if (cut.volume < (y - s) * cellArea - 1e-5f && topUp) cut.Add(new MaterialLoad((y - s) * cellArea - cut.volume, 0f));
+                if (cut.volume <= 1e-5f) continue;
+                var part = cut.Take(Mathf.Min(cut.volume, (y - s) * cellArea));
+                part.rock = 0f;
+                float v = part.volume;
+                if (v <= 0f) continue;
+                float was = loose[z, x];
+                loose[z, x] += v / cellArea;
+                packed[z, x] *= was / loose[z, x];
+                looseGold[z, x] += part.goldGrams;
+                looseSand[z, x] += part.sand; looseGravel[z, x] += part.gravel; looseClay[z, x] += part.clay;
+                Touch(x, z);
+            }
+            // (any left over, rounding: round the edge)
+            if (cut.volume > 1e-4f && cells.Count > 0) { int i = cells[0]; AddLoose(i % res - 1, i / res - 1, cut); }
+        }
+
         // the dirt round a block that came or went looks again at whether it should slide
         void Around(int i)
         {

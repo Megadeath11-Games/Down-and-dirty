@@ -72,6 +72,7 @@ namespace FPSBase.DebugTools
                         case "graderride": yield return GraderRideTests(); break;
                         case "blockyard": yield return BlockYardTests(); break;
                         case "mixerpit": yield return MixerPitTests(); break;
+                        case "blockbed": yield return BlockBedTests(); break;
                         case "slosh": yield return SloshTests(DigSite.Instance, FindFirstObjectByType<DumpPickup>()); break;
                         case "materials": yield return MaterialsTests(DigSite.Instance, Economy.Instance, FindFirstObjectByType<WashPlant>(), FindFirstObjectByType<DumpPickup>()); break;
                         default: log.AppendLine($"INFO  unknown quick test '{part}'"); break;
@@ -3569,6 +3570,69 @@ namespace FPSBase.DebugTools
         /// let go by a set-down block snap into a wall off it (end to end, on top over the joint, at a corner);
         /// a block on the chain turns with the keys; the phone's clean up collects only the loose ones.
         /// </summary>
+        /// <summary>Land level on bumpy dirt: the block gets a flat bed and stays put, square and upright.</summary>
+        IEnumerator BlockBedTests()
+        {
+            var site = DigSite.Instance;
+            Check(site != null, "a dig site");
+            if (site == null) yield break;
+            int k = 0;
+            foreach (var spot in new[] { new Vector3(70f, 0f, -110f), new Vector3(78f, 0f, -110f), new Vector3(86f, 0f, -110f) })
+            {
+                k++;
+                Vector3 at = spot; at.y = site.SurfaceY(at);
+                // lumps and a dip under where it'll land
+                for (int i = 0; i < 6; i++)
+                {
+                    Vector3 q = at + new Vector3(Random.Range(-0.7f, 0.7f), 0f, Random.Range(-0.9f, 0.9f)); q.y = site.SurfaceY(q) + 0.3f;
+                    MaterialTransfer.PourInstant(q, MaterialLoad.Mix(0.05f + 0.04f * k, 0f, 0f, 0f, 0f), null);
+                }
+                DigSite.DigAnywhere(at + new Vector3(0.4f, -0.15f * k, -0.5f), 0.35f, 0.3f);
+                site.SettleNow();
+                float lo = 99f, hi = -99f;
+                for (float x = -0.4f; x <= 0.4f; x += 0.2f) for (float z = -0.7f; z <= 0.7f; z += 0.2f) { float y = site.SurfaceY(at + new Vector3(x, 0f, z)); lo = Mathf.Min(lo, y); hi = Mathf.Max(hi, y); }
+                var b = BlockYard.Spawn(1 + (k == 3 ? 4 : 0), at + new Vector3(0f, 1.6f, 0f), Quaternion.Euler(12f, 25f * k, -8f));
+                b.Claim();
+                var bb = b.Body; bool wk = bb.isKinematic; bb.isKinematic = true;
+                yield return new WaitForFixedUpdate();
+                bb.isKinematic = wk;
+                bool set = b.SetLevel();
+                Vector3 p0 = b.transform.position;
+                for (int i = 0; i < 50 * 4; i++) yield return new WaitForFixedUpdate();
+                float tilt = Vector3.Angle(b.transform.up, Vector3.up), moved = Vector3.Distance(p0, b.transform.position);
+                Check(set && tilt < 1f && moved < 0.05f && b.Pinned,
+                    $"land level on bumpy dirt ({hi - lo:0.00} m of bumps): {b.Info.name} gets a flat bed and stays put, square ({(set ? "set" : "not set")}, {tilt:0.0}° off level, moved {moved:0.00} m, pinned {b.Pinned})");
+                if (k == 1) yield return ShotAt(b.transform.position + new Vector3(3f, 2.5f, -3f), b.transform.position, "Screenshots/block_bed.png");
+                // and one let go hanging off its end, over more bumps: it snaps in end to end, level with it, and stays
+                if (k < 3)
+                {
+                    Vector3 endAt = b.transform.TransformPoint(new Vector3(0.2f, 0f, b.Size.z + 0.4f));
+                    for (int i = 0; i < 4; i++)
+                    {
+                        Vector3 q = endAt + new Vector3(Random.Range(-0.4f, 0.4f), 0f, Random.Range(-0.5f, 0.5f)); q.y = site.SurfaceY(q) + 0.3f;
+                        MaterialTransfer.PourInstant(q, MaterialLoad.Mix(0.06f, 0f, 0f, 0f, 0f), null);
+                    }
+                    DigSite.DigAnywhere(endAt + new Vector3(-0.3f, -0.12f, 0.3f), 0.3f, 0.2f);
+                    site.SettleNow();
+                    var n = BlockYard.Spawn(1, endAt + Vector3.up * 1.3f, Quaternion.Euler(-10f, b.Heading + 7f, 6f));
+                    n.Claim();
+                    var nb = n.Body; bool nk = nb.isKinematic; nb.isKinematic = true;
+                    yield return new WaitForFixedUpdate();
+                    nb.isKinematic = nk;
+                    bool sn = n.SnapToWall();
+                    Vector3 n0 = n.transform.position;
+                    for (int i = 0; i < 50 * 3; i++) yield return new WaitForFixedUpdate();
+                    Vector3 ln = b.transform.InverseTransformPoint(n.transform.position);
+                    float nt = Vector3.Angle(n.transform.up, Vector3.up), nm = Vector3.Distance(n0, n.transform.position);
+                    Check(sn && n.LastSnapTo == b && nt < 1f && nm < 0.05f && Mathf.Abs(ln.y) < 0.03f && n.Pinned,
+                        $"snapped in end to end over bumpy dirt, it sits level with the block it's against and stays ({(sn ? "snapped" : "not snapped")}, {nt:0.0}° off level, {ln.y:+0.00;-0.00} m off its height, moved {nm:0.00} m, pinned {n.Pinned})");
+                    Destroy(n.gameObject);
+                }
+                Destroy(b.gameObject);
+                yield return null;
+            }
+        }
+
         /// <summary>A mixer truck parked down in a dug pit, a little spilled dirt round its wheels: not buried, it can be repositioned.</summary>
         IEnumerator MixerPitTests()
         {

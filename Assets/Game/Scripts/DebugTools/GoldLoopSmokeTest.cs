@@ -74,6 +74,7 @@ namespace FPSBase.DebugTools
                         case "mixerpit": yield return MixerPitTests(); break;
                         case "blockbed": yield return BlockBedTests(); break;
                         case "cabtilt": yield return CabTiltTests(); break;
+                        case "blocksave": yield return BlockSaveTests(); break;
                         case "slosh": yield return SloshTests(DigSite.Instance, FindFirstObjectByType<DumpPickup>()); break;
                         case "materials": yield return MaterialsTests(DigSite.Instance, Economy.Instance, FindFirstObjectByType<WashPlant>(), FindFirstObjectByType<DumpPickup>()); break;
                         default: log.AppendLine($"INFO  unknown quick test '{part}'"); break;
@@ -1799,6 +1800,11 @@ namespace FPSBase.DebugTools
             foreach (var b in bought) if (b != null && b.CarrierBelow(out var d) && d.root == tr.transform.root) onDeck++;
             int chained = 0; foreach (var b in bought) if (b.ChainedTo != null) chained++;
             Check(onDeck == bought.Count && chained == bought.Count, $"they settle on the deck and are chained down by themselves ({onDeck}/{bought.Count} on it, {chained} chained)");
+            {
+                float want = 0f; foreach (var bb in bought) if (bb != null) want += bb.Info.kg / 1000f;
+                yield return new WaitForSeconds(0.6f);
+                Check(Mathf.Abs(tr.LoadTons - want) < 0.05f && tr.Loaded, $"the {tr.displayName} counts the blocks' weight ({tr.LoadTons:0.0} t on it, bought {want:0.0} t)");
+            }
             if (bought.Count == 0) yield break;
             // the trailer moves: the load goes with it
             Vector3 bp = bought[0].transform.position, tp0 = tr.transform.position;
@@ -3590,6 +3596,59 @@ namespace FPSBase.DebugTools
         /// let go by a set-down block snap into a wall off it (end to end, on top over the joint, at a corner);
         /// a block on the chain turns with the keys; the phone's clean up collects only the loose ones.
         /// </summary>
+        /// <summary>Saved and loaded: set-down blocks come back exactly where they were, and a machine's arm where it was left.</summary>
+        IEnumerator BlockSaveTests()
+        {
+            var site = DigSite.Instance;
+            Check(site != null, "a dig site");
+            if (site == null) yield break;
+            var want = new System.Collections.Generic.List<(Vector3 p, Quaternion q)>();
+            int k = 0;
+            foreach (var spot in new[] { new Vector3(70f, 0f, -120f), new Vector3(76f, 0f, -120f), new Vector3(70f, 0f, -120f) })
+            {
+                k++;
+                Vector3 at = spot; at.y = site.SurfaceY(at) + (k == 3 ? 3.5f : 1.5f);
+                var b = BlockYard.Spawn(1, at, Quaternion.Euler(0f, 20f * k, 0f));
+                b.Claim();
+                var bb = b.Body; bb.isKinematic = true;
+                yield return new WaitForFixedUpdate();
+                bb.isKinematic = false;
+                b.SetLevel();
+                for (int i = 0; i < 50; i++) yield return new WaitForFixedUpdate();
+                Check(b.Pinned, $"block {k} set down level and pinned");
+                want.Add((b.transform.position, b.transform.rotation));
+            }
+            var ex = FindFirstObjectByType<MiniExcavator>();
+            Check(ex != null, "an excavator to leave with its arm up");
+            if (ex == null) yield break;
+            ex.SetPose(55f, -50f, -20f, 40f);
+            var pose = ex.SavePose();
+            yield return null;
+            string err = SaveGame.Save("smoke test blocks", SaveGame.Mode.SinglePlayer);
+            var listed = SaveGame.List(SaveGame.Mode.SinglePlayer).Find(x => x.name == "smoke test blocks");
+            Check(err == null && listed != null, $"saved ({err ?? "ok"})");
+            if (listed == null) yield break;
+            ex.SetPose(0f, -95f, -60f, 0f);
+            string loadErr = "never finished";
+            yield return SaveGame.Load(listed.path, e => loadErr = e);
+            Check(loadErr == null, $"loaded ({loadErr ?? "ok"})");
+            for (int i = 0; i < 50 * 3; i++) yield return new WaitForFixedUpdate();
+            for (int j = 0; j < want.Count; j++)
+            {
+                ConcreteBlock best = null; float bd = 99f;
+                foreach (var o in ConcreteBlock.All) if (o != null) { float d = Vector3.Distance(o.transform.position, want[j].p); if (d < bd) { bd = d; best = o; } }
+                float turned = best != null ? Quaternion.Angle(best.transform.rotation, want[j].q) : 99f;
+                Check(best != null && bd < 0.01f && turned < 0.3f && best.Pinned,
+                    $"block {j + 1} comes back where it was set down ({bd * 100f:0.0} cm off, {turned:0.00}° turned, pinned {best != null && best.Pinned})");
+            }
+            ex = FindFirstObjectByType<MiniExcavator>();
+            var back = ex != null ? ex.SavePose() : null;
+            bool same = back != null && back.Length == pose.Length;
+            for (int i = 0; same && i < 4; i++) same = Mathf.Abs(Mathf.DeltaAngle(back[i], pose[i])) < 1f;
+            Check(same, $"the excavator's arm is still up where it was left (boom {(back != null ? back[0] : 0f):0}°, saved {pose[0]:0}°)");
+            File.Delete(listed.path);
+        }
+
         /// <summary>The cab view tilts with the machine: turned round on a slope, you still look out of the windscreen.</summary>
         IEnumerator CabTiltTests()
         {

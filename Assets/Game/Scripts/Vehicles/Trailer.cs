@@ -329,6 +329,33 @@ namespace FPSBase.Vehicles
             }
         }
 
+        float loadAt = -1f, loadTons;
+        /// <summary>
+        /// Everything it's carrying (t): machines chained on, and concrete blocks on the deck, chained down or not yet
+        /// (what the readouts and the truck's pulling go by).
+        /// </summary>
+        public float LoadTons
+        {
+            get
+            {
+                if (Time.time - loadAt < 0.5f && loadAt >= 0f) return loadTons;
+                loadAt = Time.time;
+                float kg = 0f;
+                foreach (var b in ConcreteBlock.All)
+                {
+                    if (b == null || b.HookedBy != null) continue;
+                    if (b.ChainedTo != null) { if (b.ChainedTo.root == transform) kg += b.Info.kg; continue; }
+                    // (loose on the deck: near it, and resting on it or on blocks that are)
+                    if ((b.transform.position - transform.position).sqrMagnitude > 20f * 20f) continue;
+                    if (b.CarrierBelow(out var d) && d != null && d.root == transform) kg += b.Info.kg;
+                }
+                loadTons = CargoTons + kg / 1000f;
+                return loadTons;
+            }
+        }
+        /// <summary>Anything on it at all.</summary>
+        public bool Loaded => LoadTons > 0.01f;
+
         float[] spring0;
         /// <summary>
         /// The springs are built for a full load: empty (or with one block on) they were so stiff for its weight that
@@ -877,7 +904,7 @@ namespace FPSBase.Vehicles
 
         public override void GetOptions(List<InteractOption> list)
         {
-            string load = cargo.Count > 0 ? $"   carrying {CargoTons:0.#} t" + (payloadTons > 0f ? $" of {payloadTons:0} t" : "") : payloadTons > 0f ? $"   rated {payloadTons:0} t" : "";
+            string load = Loaded ? $"   carrying {LoadTons:0.#} t" + (payloadTons > 0f ? $" of {payloadTons:0} t" : "") : payloadTons > 0f ? $"   rated {payloadTons:0} t" : "";
             list.Add(new InteractOption { label = displayName + load, enabled = false, note = Hitched != null ? $"hitched to {Tractor?.displayName}" : "standing on its own" });
             AddOptions(list);
         }

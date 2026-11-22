@@ -61,6 +61,8 @@ namespace FPSBase.Vehicles
         /// <summary>Volume poured out of the tailgate so far (m3).</summary>
         public float Poured { get; private set; }
         public float Tilt => tilt;
+        public override float[] SavePose() => new[] { tilt };
+        public override void LoadPose(float[] p) { if (p != null && p.Length >= 1) SetTilt(p[0]); }
         public void SetTilt(float deg) { tilt = Mathf.Clamp(deg, 0f, maxTilt); if (bedPivot != null) bedPivot.localRotation = Quaternion.Euler(-tilt, 0f, 0f); }
 
         public MaterialLoad load;

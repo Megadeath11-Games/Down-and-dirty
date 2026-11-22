@@ -103,6 +103,9 @@ namespace FPSBase.Vehicles
             }
         }
 
+        public override float[] SavePose() => new[] { arm, tilt };
+        public override void LoadPose(float[] p) { if (p != null && p.Length >= 2) SetPose(p[0], p[1]); }
+
         public void SetPose(float armDeg, float tiltDeg)
         {
             arm = Mathf.Clamp(armDeg, armRange.x, armRange.y);

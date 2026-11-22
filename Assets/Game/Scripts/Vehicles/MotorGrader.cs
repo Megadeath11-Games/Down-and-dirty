@@ -74,6 +74,15 @@ namespace FPSBase.Vehicles
 
         // ------------------------------------------------------------------ pose
 
+        public override float[] SavePose() => new[] { steerDeg, artic, lean, lift, roll, circleDeg, shiftM, pitchDeg, ripper };
+        public override void LoadPose(float[] p)
+        {
+            if (p == null || p.Length < 9) return;
+            steerDeg = p[0]; artic = p[1]; lean = p[2]; lift = p[3]; roll = p[4]; circleDeg = p[5]; shiftM = p[6]; pitchDeg = p[7]; ripper = p[8];
+            netPose = null;
+            Apply();
+        }
+
         public void SetBlade(float liftDeg, float rollDeg, float circleAngle, float shiftMetres, float pitchAngle)
         {
             lift = Mathf.Clamp(liftDeg, liftRange.x, liftRange.y);

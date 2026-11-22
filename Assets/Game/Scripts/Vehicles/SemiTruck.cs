@@ -74,7 +74,7 @@ namespace FPSBase.Vehicles
             {
                 var t = Towing;
                 if (t == null || t.payloadTons <= 0f) return 0f;
-                return Mathf.Clamp01(t.CargoTons / t.payloadTons);
+                return Mathf.Clamp01(t.LoadTons / t.payloadTons);
             }
         }
 
@@ -99,7 +99,7 @@ namespace FPSBase.Vehicles
                 var t = Towing;
                 string tr = t == null ? "No trailer on the fifth wheel"
                     : !t.NeckOn ? "Gooseneck on the fifth wheel, deck detached (back up to it and attach it)"
-                    : $"{t.displayName}: {(t.CargoCount > 0 ? $"{t.CargoTons:0.#} t chained on" : "empty deck")}" + (t.payloadTons > 0f ? $" (rated {t.payloadTons:0} t)" : "");
+                    : $"{t.displayName}: {(t.Loaded ? $"{t.LoadTons:0.#} t on, {Mathf.Max(0f, t.payloadTons - t.LoadTons):0.#} t free" : "empty deck")}" + (t.payloadTons > 0f ? $" (rated {t.payloadTons:0} t)" : "");
                 return $"Fuel {fuel:0.0} / {fuelCapacity:0} L    Speed {Mathf.Abs(ForwardSpeed) * 3.6f:0} km/h\n{tr}";
             }
         }

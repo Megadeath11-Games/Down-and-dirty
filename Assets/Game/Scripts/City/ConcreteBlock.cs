@@ -204,15 +204,20 @@ namespace FPSBase.City
             DigSite site = snapOnGround && OnDirt(bestP, bestQ) ? DigSite.At(bestP) : null;
             if (site != null && site.Contains(bestP))
             {
-                FootprintCells(site, bestP, bestQ, bedCells);
-                // (within reason: a hollow of up to 45 cm under it is packed up; deeper than that it's left as it is)
-                if (bedCells.Count > 0 && bestP.y - site.MeanHeight(bedCells) < 0.45f) { site.BedUnder(bedCells, bestP.y, true); site.SettleNow(); } else site = null;
+                // beside it (not on top): at that block's own height, the ground under it cut down or built up to suit
+                Vector3 lp = bestP;
+                if (bestP.y < bestB.transform.position.y + bestB.Size.y * 0.5f) lp.y = bestB.transform.position.y;
+                FootprintCells(site, lp, bestQ, bedCells);
+                // (within reason: up to 45 cm of dirt packed in under it or cut away; more than that and it's left as it is)
+                if (bedCells.Count > 0 && Mathf.Abs(lp.y - site.MeanHeight(bedCells)) < 0.45f && Free(lp, bestQ))
+                { bestP = lp; site.BedUnder(bedCells, bestP.y, true); site.SettleNow(); }
+                else site = null;
             }
             else site = null;
             PlaceAt(bestP, bestQ);
             LastSnapTo = bestB;
             // (bedded: it doesn't press itself down into the bed it was just given)
-            if (site != null) { still = 1f; pressedAt = new Vector3(bestP.x, 0f, bestP.z); Register(); if (Registered) Pin(); }
+            if (site != null) { still = 1f; pressedAt = new Vector3(bestP.x, 0f, bestP.z); Register(); Pin(); }
             return true;
         }
 
@@ -306,10 +311,10 @@ namespace FPSBase.City
         {
             if (HookedBy != null || !FindLevel(out var p, out var q, machine)) return false;
             // on the dirt: the ground under it levelled to a flat bed first
-            if (bedSite != null) { bedSite.BedUnder(bedCells, p.y); bedSite.SettleNow(); }
+            if (bedSite != null) { bedSite.BedUnder(bedCells, p.y, true); bedSite.SettleNow(); }
             PlaceAt(p, q);
             // and it's set down on it straight away: it holds its ground and is pinned (it doesn't rock or roll off)
-            if (bedSite != null) { still = 1f; pressedAt = new Vector3(p.x, 0f, p.z); Register(); if (Registered) Pin(); } // (pinned now: the ground's collider catches up with the bed a frame or two later)
+            if (bedSite != null) { still = 1f; pressedAt = new Vector3(p.x, 0f, p.z); Register(); Pin(); } // (pinned now: the ground's collider catches up with the bed a frame or two later)
             return true;
         }
 
@@ -514,6 +519,21 @@ namespace FPSBase.City
         /// </summary>
         public bool Pinned { get; private set; }
         float pinCheck;
+
+        /// <summary>
+        /// From the save: it was set down here, so it's set down here again, just as it was: holding its ground and
+        /// pinned, not dropped in loose for the physics to nudge, and not pressed into the dirt a second time.
+        /// </summary>
+        public void RestoreSetDown()
+        {
+            var body = Body;
+            body.isKinematic = true;
+            lastPos = transform.position; lastRot = transform.rotation;
+            pressedAt = new Vector3(transform.position.x, 0f, transform.position.z);
+            still = 1f;
+            Register();
+            Pin();
+        }
 
         void Pin()
         {

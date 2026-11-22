@@ -82,6 +82,11 @@ namespace FPSBase.Vehicles
             hasPose = false;
         }
 
+        /// <summary>For the save: where its arms / blade / box are (null: nothing to keep).</summary>
+        public virtual float[] SavePose() => null;
+        /// <summary>From the save: put its arms / blade / box back where they were.</summary>
+        public virtual void LoadPose(float[] p) { }
+
         /// <summary>This machine's state for the other players (the owner sends it ~15 times a second).</summary>
         public virtual void NetWrite(System.IO.BinaryWriter w)
         {

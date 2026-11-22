@@ -108,6 +108,16 @@ namespace FPSBase.Vehicles
             square = Mathf.Abs(bladeTilt) < 0.5f && Mathf.Abs(bladeAngle) < 0.5f;
         }
 
+        public override float[] SavePose() => new[] { bladeHeight, ripper, bladeTilt, bladeAngle };
+        public override void LoadPose(float[] p)
+        {
+            if (p == null || p.Length < 4) return;
+            bladeHeight = Mathf.Clamp(p[0], bladeRange.x, bladeRange.y);
+            ripper = Mathf.Clamp(p[1], ripperRange.x, ripperRange.y);
+            bladeTilt = Mathf.Clamp(p[2], -maxTilt, maxTilt);
+            bladeAngle = Mathf.Clamp(p[3], -maxAngle, maxAngle);
+            ApplyBlade();
+        }
         public void SetBlade(float height) { bladeHeight = Mathf.Clamp(height, bladeRange.x, bladeRange.y); ApplyBlade(); }
         public float BladeHeight => bladeHeight;
         /// <summary>Loose dirt (m^3) sitting right in front of the blade.</summary>

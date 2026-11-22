@@ -95,6 +95,7 @@ namespace FPSBase.Core
                     WriteTown(w);
                     WriteBlocks(w);
                     WriteSites(w);
+                    WritePoses(w);
                 }
                 if (File.Exists(path)) File.Delete(path);
                 File.Move(tmp, path);
@@ -133,12 +134,19 @@ namespace FPSBase.Core
             w.Write(cells.Count); w.Write((int)packed.Length); w.Write(packed.GetBuffer(), 0, (int)packed.Length);
         }
 
-        static void WriteMachines(BinaryWriter w)
+        /// <summary>The machines that go in the save, in the order they're written.</summary>
+        static List<VehicleBase> SavedMachines()
         {
             Net.NetSession.AssignSceneIds();
             var machines = new List<VehicleBase>();
             foreach (var v in VehicleBase.All)
                 if (v != null && (v.GetComponent<BoughtFrom>() != null || (v.NetId > 0 && v.NetId < Net.NetSession.SpawnIdBase))) machines.Add(v);
+            return machines;
+        }
+
+        static void WriteMachines(BinaryWriter w)
+        {
+            var machines = SavedMachines();
             w.Write(machines.Count);
             foreach (var v in machines)
             {
@@ -218,12 +226,13 @@ namespace FPSBase.Core
         }
 
         const int BlockTag = 0x424C4B53; // "BLKS": the concrete blocks (where each is, and whether it's chained down)
+        const int BlockTag2 = 0x424C4B32; // "BLK2": the same, and whether each is set down (pinned where it stands)
 
         static void WriteBlocks(BinaryWriter w)
         {
             var list = new List<FPSBase.City.ConcreteBlock>();
             foreach (var b in FPSBase.City.ConcreteBlock.All) if (b != null) list.Add(b);
-            w.Write(BlockTag); w.Write(list.Count);
+            w.Write(BlockTag2); w.Write(list.Count);
             foreach (var b in list)
             {
                 w.Write((byte)b.kind);
@@ -231,17 +240,56 @@ namespace FPSBase.Core
                 w.Write(t.position.x); w.Write(t.position.y); w.Write(t.position.z);
                 w.Write(t.rotation.x); w.Write(t.rotation.y); w.Write(t.rotation.z); w.Write(t.rotation.w);
                 w.Write(b.ChainedTo != null);
+                w.Write(b.Pinned);
             }
         }
 
-        static List<(int kind, Vector3 p, Quaternion q, bool chained)> ReadBlocks(BinaryReader r)
+        static List<(int kind, Vector3 p, Quaternion q, bool chained, bool pinned)> ReadBlocks(BinaryReader r)
         {
-            var list = new List<(int, Vector3, Quaternion, bool)>();
+            var list = new List<(int, Vector3, Quaternion, bool, bool)>();
             if (r.BaseStream.Length - r.BaseStream.Position < 8) return list;
             long at = r.BaseStream.Position;
-            if (r.ReadInt32() != BlockTag) { r.BaseStream.Position = at; return list; }
+            int tag = r.ReadInt32();
+            if (tag != BlockTag && tag != BlockTag2) { r.BaseStream.Position = at; return list; }
             int n = r.ReadInt32();
-            for (int i = 0; i < n; i++) { int k = r.ReadByte(); var p = RV3(r); var q = RQ(r); bool c = r.ReadBoolean(); list.Add((k, p, q, c)); }
+            for (int i = 0; i < n; i++)
+            {
+                int k = r.ReadByte(); var p = RV3(r); var q = RQ(r); bool c = r.ReadBoolean();
+                // (older saves didn't say: an upright block that isn't chained down was set down)
+                bool pin = tag == BlockTag2 ? r.ReadBoolean() : !c && Vector3.Dot(q * Vector3.up, Vector3.up) > 0.96f;
+                list.Add((k, p, q, c, pin));
+            }
+            return list;
+        }
+
+        const int PoseTag = 0x504F5345; // "POSE": where each machine's arms / blade / box were. Older saves end before it.
+
+        static void WritePoses(BinaryWriter w)
+        {
+            var machines = SavedMachines();
+            w.Write(PoseTag); w.Write(machines.Count);
+            foreach (var v in machines)
+            {
+                var p = v.SavePose();
+                w.Write(p != null ? p.Length : 0);
+                if (p != null) foreach (float f in p) w.Write(f);
+            }
+        }
+
+        static List<float[]> ReadPoses(BinaryReader r)
+        {
+            var list = new List<float[]>();
+            if (r.BaseStream.Length - r.BaseStream.Position < 8) return list;
+            long at = r.BaseStream.Position;
+            if (r.ReadInt32() != PoseTag) { r.BaseStream.Position = at; return list; }
+            int n = r.ReadInt32();
+            for (int i = 0; i < n; i++)
+            {
+                int m = r.ReadInt32();
+                float[] p = m > 0 ? new float[m] : null;
+                for (int j = 0; j < m; j++) p[j] = r.ReadSingle();
+                list.Add(p);
+            }
             return list;
         }
 
@@ -331,7 +379,7 @@ namespace FPSBase.Core
             var machines = new List<VehicleBase>();
             var lowboys = new List<(SemiTruck semi, byte state, Vector3 p, Quaternion q)>();
             string error = null;
-            List<(int kind, Vector3 p, Quaternion q, bool chained)> blocks = null;
+            List<(int kind, Vector3 p, Quaternion q, bool chained, bool pinned)> blocks = null;
             try
             {
                 int n = r.ReadInt32();
@@ -418,29 +466,36 @@ namespace FPSBase.Core
                 ReadTown(r, info.version);
                 blocks = ReadBlocks(r);
                 ReadSites(r);
+                // the arms / blades / boxes where they were left
+                var poses = ReadPoses(r);
+                for (int i = 0; i < poses.Count && i < machines.Count; i++) if (machines[i] != null && poses[i] != null) machines[i].LoadPose(poses[i]);
             }
             catch (Exception e) { error = "The save is damaged: " + e.Message; }
 
             // the concrete blocks: put back where they were, still; the ones that were chained down, chained again
             if (blocks != null && blocks.Count > 0)
             {
-                var placed = new List<(FPSBase.City.ConcreteBlock b, bool chained)>();
-                foreach (var (kind, p, q, chained) in blocks)
+                var placed = new List<(FPSBase.City.ConcreteBlock b, bool chained, bool pinned)>();
+                // (bottom ones first: a block on top holds its ground through the one under it)
+                blocks.Sort((a, c) => a.p.y.CompareTo(c.p.y));
+                foreach (var (kind, p, q, chained, pinned) in blocks)
                 {
                     var b = FPSBase.City.BlockYard.Spawn(kind, p, q);
                     if (b == null) continue;
                     b.Body.isKinematic = true;
-                    placed.Add((b, chained));
+                    placed.Add((b, chained, pinned));
                 }
                 Physics.SyncTransforms();
                 yield return null;
                 Physics.SyncTransforms();
-                foreach (var (b, chained) in placed)
+                foreach (var (b, chained, pinned) in placed)
                 {
                     if (b == null) continue;
-                    if (chained && b.CarrierBelow(out var deck)) b.ChainTo(deck, true);
-                    else b.Body.isKinematic = false;
                     b.Claim();
+                    // set down: exactly where it was, locked in (not let loose for the physics to shift)
+                    if (chained && b.CarrierBelow(out var deck)) b.ChainTo(deck, true);
+                    else if (pinned) b.RestoreSetDown();
+                    else b.Body.isKinematic = false;
                 }
             }
 

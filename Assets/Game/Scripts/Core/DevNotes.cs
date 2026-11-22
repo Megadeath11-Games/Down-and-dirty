@@ -13,6 +13,12 @@ namespace FPSBase.Core
         /// <summary>Newest first.</summary>
         public static readonly Post[] Blog =
         {
+            new Post { date = "Update 49  ·  Nov 22, 2026", title = "Saves keep your blocks and your arm up",
+                body =
+                "• Loading a save put every block back loose: the physics nudged them about and each one pressed itself into the dirt again, so a straight wall came back crooked. Now a block you set down comes back exactly where it was, locked in, every time you load.\n" +
+                "• A machine left with its arm, blade or dump box up is still that way when you load the save (excavators, loaders, dozers, graders and the dump pickup's box).\n" +
+                "• Blocks on a trailer count as its load. The semi's panel shows how many tonnes are on and how many are free, and the trailer shows what it's carrying, chained down or not yet.\n" +
+                "• A block snapped onto a wall over bumpy dirt sits at the wall block's height: lumps under it are cut down as well as hollows filled in (up to about 45 cm)." },
             new Post { date = "Update 48  ·  Nov 22, 2026", title = "Blocks stay put, walls hold, the cab tilts with you",
                 body =
                 "• House site: a square of the pad that's too high is marked orange now, so the \"0.7 too high\" in the label shows you where. Footings still to dig are orange too (they used to show blue, which means fill). Near the site the label spells it out: orange dig down, blue fill, green done.\n" +
@@ -397,11 +403,14 @@ namespace FPSBase.Core
                 "• Dozer berms build up properly in front of the blade." },
         };
 
-        public const string TestListVersion = "2026-11-22c";
+        public const string TestListVersion = "2026-11-22d";
 
         /// <summary>What's new in this build to try out.</summary>
         public static readonly string[] TestList =
         {
+            "Build a few blocks in a wall, save, quit and load: every block is exactly where it was, still straight",
+            "Leave the excavator with its arm all the way up, save, quit and load: the arm is still up",
+            "Load blocks onto the semi's lowboy: the bottom-left panel shows the tonnes on and the tonnes free",
             "House site: where the pad is too high, orange squares show on it; footings still to dig show orange, not blue",
             "Set a block down, then bump it with the bucket and the dozer blade: it doesn't move or tilt",
             "Snap a block onto the end of a wall where the dirt dips a little: dirt fills in under it and it sits level with the wall",

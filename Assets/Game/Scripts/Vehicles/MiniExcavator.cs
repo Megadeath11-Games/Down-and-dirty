@@ -731,6 +731,15 @@ namespace FPSBase.Vehicles
             }
         }
 
+        public override float[] SavePose() => new[] { boom, stick, bucket, swing, bladeAngle };
+        public override void LoadPose(float[] p)
+        {
+            if (p == null || p.Length < 5) return;
+            bladeAngle = Mathf.Clamp(p[4], bladeRange.x, bladeRange.y);
+            netPose = null;
+            SetPose(p[0], p[1], p[2], p[3]);
+        }
+
         public void SetPose(float boomDeg, float stickDeg, float bucketDeg, float swingDeg)
         {
             boom = Mathf.Clamp(boomDeg, boomRange.x, boomRange.y);

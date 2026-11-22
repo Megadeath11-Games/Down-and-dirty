@@ -13,6 +13,11 @@ namespace FPSBase.Core
         /// <summary>Newest first.</summary>
         public static readonly Post[] Blog =
         {
+            new Post { date = "Update 51  ·  Nov 22, 2026", title = "Text chat, and solid wheels",
+                body =
+                "• Multiplayer text chat: press T, type, Enter to send, Esc to close. Everyone in the game sees it with your name; lines fade after a while and all come back when you open the box. In the dozer, loader and grader T already does something, so there Enter opens chat. The key can be changed in Controls (Multiplayer).\n" +
+                "• While the chat box is open your typing doesn't drive anything.\n" +
+                "• The wheel loaders (6, 15 and 30 t) and the dump trucks (5 and 10 t, and the 25 and 50 t articulated haulers) had see-through tyres, half-moon rims and missing cab and bonnet panels: those faces were built inside-out. They're solid from every side now." },
             new Post { date = "Update 50  ·  Nov 22, 2026", title = "Locked blocks, a controller column, quieter labels",
                 body =
                 "• A block with another block on top of it can't be hooked till the top one's lifted off. With the hook hanging low by the bottom block's loop, it takes the top one. Press the chain key by a covered block and it tells you.\n" +
@@ -418,6 +423,9 @@ namespace FPSBase.Core
         /// <summary>What's new in this build to try out.</summary>
         public static readonly string[] TestList =
         {
+            "Multiplayer: press T, type something, Enter: your friend sees it with your name",
+            "In the dozer press T: the blade tilts, Enter opens chat instead",
+            "Look closely at a wheel loader's and a dump truck's wheels and cab: nothing see-through",
             "Stack a block on another, put the hook low by the bottom one's loop and press the chain key: it hooks the top one",
             "Drop a block (land level off, away from a wall), drive into it with the dozer: it shoves it. Snap one into a wall and bump it: it doesn't move",
             "Let a block go swinging next to a wall: it snaps in and the block below stays in line",

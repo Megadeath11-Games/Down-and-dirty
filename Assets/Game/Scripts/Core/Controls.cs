@@ -50,6 +50,8 @@ namespace FPSBase.Core
         ChainTurnLeft, ChainTurnRight,
         // the block on the chain lands level when let go
         ChainLevel,
+        // multiplayer text chat
+        Chat,
     }
 
     /// <summary>Controller inputs (Xbox names; a PlayStation pad is the same places: A = Cross, B = Circle, X = Square, Y = Triangle).</summary>
@@ -165,7 +167,22 @@ namespace FPSBase.Core
             new(GameAction.GraderRipperUp, "Motor grader", "Ripper / scarifier up", Key.H),
 
             new(GameAction.Invite, General, "Multiplayer: host / invite a Steam friend", Key.F2),
+
+            new(GameAction.Chat, "Multiplayer", "Text chat (in a machine that uses this key, Enter opens it)", Key.T),
         };
+
+        /// <summary>The chat box is open: the game's controls are all off while you type.</summary>
+        public static bool Typing;
+
+        /// <summary>Is key `k` used by one of the actions in these groups (the ones in play right now)?</summary>
+        public static bool KeyUsedIn(Key k, string[] categories)
+        {
+            Load();
+            if (k == Key.None || categories == null) return false;
+            foreach (var d in Defaults)
+                if (System.Array.IndexOf(categories, d.category) >= 0 && Get(d.action) == k) return true;
+            return false;
+        }
 
         /// <summary>
         /// The controller layout. Like the keys, the same button does different things in different groups
@@ -262,10 +279,11 @@ namespace FPSBase.Core
         static bool PadOnMenu(GameAction a) => a != GameAction.Map && a != GameAction.Phone && GameUI.Instance != null && GameUI.Instance.BlocksGameplay;
 
         /// <summary>The key for this action was pressed this frame (keyboard only, not the controller).</summary>
-        public static bool KeyPressed(GameAction a) => Ctl(a)?.wasPressedThisFrame ?? false;
+        public static bool KeyPressed(GameAction a) => !Typing && (Ctl(a)?.wasPressedThisFrame ?? false);
 
         static float PadValue(GameAction a)
         {
+            if (Typing) return 0f;
             var p = PadOf(a);
             var c = PadCtl(p);
             if (c == null || RightStickTaken(p) || PadOnMenu(a)) return 0f;
@@ -330,6 +348,7 @@ namespace FPSBase.Core
         public static string AltName(GameAction a) => Alt.TryGetValue(a, out var k) ? KeyName(k) : null;
         static bool Down(GameAction a)
         {
+            if (Typing) return false;
             if (Ctl(a)?.isPressed ?? false) return true;
             var kb = Keyboard.current;
             return kb != null && Alt.TryGetValue(a, out var k) && Get(a) != k && kb[k].isPressed;
@@ -346,6 +365,7 @@ namespace FPSBase.Core
         public static bool Held(GameAction a) => Down(a) || PadValue(a) > 0.5f;
         public static bool Pressed(GameAction a)
         {
+            if (Typing) return false;
             if (Ctl(a)?.wasPressedThisFrame ?? false) return true;
             var p = PadOf(a);
             var c = PadCtl(p);

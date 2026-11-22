@@ -38,7 +38,86 @@ namespace FPSBase.Core
 
         GUIStyle hudBig, hudSmall, prompt, header, toastStyle, box, menuPanel;
 
-        public bool BlocksGameplay => paused || panelDraw != null || menuOpen;
+        public bool BlocksGameplay => paused || panelDraw != null || menuOpen || chatOpen;
+
+        // ------------------------------------------------------------------ text chat (multiplayer)
+        bool chatOpen;
+        string chatText = "";
+        int chatOpenedFrame;
+        /// <summary>The chat box is open (typing).</summary>
+        public bool ChatOpen => chatOpen;
+
+        /// <summary>The groups of keys in play right now (so the chat key doesn't open chat in a machine that uses it).</summary>
+        string[] KeyGroupsNow()
+        {
+            var v = ActiveVehicle as FPSBase.Vehicles.VehicleBase;
+            if (ActiveVehicle == null) return new[] { "On foot", "Metal detector (on foot)", "Setting out a house" };
+            return v switch
+            {
+                FPSBase.Vehicles.Bulldozer => new[] { "Bulldozer", "Driving" },
+                FPSBase.Vehicles.FrontLoader => new[] { "Loader & skid steer", "Driving" },
+                FPSBase.Vehicles.MotorGrader => new[] { "Motor grader", "Driving" },
+                FPSBase.Vehicles.MiniExcavator => new[] { "Excavator (Realistic)", "Excavator blade", "Excavator chain" },
+                FPSBase.Vehicles.MixerTruck => new[] { "Concrete mixer truck", "Driving" },
+                FPSBase.Vehicles.DumpPickup => new[] { "Dump truck", "Driving" },
+                _ => new[] { "Driving" },
+            };
+        }
+
+        bool ChatKeyPressed()
+        {
+            var kb = Keyboard.current;
+            if (kb == null) return false;
+            if (kb.enterKey.wasPressedThisFrame || kb.numpadEnterKey.wasPressedThisFrame) return true;
+            var k = Controls.Get(GameAction.Chat);
+            return k != Key.None && kb[k].wasPressedThisFrame && !Controls.KeyUsedIn(k, KeyGroupsNow());
+        }
+
+        void OpenChat() { chatOpen = true; chatText = ""; chatOpenedFrame = Time.frameCount; Controls.Typing = true; }
+        void CloseChat() { chatOpen = false; Controls.Typing = false; }
+
+        /// <summary>The chat lines (fading after a while unless the box is open) and the box you type in.</summary>
+        void DrawChat()
+        {
+            var log = FPSBase.Net.NetSession.ChatLog;
+            if (!chatOpen && log.Count == 0) return;
+            chatStyle ??= new GUIStyle(hudSmall) { fontSize = 15, wordWrap = true, richText = true };
+            float w = Mathf.Min(520f, Screen.width * 0.4f), x = 12f, bottom = Screen.height * 0.62f;
+            float now = Time.unscaledTime, y = bottom;
+            int shown = 0;
+            for (int i = log.Count - 1; i >= 0 && shown < (chatOpen ? 12 : 6); i--)
+            {
+                var l = log[i];
+                float age = now - l.at;
+                float a = chatOpen ? 1f : Mathf.Clamp01((14f - age) / 2f);
+                if (a <= 0f) break;
+                string line = $"<b><color={(l.mine ? "#ffd27a" : "#8fd3ff")}>{l.who}:</color></b> {l.text}";
+                var gc = new GUIContent(line);
+                float h = chatStyle.CalcHeight(gc, w - 12f) + 4f;
+                y -= h;
+                var c0 = GUI.color;
+                GUI.color = new Color(0f, 0f, 0f, 0.45f * a); GUI.DrawTexture(new Rect(x, y, w, h), Texture2D.whiteTexture);
+                GUI.color = new Color(1f, 1f, 1f, a); GUI.Label(new Rect(x + 6, y + 2, w - 12f, h), gc, chatStyle);
+                GUI.color = c0;
+                shown++;
+            }
+            if (!chatOpen) return;
+            var e = Event.current;
+            // (the key that opened it isn't typed into it)
+            if (Time.frameCount == chatOpenedFrame && e.type == EventType.KeyDown) { e.Use(); return; }
+            if (e.type == EventType.KeyDown && (e.keyCode == KeyCode.Return || e.keyCode == KeyCode.KeypadEnter))
+            {
+                FPSBase.Net.NetSession.Say(chatText);
+                e.Use(); CloseChat(); return;
+            }
+            if (e.type == EventType.KeyDown && e.keyCode == KeyCode.Escape) { e.Use(); CloseChat(); return; }
+            var box = new Rect(x, bottom + 6f, w, 30f);
+            GUI.SetNextControlName("chatInput");
+            chatText = GUI.TextField(box, chatText, FPSBase.Net.NetSession.ChatMaxLength);
+            GUI.FocusControl("chatInput");
+            GUI.Label(new Rect(x, box.yMax + 2f, w, 20f), "<color=#aaa>Enter: send   ·   Esc: close</color>", chatStyle);
+        }
+        GUIStyle chatStyle;
         /// <summary>The open panel's title (null when none is open).</summary>
         public string PanelTitle => panelDraw != null ? panelTitle : null;
         public bool Paused => paused || menuOpen;
@@ -134,6 +213,12 @@ namespace FPSBase.Core
             AutoSaveTick();
             if (capturing.HasValue) CaptureKey(kb);
             else if (capturingPad.HasValue) CapturePad(kb);
+            else if (chatOpen)
+            {
+                // (typing: Esc closes the box, not opens the menu; it closes by itself if the session ends)
+                if ((kb != null && kb.escapeKey.wasPressedThisFrame) || !FPSBase.Net.NetSession.InSession) CloseChat();
+            }
+            else if (!paused && panelDraw == null && FPSBase.Net.NetSession.InSession && ChatKeyPressed()) OpenChat();
             else if (!paused && Controls.Pressed(GameAction.Map))
             {
                 if (panelTitle == "Map" && panelDraw != null) ClosePanel(); else OpenPanel("Map", DrawMap, 1120f);
@@ -231,6 +316,7 @@ namespace FPSBase.Core
             }
 
             if (GameSettings.ShowFps) GUI.Label(new Rect(10, Screen.height - 26, 120, 22), $"{fpsSmooth:0} FPS", hudSmall);
+            if (FPSBase.Net.NetSession.InSession && !paused) DrawChat();
 
             // Vehicle HUD (bottom left)
             if (ActiveVehicle != null && !paused)

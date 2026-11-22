@@ -76,6 +76,8 @@ namespace FPSBase.DebugTools
                         case "cabtilt": yield return CabTiltTests(); break;
                         case "blocksave": yield return BlockSaveTests(); break;
                         case "dozerread": yield return DozerReadTests(); break;
+                        case "chat": yield return ChatTests(); break;
+                        case "vehshots": yield return VehicleShots(); break;
                         case "slosh": yield return SloshTests(DigSite.Instance, FindFirstObjectByType<DumpPickup>()); break;
                         case "materials": yield return MaterialsTests(DigSite.Instance, Economy.Instance, FindFirstObjectByType<WashPlant>(), FindFirstObjectByType<DumpPickup>()); break;
                         default: log.AppendLine($"INFO  unknown quick test '{part}'"); break;
@@ -3614,6 +3616,55 @@ namespace FPSBase.DebugTools
         /// let go by a set-down block snap into a wall off it (end to end, on top over the joint, at a corner);
         /// a block on the chain turns with the keys; the phone's clean up collects only the loose ones.
         /// </summary>
+        /// <summary>Pictures of every loader and dump truck from round about (looking for see-through wheels and cabs).</summary>
+        IEnumerator VehicleShots()
+        {
+            var dealer = FindFirstObjectByType<VehicleDealer>();
+            int k = 0;
+            foreach (var l in dealer.listings)
+            {
+                if (l.prefab == null || (l.prefab.GetComponent<FrontLoader>() == null && l.prefab.GetComponent<DumpPickup>() == null)) continue;
+                Vector3 at = new Vector3(0f, 300f + k * 40f, 0f);
+                var go = Instantiate(l.prefab, at, Quaternion.identity);
+                foreach (var rb in go.GetComponentsInChildren<Rigidbody>()) rb.isKinematic = true;
+                var b = new Bounds(at, Vector3.zero);
+                foreach (var r in go.GetComponentsInChildren<Renderer>()) b.Encapsulate(r.bounds);
+                float sz = b.extents.magnitude;
+                string nm = l.prefab.name.Replace(" ", "_");
+                // a front wheel close up, from outside and a little below, and the cab from the side
+                Transform wheel = null; float wz = float.MinValue;
+                foreach (var t in go.GetComponentsInChildren<Transform>()) if (t.name.ToLower().Contains("wheel") && t.GetComponent<WheelCollider>() == null && t.position.x > at.x && t.position.z > wz) { wz = t.position.z; wheel = t; }
+                Vector3 wp = wheel != null ? wheel.position : b.center;
+                yield return ShotAt(wp + new Vector3(sz * 0.55f, 0.2f, sz * 0.25f), wp, $"Screenshots/veh_{nm}_a.png");
+                yield return ShotAt(wp + new Vector3(sz * 0.45f, -0.3f, -sz * 0.35f), wp, $"Screenshots/veh_{nm}_b.png");
+                Vector3 cab = b.center + Vector3.up * b.extents.y * 0.5f;
+                yield return ShotAt(cab + new Vector3(-sz * 0.8f, 0.3f, sz * 0.2f), cab, $"Screenshots/veh_{nm}_c.png");
+                log.AppendLine($"INFO  shot {l.prefab.name} ({l.name})");
+                Destroy(go);
+                k++;
+                yield return null;
+            }
+            Check(k > 0, $"pictured {k} loaders and dump trucks");
+        }
+
+        /// <summary>Text chat: T opens it except in a machine that uses T, and typing turns the game's controls off.</summary>
+        IEnumerator ChatTests()
+        {
+            var t = Controls.Get(GameAction.Chat);
+            Check(t == UnityEngine.InputSystem.Key.T, $"the chat key is T ({t})");
+            Check(Controls.KeyUsedIn(t, new[] { "Bulldozer", "Driving" }), "in the dozer T tilts the blade, so T doesn't open chat there (Enter does)");
+            Check(!Controls.KeyUsedIn(t, new[] { "On foot", "Metal detector (on foot)", "Setting out a house" }) && !Controls.KeyUsedIn(t, new[] { "Dump truck", "Driving" }),
+                "on foot and in a truck, T is free for chat");
+            Controls.Typing = true;
+            bool quiet = !Controls.Held(GameAction.MoveForward) && !Controls.Pressed(GameAction.Interact);
+            Controls.Typing = false;
+            Check(quiet, "while typing, the game's controls are off");
+            int n0 = FPSBase.Net.NetSession.ChatLog.Count;
+            FPSBase.Net.NetSession.Say("hello");
+            Check(FPSBase.Net.NetSession.ChatLog.Count == n0, "not in a multiplayer game, nothing is sent or shown");
+            yield return null;
+        }
+
         /// <summary>The dozer's "dirt in front of the blade": driving over deep loose dirt with the blade up it reads about nothing; blade down pushing, it fills.</summary>
         IEnumerator DozerReadTests()
         {

@@ -574,6 +574,7 @@ namespace FPSBase.Net
                 }
                 case MsgBlocks: ReadBlocks(from, r); break;
                 case MsgSites: ReadSites(r); break;
+                case MsgChat: ReadChat(from, r); break;
                 case MsgBye: break;
             }
         }

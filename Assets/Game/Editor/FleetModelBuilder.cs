@@ -83,7 +83,18 @@ namespace FPSBase.EditorTools
             foreach (var m in d.meshes)
             {
                 if (!geos.TryGetValue(m.node, out var g)) geos[m.node] = g = new Geo();
-                g.Raw(ModelMat(d.mats[m.mat], fm, tm), m.v);
+                // (the model files don't keep one winding: tyres, rims and some cab panels came out facing inward,
+                // so you saw through them. Every face is put in both ways round: it shows from either side)
+                var mat = ModelMat(d.mats[m.mat], fm, tm);
+                g.Raw(mat, m.v);
+                var back = new float[m.v.Length];
+                for (int i = 0; i + 8 < m.v.Length; i += 9)
+                {
+                    System.Array.Copy(m.v, i, back, i, 3);
+                    System.Array.Copy(m.v, i + 6, back, i + 3, 3);
+                    System.Array.Copy(m.v, i + 3, back, i + 6, 3);
+                }
+                g.Raw(mat, back);
                 if (bounds != null)
                     for (int i = 0; i + 2 < m.v.Length; i += 3)
                     {

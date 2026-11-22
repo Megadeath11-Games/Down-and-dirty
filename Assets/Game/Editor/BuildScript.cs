@@ -24,6 +24,10 @@ namespace FPSBase.EditorTools
             PlayerSettings.fullScreenMode = FullScreenMode.FullScreenWindow;
             PlayerSettings.defaultIsNativeResolution = true;
             PlayerSettings.runInBackground = true; // multiplayer keeps talking while alt-tabbed
+            // Direct3D 11 first: the Steam overlay (Shift+Tab) can hook into a DX11 game that Steam didn't launch itself
+            // (started from its folder, with steam_appid.txt); on DX12 it only works when Steam starts the game
+            PlayerSettings.SetUseDefaultGraphicsAPIs(BuildTarget.StandaloneWindows64, false);
+            PlayerSettings.SetGraphicsAPIs(BuildTarget.StandaloneWindows64, new[] { UnityEngine.Rendering.GraphicsDeviceType.Direct3D11, UnityEngine.Rendering.GraphicsDeviceType.Direct3D12 });
             PlayerSettings.SetScriptingBackend(UnityEditor.Build.NamedBuildTarget.Standalone, ScriptingImplementation.Mono2x);
 
             var scenes = EditorBuildSettings.scenes.Where(s => s.enabled).Select(s => s.path).ToArray();

@@ -711,6 +711,10 @@ namespace FPSBase.Vehicles
             TipStep();
         }
 
+        // the trailer's body scraping the dirt shoves it aside (see BodyDirt)
+        void OnCollisionEnter(Collision c) => BodyDirt.Contact(Body, c);
+        void OnCollisionStay(Collision c) => BodyDirt.Contact(Body, c);
+
         void FixedUpdate()
         {
             UpdateMass();

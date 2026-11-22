@@ -55,6 +55,9 @@ namespace FPSBase.Vehicles
             rb.centerOfMass = centerOfMass;
             rb.angularDamping = Mathf.Max(rb.angularDamping, 4f);
             suspension.Setup(rb, GetComponent<BoxCollider>(), true);
+            // an articulated machine: its front frame takes the front of the hull and its ground contacts with it
+            var art = GetComponent<FrameArticulation>();
+            if (art != null) { art.Split(); suspension.map = art.MapPoint; }
             myColliders = GetComponentsInChildren<Collider>();
             tools = ToolColliders.Find(transform);
         }

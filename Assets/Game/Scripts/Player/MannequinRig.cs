@@ -32,6 +32,7 @@ namespace FPSBase.Player
         Transform hips, spine, spine1, spine2, neck, head;
         Transform lUp, lLo, lFoot, rUp, rLo, rFoot;
         Transform lArm, lFore, rArm, rFore, lHand, rHand, lThumb, rThumb;
+        Transform lToe, rToe, lMid, rMid;
         readonly List<Transform> lFingers = new(), rFingers = new();
         readonly List<Transform> bones = new();
         readonly List<Quaternion> bind = new();
@@ -43,6 +44,20 @@ namespace FPSBase.Player
         public Transform Head => head;
         public Transform RightHand => rHand;
         public Transform LeftHand => lHand;
+        /// <summary>The middle of the palm (where a grip sits in the hand).</summary>
+        public Vector3 Palm(bool right)
+        {
+            Transform h = right ? rHand : lHand, m = right ? rMid : lMid;
+            if (h == null) return Vector3.zero;
+            return m != null ? Vector3.Lerp(h.position, m.position, 0.6f) : h.position;
+        }
+        /// <summary>The ball of the foot (what goes on a pedal).</summary>
+        public Vector3 BallOfFoot(bool right)
+        {
+            Transform f = right ? rFoot : lFoot, t = right ? rToe : lToe;
+            if (f == null) return Vector3.zero;
+            return t != null ? t.position : f.position;
+        }
         public bool Ready => hips != null;
 
         void Awake()
@@ -69,6 +84,8 @@ namespace FPSBase.Player
                         if (b != null) (side == "Left" ? lFingers : rFingers).Add(b);
                     }
             lThumb = Bone("LeftHandThumb1"); rThumb = Bone("RightHandThumb1");
+            lToe = Bone("LeftToeBase"); rToe = Bone("RightToeBase");
+            lMid = Bone("LeftHandMiddle1"); rMid = Bone("RightHandMiddle1");
             if (hips != null) hipsBind = hips.localPosition;
             renderers = GetComponentsInChildren<Renderer>(true);
         }
@@ -206,18 +223,60 @@ namespace FPSBase.Player
         {
             if (controls == null) return;
             if (controls.leftGrip != null && lArm != null)
-                Limb(lArm, lFore, lHand, Wrist(controls.leftGrip.position, lArm.position), lArm.position - R * 0.3f - U * 0.35f - F * 0.15f);
+                Hand(lArm, lFore, lHand, lMid, controls.leftGrip.position, lArm.position - R * 0.3f - U * 0.35f - F * 0.15f, F, U);
             if (controls.rightGrip != null && rArm != null)
-                Limb(rArm, rFore, rHand, Wrist(controls.rightGrip.position, rArm.position), rArm.position + R * 0.3f - U * 0.35f - F * 0.15f);
+                Hand(rArm, rFore, rHand, rMid, controls.rightGrip.position, rArm.position + R * 0.3f - U * 0.35f - F * 0.15f, F, U);
             if (controls.standing) return;
             if (controls.leftFoot != null && lUp != null)
-                Limb(lUp, lLo, lFoot, controls.leftFoot.position + U * 0.07f, lUp.position + F * 0.6f + U * 0.25f - R * 0.05f);
+                Foot(lUp, lLo, lFoot, lToe, controls.leftFoot, lUp.position + F * 0.6f + U * 0.25f - R * 0.05f, F, U);
             if (controls.rightFoot != null && rUp != null)
-                Limb(rUp, rLo, rFoot, controls.rightFoot.position + U * 0.07f, rUp.position + F * 0.6f + U * 0.25f + R * 0.05f);
+                Foot(rUp, rLo, rFoot, rToe, controls.rightFoot, rUp.position + F * 0.6f + U * 0.25f + R * 0.05f, F, U);
         }
 
-        // the wrist sits a hand's length short of the grip
-        static Vector3 Wrist(Vector3 grip, Vector3 shoulder) => grip - (grip - shoulder).normalized * 0.07f;
+        /// <summary>
+        /// The palm round the grip: the hand points out from the forearm's way and a little down, the wrist goes a
+        /// palm's length back from the grip along it, then the hand is turned so the palm lands right on it.
+        /// (A couple of passes: turning the hand moves the palm a little.)
+        /// </summary>
+        static void Hand(Transform arm, Transform fore, Transform hand, Transform mid, Vector3 grip, Vector3 hint, Vector3 F, Vector3 U)
+        {
+            if (fore == null || hand == null) return;
+            float palm = mid != null ? Vector3.Distance(hand.position, mid.position) * 0.6f : 0.06f;
+            Vector3 dir = ((grip - arm.position).normalized + F * 0.4f - U * 0.25f).normalized;
+            for (int pass = 0; pass < 2; pass++)
+            {
+                Limb(arm, fore, hand, grip - dir * palm, hint);
+                if (mid != null) hand.rotation = Quaternion.FromToRotation(mid.position - hand.position, dir) * hand.rotation;
+                // (whatever is left over, the next pass aims the wrist that much further)
+                Vector3 at = mid != null ? Vector3.Lerp(hand.position, mid.position, 0.6f) : hand.position;
+                Vector3 miss = grip - at;
+                if (miss.sqrMagnitude < 1e-6f) break;
+                grip += miss;
+            }
+        }
+
+        /// <summary>
+        /// The ball of the foot on the pedal: the foot lies along the pedal (toes forward and down), the ankle goes
+        /// a foot's length back and up from it, then the foot is turned so the toes come down onto the pad.
+        /// </summary>
+        static void Foot(Transform up, Transform lo, Transform foot, Transform toe, Transform pedal, Vector3 hint, Vector3 F, Vector3 U)
+        {
+            if (lo == null || foot == null) return;
+            Vector3 pad = pedal.position + U * 0.025f; // (the sole's thickness over the pad)
+            Vector3 along = Vector3.ProjectOnPlane(pedal.forward, U).sqrMagnitude > 0.1f ? pedal.forward : F;
+            Vector3 dir = (along.normalized * 0.75f - pedal.up * 0.55f).normalized;
+            if (Vector3.Dot(dir, F) < 0.2f) dir = (F * 0.75f - U * 0.55f).normalized;
+            float len = toe != null ? Vector3.Distance(foot.position, toe.position) : 0.12f;
+            for (int pass = 0; pass < 2; pass++)
+            {
+                Limb(up, lo, foot, pad - dir * len, hint);
+                if (toe != null) foot.rotation = Quaternion.FromToRotation(toe.position - foot.position, dir) * foot.rotation;
+                Vector3 at = toe != null ? toe.position : foot.position;
+                Vector3 miss = pedal.position + U * 0.025f - at;
+                if (miss.sqrMagnitude < 1e-6f) break;
+                pad += miss;
+            }
+        }
 
         /// <summary>Two-bone IK: bends a-b-c so c reaches `target`, with the middle joint toward `hint`.</summary>
         static void Limb(Transform a, Transform b, Transform c, Vector3 target, Vector3 hint)

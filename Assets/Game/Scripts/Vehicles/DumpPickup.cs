@@ -331,12 +331,45 @@ namespace FPSBase.Vehicles
         protected override bool DriveInput => Mathf.Abs(lastThrottle) > 0.05f;
         public override int BrakePedal => lastBraking || lastHandbrake ? 1 : 0;
 
+        /// <summary>
+        /// The firmer front end (on for every truck; off only for the tests' comparison): the steering winds on
+        /// over a moment instead of snapping to full lock, keeps more of its lock at speed, and the front tyres bite
+        /// harder the faster it goes. Pushed too hard it still slides, it just turns in first.
+        /// </summary>
+        public static bool FirmSteering = true;
+        float steerNow;
+        float[] sideGrip;
+
         protected void ApplyDrive(float throttle, float steer, bool handbrake)
         {
             lastThrottle = throttle;
             float speed = Vector3.Dot(rb.linearVelocity, transform.forward);
             float kmh = Mathf.Abs(speed) * 3.6f;
-            float steerAngle = steer * maxSteer * Mathf.Lerp(1f, 0.35f, kmh / topSpeedKmh);
+            float fast = Mathf.Clamp01(kmh / Mathf.Max(1f, topSpeedKmh));
+            if (FirmSteering)
+            {
+                // (quick at a crawl, steadier at speed: a full swing of the wheel takes a moment on the road)
+                float rate = Mathf.Lerp(4f, 1.8f, fast);
+                steerNow = Mathf.MoveTowards(steerNow, steer, rate * Time.deltaTime * (Mathf.Abs(steer) < Mathf.Abs(steerNow) ? 1.6f : 1f));
+                steer = steerNow;
+            }
+            else steerNow = steer;
+            float steerAngle = steer * maxSteer * Mathf.Lerp(1f, FirmSteering ? 0.42f : 0.35f, fast);
+            // the front tyres' side grip: more of it as the speed comes up (it's what turns a truck in at speed)
+            if (sideGrip == null || sideGrip.Length != wheels.Length)
+            {
+                sideGrip = new float[wheels.Length];
+                for (int i = 0; i < wheels.Length; i++) sideGrip[i] = wheels[i] != null ? wheels[i].sidewaysFriction.stiffness : 1f;
+            }
+            // (the rears a little too, or the bitier front swings the tail round at speed)
+            for (int i = 0; i < wheels.Length; i++)
+            {
+                if (wheels[i] == null) continue;
+                var sf = wheels[i].sidewaysFriction;
+                float g = Mathf.Clamp01(kmh / 60f);
+                float want = sideGrip[i] * (FirmSteering ? (i < 2 ? Mathf.Lerp(1.1f, 1.35f, g) : Mathf.Lerp(1f, 1.3f, g)) : 1f);
+                if (Mathf.Abs(sf.stiffness - want) > 0.01f) { sf.stiffness = want; wheels[i].sidewaysFriction = sf; }
+            }
             // S while rolling forward brakes. W while rolling back just drives forward (the engine fights the roll):
             // on a hill that's what pulls it up again instead of locking the wheels and sliding down
             // (rolling back faster than a walk with W held, it's lost the hill: brake rather than run away backwards)
@@ -362,7 +395,8 @@ namespace FPSBase.Vehicles
             {
                 var w = wheels[i];
                 if (w == null) continue;
-                if (i < 2) w.steerAngle = steerAngle;
+                // (an articulated hauler's front wheels ride on the front frame: they point the way it's swung right now)
+                if (i < 2) w.steerAngle = articulation != null && articulation.CarriesWheels ? articulation.Angle : steerAngle;
                 // (exactly zero motor torque makes a WheelCollider grab like a brake and lock up: a hair of torque lets it roll)
                 w.motorTorque = Mathf.Abs(axleOut[i]) < 1e-3f ? 1e-4f : axleOut[i];
                 float b = 0f;
@@ -391,7 +425,8 @@ namespace FPSBase.Vehicles
             if (articulation.front == null) return;
             float a = articulation.Angle;
             Vector3 h = articulation.front.position;
-            p = h + Quaternion.AngleAxis(a, transform.up) * (p - h);
+            // (wheels carried on the front frame are already where it's swung them)
+            if (!articulation.CarriesWheels) p = h + Quaternion.AngleAxis(a, transform.up) * (p - h);
             Quaternion spin = Quaternion.Inverse(steered) * q; // (just the roll)
             q = transform.rotation * Quaternion.Euler(0f, a, 0f) * spin;
         }

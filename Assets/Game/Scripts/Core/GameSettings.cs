@@ -49,6 +49,13 @@ namespace FPSBase.Core
         }
         static float? sens;
 
+        /// <summary>Excavator: how fast each function moves for a full push (1 = as built; 0.25 slow and fine .. 2 quick).</summary>
+        public static float ExSwingSens { get => exSens[0] ??= GetF("set.exSwing", 1f); set { exSens[0] = Mathf.Clamp(value, 0.25f, 2f); SetF("set.exSwing", exSens[0].Value); } }
+        public static float ExBoomSens { get => exSens[1] ??= GetF("set.exBoom", 1f); set { exSens[1] = Mathf.Clamp(value, 0.25f, 2f); SetF("set.exBoom", exSens[1].Value); } }
+        public static float ExStickSens { get => exSens[2] ??= GetF("set.exStick", 1f); set { exSens[2] = Mathf.Clamp(value, 0.25f, 2f); SetF("set.exStick", exSens[2].Value); } }
+        public static float ExBucketSens { get => exSens[3] ??= GetF("set.exBucket", 1f); set { exSens[3] = Mathf.Clamp(value, 0.25f, 2f); SetF("set.exBucket", exSens[3].Value); } }
+        static readonly float?[] exSens = new float?[4];
+
         /// <summary>How solid the labels over things are (name tags, the house site's label): 0.15 faint .. 1 solid.</summary>
         public static float LabelOpacity
         {

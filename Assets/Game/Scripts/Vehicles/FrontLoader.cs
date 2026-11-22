@@ -170,10 +170,23 @@ namespace FPSBase.Vehicles
             return pourAt;
         }
 
+        /// <summary>Articulated: the tyres' tracks are where the tyres are (the front pair swing out with the front frame).</summary>
+        protected override System.Collections.Generic.IEnumerable<Vector3> ContactPoints()
+        {
+            if (articulation == null || wheelVisuals == null || wheelVisuals.Length == 0)
+            {
+                foreach (var p in base.ContactPoints()) yield return p;
+                yield break;
+            }
+            foreach (var w in wheelVisuals)
+                if (w != null) yield return w.position - transform.up * wheelRadius;
+        }
+
         protected override void Update()
         {
             base.Update();
-            if (articulation != null && Occupied) articulation.SetInput(steer);
+            // (steered by someone here, or a test; parked, the frame stays where it was left)
+            if (articulation != null && (Occupied || Mathf.Abs(steer) > 0.01f)) articulation.SetInput(steer);
             float yaw = transform.eulerAngles.y;
             float yawRate = Time.deltaTime > 1e-5f ? Mathf.DeltaAngle(lastYaw, yaw) * Mathf.Deg2Rad / Time.deltaTime : 0f;
             lastYaw = yaw;

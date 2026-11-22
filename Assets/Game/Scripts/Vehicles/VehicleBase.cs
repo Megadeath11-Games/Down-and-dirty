@@ -491,6 +491,10 @@ namespace FPSBase.Vehicles
             }
         }
 
+        // the body scraping the dirt (a bumper in a dip, a belly on a hump) shoves it aside rather than stopping dead
+        void OnCollisionEnter(Collision c) => BodyDirt.Contact(body != null ? body : (body = GetComponent<Rigidbody>()), c);
+        void OnCollisionStay(Collision c) => BodyDirt.Contact(body != null ? body : (body = GetComponent<Rigidbody>()), c);
+
         float trampleTimer, lastTrample;
         Rigidbody body;
         Vector3 lastPos;

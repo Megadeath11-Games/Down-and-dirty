@@ -92,6 +92,35 @@ namespace FPSBase.Net
         Callback<LobbyCreated_t> cbCreated;
         Callback<LobbyEnter_t> cbEnter;
         Callback<LobbyChatUpdate_t> cbChat;
+        Callback<GameOverlayActivated_t> cbOverlay;
+        /// <summary>The Steam overlay is up (Shift+Tab): the mouse is let go and the game's controls wait.</summary>
+        public static bool OverlayOpen { get; private set; }
+
+        /// <summary>Shift+Tab: open the Steam overlay (Steam usually catches the keys itself; this makes sure).</summary>
+        public static void OpenOverlay()
+        {
+            if (Instance == null || !Instance.SteamOk || LanMode || OverlayOpen) return;
+            try
+            {
+                // (asked straight away: whether it's hooked in is only known once it opens, or doesn't)
+                SteamFriends.ActivateGameOverlay("Friends");
+                Instance.StartCoroutine(Instance.OverlayCame());
+            }
+            catch (Exception e) { Debug.LogWarning("Steam overlay: " + e.Message); }
+        }
+
+        /// <summary>No overlay a moment after asking: Steam only hooks it into a game that Steam itself started.</summary>
+        System.Collections.IEnumerator OverlayCame()
+        {
+            float t = Time.unscaledTime;
+            while (Time.unscaledTime - t < 1.5f) { if (OverlayOpen) yield break; yield return null; }
+            if (!OverlayOpen && !overlayTipShown)
+            {
+                overlayTipShown = true;
+                FPSBase.Core.GameUI.Toast("No Steam overlay: Steam only adds it to games it starts. In Steam: Games > Add a Non-Steam Game to My Library, pick Down and Dirty, and start it from Steam (and check Settings > In Game > Enable the Steam Overlay)");
+            }
+        }
+        static bool overlayTipShown;
         Callback<SteamNetworkingMessagesSessionRequest_t> cbSession;
 
         void Awake()
@@ -147,6 +176,8 @@ namespace FPSBase.Net
             cbCreated = Callback<LobbyCreated_t>.Create(OnLobbyCreated);
             cbEnter = Callback<LobbyEnter_t>.Create(OnLobbyEnter);
             cbChat = Callback<LobbyChatUpdate_t>.Create(e => RefreshPeers(true));
+            cbOverlay = Callback<GameOverlayActivated_t>.Create(e => OverlayOpen = e.m_bActive != 0);
+            Debug.Log($"[Steam] overlay {(SteamUtils.IsOverlayEnabled() ? "available" : "not available")}");
             cbSession = Callback<SteamNetworkingMessagesSessionRequest_t>.Create(OnSessionRequest);
             // started by accepting an invite while the game was closed: "+connect_lobby <id>"
             TryJoinFromConnect(string.Join(" ", Environment.GetCommandLineArgs()));

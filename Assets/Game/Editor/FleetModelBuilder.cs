@@ -66,10 +66,10 @@ namespace FPSBase.EditorTools
         };
 
         /// <summary>
-        /// The fleet models' cab glass: a blue tint you can see (their cabs are mostly glass, the cab-over truck's a
-        /// whole greenhouse, so clear glass read as panels missing).
+        /// The fleet models' cab glass: plain glass, a faint grey-green you can just see (not the deep blue it was;
+        /// fully clear, the mostly-glass cabs read as panels missing).
         /// </summary>
-        static Material ModelGlass() => CabGlass("Fleet_ModelGlass", new Color(0.18f, 0.48f, 0.66f), 0.5f);
+        static Material ModelGlass() => CabGlass("Fleet_ModelGlass", new Color(0.74f, 0.83f, 0.86f), 0.24f);
 
         /// <summary>Lays out the rig nodes and puts each part's mesh on its node. Wheels go where `wheelNode` says.</summary>
         static Dictionary<string, Transform> ModelRig(FMData d, Transform root, FleetMats fm, TransportMats tm, string id, System.Func<FMWheel, Transform> wheelNode,

@@ -78,6 +78,10 @@ namespace FPSBase.DebugTools
                         case "dozerread": yield return DozerReadTests(); break;
                         case "chat": yield return ChatTests(); break;
                         case "vehshots": yield return VehicleShots(); break;
+                        case "artic": yield return ArticulationTests(); break;
+                        case "steer": yield return SteeringTests(); break;
+                        case "bodyshove": yield return BodyShoveTests(); break;
+                        case "cabreach": yield return CabReachTests(); break;
                         case "slosh": yield return SloshTests(DigSite.Instance, FindFirstObjectByType<DumpPickup>()); break;
                         case "materials": yield return MaterialsTests(DigSite.Instance, Economy.Instance, FindFirstObjectByType<WashPlant>(), FindFirstObjectByType<DumpPickup>()); break;
                         default: log.AppendLine($"INFO  unknown quick test '{part}'"); break;
@@ -3647,6 +3651,261 @@ namespace FPSBase.DebugTools
             Check(k > 0, $"pictured {k} loaders and dump trucks");
         }
 
+        static GameObject TestPad(Vector3 at, string name)
+        {
+            var pad = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            pad.name = name; pad.transform.position = at + Vector3.down * 0.5f; pad.transform.localScale = new Vector3(400f, 1f, 400f);
+            Physics.SyncTransforms();
+            return pad;
+        }
+
+        /// <summary>
+        /// Articulated haulers and wheel loaders: steered, the front frame's hit box, its wheels and the tyres'
+        /// contacts swing with the model, and they still drive round a turn.
+        /// </summary>
+        IEnumerator ArticulationTests()
+        {
+            var dealer = FindFirstObjectByType<VehicleDealer>();
+            Vector3 padAt = new Vector3(300f, 400f, -300f);
+            var pad = TestPad(padAt, "Artic pad");
+            int k = 0;
+            foreach (var l in dealer.listings)
+            {
+                if (l.prefab == null || l.prefab.GetComponent<FrameArticulation>() == null) continue;
+                var go = Instantiate(l.prefab, padAt + new Vector3(k * 30f - 60f, 1.5f, 0f), Quaternion.identity);
+                k++;
+                var art = go.GetComponent<FrameArticulation>();
+                var pk = go.GetComponent<DumpPickup>(); var ld = go.GetComponent<FrontLoader>();
+                var rb = go.GetComponent<Rigidbody>();
+                for (int i = 0; i < 100; i++) yield return new WaitForFixedUpdate();
+                // the front frame's hull: the colliders on it, and where they are straight
+                Collider frontCol = null;
+                foreach (var c in art.front.GetComponentsInChildren<Collider>())
+                    if (!c.isTrigger && !(c is WheelCollider) && ToolColliders.Find(go.transform) is var tl && System.Array.IndexOf(tl, c) < 0 && (frontCol == null || c.bounds.size.sqrMagnitude > frontCol.bounds.size.sqrMagnitude)) frontCol = c;
+                WheelCollider fw = null;
+                if (pk != null) fw = pk.wheels[1];
+                Vector3 local0 = frontCol != null ? go.transform.InverseTransformPoint(frontCol.bounds.center) : Vector3.zero;
+                // (the same contacts before and after: the ones ahead of the hitch when it's straight)
+                var before = new System.Collections.Generic.List<Vector3>();
+                if (ld != null) foreach (var p in ld.Suspension.WorldContacts()) before.Add(go.transform.InverseTransformPoint(p));
+                Vector3 contact0 = Vector3.zero; int nc0 = 0;
+                foreach (var lp in before) if (lp.z > art.HitchLocal.z + 0.5f) { contact0 += lp; nc0++; }
+                if (nc0 > 0) contact0 /= nc0;
+                // steer full right while creeping, so the frame swings
+                if (pk != null) { pk.TestDrive(0.25f); pk.TestSteer(1f); } else { ld.TestDrive(0.25f); ld.TestSteer(1f); }
+                float yawPrev = go.transform.eulerAngles.y, turnedSum = 0f;
+                for (int i = 0; i < 50 * 3; i++) { yield return new WaitForFixedUpdate(); turnedSum += Mathf.DeltaAngle(yawPrev, go.transform.eulerAngles.y); yawPrev = go.transform.eulerAngles.y; }
+                float ang = art.Angle;
+                Vector3 local1 = frontCol != null ? go.transform.InverseTransformPoint(frontCol.bounds.center) : Vector3.zero;
+                float swungX = local1.x - local0.x;
+                log.AppendLine($"INFO  artic {l.name}: frame at {ang:0}°, front hit box ({(frontCol != null ? frontCol.name : "none")}) moved {swungX:+0.00;-0.00} m sideways, carries wheels {art.CarriesWheels}, hitch {art.HitchLocal}, {nc0} front contacts at {contact0}" +
+                    (ld != null ? $", touching {ld.Suspension.Touching}/{ld.Suspension.Contacts}, turn speed {ld.turnSpeed}, {rb.linearVelocity.magnitude * 3.6f:0} km/h" : ""));
+                Check(frontCol != null && ang > 10f && swungX > 0.15f, $"{l.name}: steered right, the front frame's hit box swings right with the model ({swungX:+0.00;-0.00} m at {ang:0}°)");
+                if (pk != null)
+                {
+                    int vi = 1;
+                    var wv = pk.wheelVisuals[vi];
+                    float off = wv != null ? Vector3.Distance(wv.position, fw.transform.position) : 99f;
+                    fw.GetWorldPose(out Vector3 wp, out _);
+                    float poseOff = wv != null ? Vector3.Distance(wv.position, wp) : 99f;
+                    Check(art.CarriesWheels && poseOff < 0.05f, $"{l.name}: the front tyre's physics wheel is where the tyre is drawn ({poseOff:0.00} m apart)");
+                }
+                if (ld != null)
+                {
+                    Vector3 c1 = Vector3.zero; int n1 = 0, j = 0;
+                    foreach (var p in ld.Suspension.WorldContacts())
+                    {
+                        if (j < before.Count && before[j].z > art.HitchLocal.z + 0.5f) { c1 += go.transform.InverseTransformPoint(p); n1++; }
+                        j++;
+                    }
+                    if (n1 > 0) c1 /= n1;
+                    Check(nc0 > 0 && c1.x - contact0.x > 0.1f, $"{l.name}: the front ground contacts (what it rides on, where its tracks are) swing with the front frame ({c1.x - contact0.x:+0.00;-0.00} m)");
+                }
+                // and it drives round a turn: steady, upright, turning
+                if (pk != null) pk.TestDrive(0.6f); else ld.TestDrive(0.6f);
+                float maxV = 0f;
+                for (int i = 0; i < 50 * 5; i++)
+                {
+                    yield return new WaitForFixedUpdate();
+                    maxV = Mathf.Max(maxV, rb.angularVelocity.magnitude);
+                    turnedSum += Mathf.DeltaAngle(yawPrev, go.transform.eulerAngles.y); yawPrev = go.transform.eulerAngles.y;
+                }
+                float turned = Mathf.Abs(turnedSum);
+                log.AppendLine($"INFO  artic {l.name}: turned {turned:0}° in 8 s, fastest spin {maxV:0.00} rad/s, upright {go.transform.up.y:0.00}, {rb.linearVelocity.magnitude * 3.6f:0} km/h");
+                Check(turned > 25f && maxV < 2f && go.transform.up.y > 0.9f, $"{l.name}: drives round a steady turn on the articulation ({turned:0}°)");
+                if (k == 1) yield return ShotAt(go.transform.position + Vector3.up * 14f + go.transform.right * 3f, go.transform.position, "Screenshots/artic_turn.png");
+                Destroy(go);
+                yield return null;
+            }
+            Check(k >= 3, $"tried {k} articulated machines");
+            Destroy(pad);
+        }
+
+        /// <summary>
+        /// A truck's bumper clipping a clump of dirt: it shoves it over and keeps going (compared with the same run
+        /// with bodies hitting the dirt like a wall), but a bank of unbroken ground still stops it.
+        /// </summary>
+        IEnumerator BodyShoveTests()
+        {
+            var site = DigSite.Instance;
+            var dealer = FindFirstObjectByType<VehicleDealer>();
+            var prefab = Prefab0(dealer, "GMT400");
+            float[] went = new float[2]; float[] endKmh = new float[2]; float shoved = 0f;
+            for (int run = 0; run < 2; run++)
+            {
+                BodyDirt.On = run == 1;
+                // (the run with the shove on gets the first patch of ground)
+                Vector3 start = new Vector3(100f - run * 40f, 0f, -175f);
+                if (!site.Contains(start) || !site.Contains(start + Vector3.forward * 40f)) { Check(false, $"the body shove test ground is on the dirt field ({start})"); yield break; }
+                start.y = site.SurfaceY(start);
+                // a clump of loose dirt in the middle of the way, between where the wheels run: the tyres go either
+                // side of it, the bumper and the axle hit it
+                Vector3 mound = start + Vector3.forward * 16f;
+                float g0 = site.SurfaceY(mound);
+                for (int i = -1; i <= 1; i++) site.Deposit(mound + Vector3.right * (i * 0.3f), new MaterialLoad(0.35f, 0f), 0.45f);
+                site.SettleNow();
+                site.Flush(0);
+                Physics.SyncTransforms();
+                float top = 0f;
+                for (float dz = -0.6f; dz <= 0.6f; dz += 0.1f) top = Mathf.Max(top, site.SurfaceY(mound + Vector3.forward * dz) - g0);
+                float side = Mathf.Max(site.SurfaceY(mound + Vector3.right * 0.8f), site.SurfaceY(mound - Vector3.right * 0.8f)) - g0;
+                var go = Instantiate(prefab, start + Vector3.up * 1f, Quaternion.identity);
+                var pk = go.GetComponent<DumpPickup>(); var rb = go.GetComponent<Rigidbody>();
+                for (int i = 0; i < 60; i++) yield return new WaitForFixedUpdate();
+                float s0 = BodyDirt.Shoved; int seen0 = BodyDirt.Seen;
+                // (about 15 km/h: through a dip, not flying over it)
+                for (int i = 0; i < 50 * 7; i++)
+                {
+                    pk.TestDrive(Vector3.Dot(rb.linearVelocity, go.transform.forward) < 4.2f ? 0.5f : 0f);
+                    yield return new WaitForFixedUpdate();
+                }
+                went[run] = Vector3.Dot(go.transform.position - start, Vector3.forward);
+                endKmh[run] = rb.linearVelocity.magnitude * 3.6f;
+                if (run == 1) shoved = BodyDirt.Shoved - s0;
+                log.AppendLine($"INFO  body shove {(run == 1 ? "on" : "off (wall)")}: clump {top:0.00} m high at 16 m ({side:0.00} m where the tyres run); truck went {went[run]:0.0} m in 7 s, {endKmh[run]:0} km/h at the end; shoved {BodyDirt.Shoved - s0:0.00} m3 ({BodyDirt.Seen - seen0} body contacts with the dirt)");
+                pk.TestDrive(0f);
+                Destroy(go);
+                yield return null;
+            }
+            BodyDirt.On = true;
+            Check(shoved > 0.01f, $"a truck's bumper hitting a clump of dirt shoves some of it aside ({shoved:0.00} m3)");
+            Check(went[1] > 19f && went[1] >= went[0] - 0.5f, $"with the clump its bumper hits shoved over, the truck keeps going ({went[1]:0.0} m, against {went[0]:0.0} m hitting it like a wall)");
+        }
+
+        /// <summary>Sat in every machine for sale: the palms are on the grips (or the wheel) and the balls of the feet on the pedals.</summary>
+        IEnumerator CabReachTests()
+        {
+            var dealer = FindFirstObjectByType<VehicleDealer>();
+            var pi = FindFirstObjectByType<PlayerInteractor>();
+            var body = pi != null ? pi.GetComponent<FPSBase.Player.PlayerBody>() : null;
+            if (body == null || body.rig == null) { Check(false, "a player body to sit in the cabs"); yield break; }
+            int k = 0; float worstHand = 0f, worstFoot = 0f; string wh = "", wf = "";
+            var seen = new System.Collections.Generic.HashSet<GameObject>();
+            foreach (var l in dealer.listings)
+            {
+                if (l.prefab == null || !seen.Add(l.prefab) || l.prefab.GetComponentInChildren<CabControls>(true) == null || l.prefab.GetComponent<VehicleBase>() == null) continue;
+                var go = Instantiate(l.prefab, new Vector3(-200f + k * 25f, 500f, 400f), Quaternion.identity);
+                foreach (var rb in go.GetComponentsInChildren<Rigidbody>()) rb.isKinematic = true;
+                var v = go.GetComponent<VehicleBase>();
+                yield return null;
+                v.Interact(pi);
+                for (int i = 0; i < 20; i++) yield return null;
+                var cc = v.Controls3D;
+                var rig = body.rig;
+                string line = $"INFO  cab reach {l.name}:";
+                float hand = 0f, foot = 0f;
+                if (cc != null)
+                {
+                    if (cc.leftGrip != null) { float d = Vector3.Distance(rig.Palm(false), cc.leftGrip.position); hand = Mathf.Max(hand, d); line += $" left hand {d * 100f:0} cm"; }
+                    if (cc.rightGrip != null) { float d = Vector3.Distance(rig.Palm(true), cc.rightGrip.position); hand = Mathf.Max(hand, d); line += $", right hand {d * 100f:0} cm"; }
+                    if (!cc.standing && cc.leftFoot != null) { float d = Vector3.Distance(rig.BallOfFoot(false), cc.leftFoot.position); foot = Mathf.Max(foot, d); line += $", left foot {d * 100f:0} cm"; }
+                    if (!cc.standing && cc.rightFoot != null) { float d = Vector3.Distance(rig.BallOfFoot(true), cc.rightFoot.position); foot = Mathf.Max(foot, d); line += $", right foot {d * 100f:0} cm"; }
+                }
+                log.AppendLine(line);
+                if (hand > worstHand) { worstHand = hand; wh = l.name; }
+                if (foot > worstFoot) { worstFoot = foot; wf = l.name; }
+                if (k < 4 || hand > 0.05f || foot > 0.06f)
+                {
+                    Transform eye = null;
+                    foreach (var t in go.GetComponentsInChildren<Transform>(true)) if (t.name == "CabView") eye = t;
+                    Vector3 c = eye != null ? eye.position : go.transform.position + Vector3.up * 2f;
+                    yield return ShotAt(c + go.transform.right * -1.4f + go.transform.forward * 1.1f - Vector3.up * 0.1f, c - Vector3.up * 0.6f + go.transform.forward * 0.3f,
+                        $"Screenshots/reach_{l.prefab.name.Replace(" ", "_")}.png");
+                }
+                v.Exit();
+                for (int i = 0; i < 3; i++) yield return null;
+                Destroy(go);
+                k++;
+            }
+            Check(k > 5 && worstHand < 0.05f, $"sat in {k} machines: the palms are on the grips (worst {worstHand * 100f:0} cm, {wh})");
+            Check(worstFoot < 0.06f, $"and the balls of the feet on the pedals (worst {worstFoot * 100f:0} cm, {wf})");
+        }
+
+        /// <summary>Every truck on its wheels: at speed on full lock, how tight it turns and how far its front end slides.</summary>
+        IEnumerator SteeringTests()
+        {
+            var dealer = FindFirstObjectByType<VehicleDealer>();
+            Vector3 padAt = new Vector3(-300f, 420f, -300f);
+            var pad = TestPad(padAt, "Steer pad");
+            var seen = new System.Collections.Generic.HashSet<GameObject>();
+            var list = new System.Collections.Generic.List<VehicleDealer.Listing>();
+            foreach (var l in dealer.listings) if (l.prefab != null && l.prefab.GetComponent<DumpPickup>() != null && seen.Add(l.prefab)) list.Add(l);
+            int better = 0, worse = 0, total = 0;
+            foreach (var l in list)
+            for (int run = 0; run < 4; run++)
+            {
+                bool firm = run % 2 == 1, quick = run >= 2;
+                DumpPickup.FirmSteering = firm;
+                var go = Instantiate(l.prefab, padAt + new Vector3(run * 45f - 70f, 1.5f, -150f), Quaternion.identity);
+                var pk = go.GetComponent<DumpPickup>(); var rb = go.GetComponent<Rigidbody>();
+                for (int i = 0; i < 60; i++) yield return new WaitForFixedUpdate();
+                float want = Mathf.Min(quick ? 65f : 40f, pk.topSpeedKmh * (quick ? 0.9f : 0.8f)) / 3.6f;
+                pk.TestDrive(1f);
+                for (int i = 0; i < 50 * 25 && Vector3.Dot(rb.linearVelocity, go.transform.forward) < want; i++) yield return new WaitForFixedUpdate();
+                float v0 = rb.linearVelocity.magnitude;
+                // (holding the speed while it turns, so each run is at the speed it says)
+                pk.TestSteer(1f);
+                float yaw = 0f, slip = 0f, rear = 0f, tip = 1f; int n = 0;
+                float lastYaw = go.transform.eulerAngles.y;
+                for (int i = 0; i < 50 * 3; i++)
+                {
+                    pk.TestDrive(Vector3.Dot(rb.linearVelocity, go.transform.forward) < want ? 0.7f : 0f);
+                    yield return new WaitForFixedUpdate();
+                    tip = Mathf.Min(tip, go.transform.up.y);
+                    if (i < 75) { lastYaw = go.transform.eulerAngles.y; continue; }
+                    yaw += Mathf.Abs(rb.angularVelocity.y); n++;
+                    // the sideways slide at the front and the back axle (deg between where it points and where it goes)
+                    Vector3 fp = pk.wheels[0].transform.position, rp = pk.wheels[pk.wheels.Length - 1].transform.position;
+                    Vector3 fv = rb.GetPointVelocity(fp), rv = rb.GetPointVelocity(rp);
+                    Vector3 ff = Quaternion.AngleAxis(pk.wheels[0].steerAngle, go.transform.up) * (pk.articulation != null ? pk.articulation.front.forward : go.transform.forward);
+                    if (fv.magnitude > 1f) slip = Mathf.Max(slip, Vector3.Angle(Vector3.ProjectOnPlane(fv, go.transform.up), ff));
+                    if (rv.magnitude > 1f) rear = Mathf.Max(rear, Vector3.Angle(Vector3.ProjectOnPlane(rv, go.transform.up), go.transform.forward));
+                }
+                yaw = n > 0 ? yaw / n * Mathf.Rad2Deg : 0f;
+                float v1 = rb.linearVelocity.magnitude, radius = yaw > 0.1f ? v1 / (yaw * Mathf.Deg2Rad) : 999f;
+                log.AppendLine($"INFO  steering {l.name} {(firm ? "FIRM" : "old ")}: from {v0 * 3.6f:0} km/h on full lock: turning {yaw:0.0}°/s, radius {radius:0.0} m at {v1 * 3.6f:0} km/h, front sliding up to {slip:0}°, rear {rear:0}°, upright {tip:0.00}");
+                Check(tip > 0.75f, $"{l.name}: stays on its wheels on full lock at {v0 * 3.6f:0} km/h{(firm ? "" : " (old steering)")}");
+                string key = l.name + (quick ? " fast" : " slow");
+                if (!firm) SteerResults[key] = (yaw, slip, rear);
+                else if (SteerResults.TryGetValue(key, out var old))
+                {
+                    total++;
+                    // turns in as well or better, and doesn't spin round (the back end stays behind it); the front
+                    // may still slide some at speed, that's how a truck goes
+                    bool ok = yaw >= old.yaw * 0.97f && rear <= Mathf.Max(old.radius + 3f, 10f) && slip <= old.slip + 8f;
+                    if (ok) better++; else worse++;
+                    log.AppendLine($"INFO  steering {key}: turning {old.yaw:0.0} → {yaw:0.0}°/s, front slide {old.slip:0} → {slip:0}°, rear {old.radius:0} → {rear:0}°{(ok ? "" : "  (not better)")}");
+                }
+                pk.TestDrive(0f); pk.TestSteer(0f);
+                Destroy(go);
+                yield return null;
+            }
+            DumpPickup.FirmSteering = true;
+            Check(total > 0 && worse == 0, $"the firmer front end turns every truck in better without spinning it round ({better} of {total} runs better, {worse} not)");
+            Destroy(pad);
+        }
+        static readonly System.Collections.Generic.Dictionary<string, (float yaw, float slip, float radius)> SteerResults = new();
+
         /// <summary>Text chat: T opens it except in a machine that uses T, and typing turns the game's controls off.</summary>
         IEnumerator ChatTests()
         {
@@ -5201,11 +5460,19 @@ namespace FPSBase.DebugTools
                     e.bucketTip.position, $"Screenshots/dig_cycle_{k}.png");
                 e.TestControl(null);
                 e.bucketLoad = default;
-                if (e.displayName.Contains("20")) yield return FullBucketDrag(e, site, at + Vector3.forward * 14f);
+                if (e.displayName.Contains("20") || e.displayName.Contains("50") || e.displayName.Contains("90")) yield return FullBucketDrag(e, site, at + Vector3.forward * 14f * Mathf.Max(1f, e.sizeScale));
+                if (e.displayName.Contains("20"))
+                {
+                    // the same drag the old way (spilled off the back of the bucket), for comparison
+                    MiniExcavator.HeapAhead = false;
+                    yield return FullBucketDrag(e, site, at + Vector3.forward * 34f);
+                    MiniExcavator.HeapAhead = true;
+                }
             }
             foreach (var go in made) Destroy(go);
         }
 
+        float lastDragRefill;
         /// <summary>A full bucket dragged in with the stick keeps going: it cuts and pulls the dirt along in front of it instead of stalling.</summary>
         IEnumerator FullBucketDrag(MiniExcavator e, DigSite site, Vector3 at)
         {
@@ -5226,17 +5493,40 @@ namespace FPSBase.DebugTools
             Vector3 p0 = e.bucketTip.position; int st0 = e.Stalls;
             Vector3 mid = Vector3.Lerp(p0, e.transform.position, 0.3f);
             float g0 = site.SurfaceY(mid);
-            for (float t = 0f; t < 2.5f; t += Time.deltaTime)
+            // the ditch it digs on the way in: a line of spots from the start towards the machine, the lowest each got
+            var line = new Vector3[16]; var low = new float[16];
+            Vector3 toward = Vector3.ProjectOnPlane(e.transform.position - p0, Vector3.up).normalized;
+            for (int i = 0; i < line.Length; i++) { line[i] = p0 + toward * (i * 0.25f * e.sizeScale); low[i] = site.SurfaceY(line[i]); }
+            float drag = 0f, heaped = 0f;
+            for (float t = 0f; t < 4f; t += Time.deltaTime)
             {
                 e.TestControl(new MiniExcavator.Inputs { stick = -1f, boom = -0.1f });
                 yield return null;
+                drag = Mathf.Max(drag, e.HeapDrag); heaped += e.LastHeaped;
+                for (int i = 0; i < line.Length; i++) low[i] = Mathf.Min(low[i], site.SurfaceY(line[i]));
             }
             e.TestControl(null);
             Vector3 p1 = e.bucketTip.position;
+            // behind where the bucket ended up (spots it has gone past by more than its own length): filled back in?
+            float refill = 0f; int behind = 0; Vector3 dir = Vector3.ProjectOnPlane(p0 - p1, Vector3.up).normalized;
+            for (int i = 0; i < line.Length; i++)
+                if (Vector3.Dot(line[i] - p1, dir) > 0.7f * e.sizeScale) { refill = Mathf.Max(refill, site.SurfaceY(line[i]) - low[i]); behind++; }
+            log.AppendLine($"INFO  full bucket drag {e.displayName}{(MiniExcavator.HeapAhead ? "" : " (OLD: spilled off the back)")}: heap shoved along {heaped:0.00} m3, arm held back up to {drag * 100f:0}%, ditch behind filled back in by up to {refill:0.00} m over {behind} spots");
+            if (!MiniExcavator.HeapAhead)
+            {
+                // against the old way: a fraction of what used to fall back into the ditch
+                Check(lastDragRefill < Mathf.Max(0.15f, refill * 0.25f), $"{e.displayName}: pulling a full bucket in barely fills the ditch behind it ({lastDragRefill:0.00} m, against {refill:0.00} m spilling it off the back the old way)");
+                e.bucketLoad = default; yield break;
+            }
+            lastDragRefill = refill;
+            Check(behind == 0 || refill < 0.6f * e.sizeScale, $"{e.displayName}: pulling a full bucket in doesn't bury the ditch behind it ({refill:0.00} m)");
+            Check(heaped <= 0f || drag > 0.1f, $"{e.displayName}: dragging a heap with a full bucket holds the arm back ({drag * 100f:0}%)");
             float pulled = Vector3.ProjectOnPlane(p0 - p1, Vector3.up).magnitude, cutDown = g0 - site.SurfaceY(mid);
             log.AppendLine($"INFO  full bucket drag {e.displayName}: tip pulled {pulled:0.00} m, ground at mid-path {cutDown:+0.00;-0.00} m lower, {e.Stalls - st0} stalls, load {e.bucketLoad.volume:0.00} of {e.bucketCapacity:0.00}");
-            Check(pulled > 1.2f * e.sizeScale, $"{e.displayName}: a full bucket dragged in with the stick keeps moving ({pulled:0.00} m)");
-            Check(cutDown > 0.05f, $"{e.displayName}: a full bucket dragged in still cuts and pulls the dirt along ({cutDown:0.00} m off the ground it went through)");
+            Check(pulled > 0.8f * e.sizeScale, $"{e.displayName}: a full bucket dragged in with the stick keeps moving, slower ({pulled:0.00} m)");
+            // (only where it has gone past: short of it, the heap it's dragging towards the machine lands there)
+            if (Vector3.Dot(mid - p1, dir) > 0.5f * e.sizeScale)
+                Check(cutDown > 0.05f, $"{e.displayName}: a full bucket dragged in still cuts and pulls the dirt along ({cutDown:0.00} m off the ground it went through)");
             e.bucketLoad = default;
         }
 

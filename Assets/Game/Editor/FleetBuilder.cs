@@ -116,7 +116,7 @@ namespace FPSBase.EditorTools
             wear = Flat("Fleet_WearPlate", new Color(0.46f, 0.47f, 0.49f), 0.35f, 0.4f),
             pin = Flat("Fleet_PinSteel", new Color(0.7f, 0.71f, 0.73f), 0.5f, 0.7f),
             chrome = Flat("Fleet_ChromeRod", new Color(0.86f, 0.87f, 0.9f), 0.8f, 0.9f),
-            glass = CabGlass("Fleet_CabGlass", new Color(0.6f, 0.74f, 0.8f), 0.25f),
+            glass = CabGlass("Fleet_CabGlass", new Color(0.74f, 0.83f, 0.86f), 0.2f),
             amber = Flat("Fleet_Amber", new Color(1f, 0.55f, 0.1f), 0.4f),
             rail = Flat("Fleet_Handrail", new Color(0.98f, 0.82f, 0.12f), 0.3f),
             dirt = dirt,

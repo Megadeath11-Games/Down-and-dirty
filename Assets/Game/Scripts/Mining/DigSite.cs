@@ -517,6 +517,9 @@ namespace FPSBase.Mining
         /// </summary>
         public float Spread(Vector3 edge, Vector3 dir, float width, float bottomY, float ahead, float nativeCut = 0f)
             => BladePush(edge, dir, width, bottomY, ahead, Mathf.Max(0f, nativeCut), out _);
+        /// <summary>As above; `fromNative` = how much of it was cut from the unbroken ground.</summary>
+        public float Spread(Vector3 edge, Vector3 dir, float width, float bottomY, float ahead, float nativeCut, out float fromNative)
+            => BladePush(edge, dir, width, bottomY, ahead, Mathf.Max(0f, nativeCut), out fromNative);
 
         float BladePush(Vector3 edge, Vector3 forward, float width, float bottomY, float ahead, float nativeLimit, out float fromNative)
         {

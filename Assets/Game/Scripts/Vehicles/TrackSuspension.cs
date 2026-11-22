@@ -25,6 +25,8 @@ namespace FPSBase.Vehicles
         public float holdFriction = 0.9f;
         /// <summary>0 (light, 1-5 t: twitchy and tippy) .. 1 (50 t and up: soft, heavily damped, smooth over a rough cut). Set from the mass.</summary>
         public float Heft { get; private set; }
+        /// <summary>Moves a contact (machine space) where it really is: an articulated loader's front ones swing with its front frame.</summary>
+        [System.NonSerialized] public System.Func<Vector3, Vector3> map;
         /// <summary>Colliders the contacts don't stand on (a semi's own trailer and its load).</summary>
         [System.NonSerialized] public System.Func<Collider, bool> ignore;
 
@@ -241,7 +243,7 @@ namespace FPSBase.Vehicles
             Vector3 nsum = Vector3.zero;
             for (int i = 0; i < pts.Length; i++)
             {
-                Vector3 p = t.TransformPoint(pts[i]);
+                Vector3 p = t.TransformPoint(map != null ? map(pts[i]) : pts[i]);
                 float reach = reachOf[i];
                 if (!Cast(p + up * reach, -up, reach + 0.6f, out RaycastHit hit)) { smoothDist[i] = -1f; continue; }
                 float dist = hit.distance;
@@ -302,7 +304,7 @@ namespace FPSBase.Vehicles
                 yield break;
             }
             if (pts == null) yield break;
-            for (int i = 0; i < pts.Length; i++) if (lift[i] == 0f) yield return t.TransformPoint(pts[i]);
+            for (int i = 0; i < pts.Length; i++) if (lift[i] == 0f) yield return t.TransformPoint(map != null ? map(pts[i]) : pts[i]);
         }
     }
 

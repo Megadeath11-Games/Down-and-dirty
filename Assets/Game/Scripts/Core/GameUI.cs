@@ -38,7 +38,7 @@ namespace FPSBase.Core
 
         GUIStyle hudBig, hudSmall, prompt, header, toastStyle, box, menuPanel;
 
-        public bool BlocksGameplay => paused || panelDraw != null || menuOpen || chatOpen;
+        public bool BlocksGameplay => paused || panelDraw != null || menuOpen || chatOpen || FPSBase.Net.NetSession.OverlayOpen;
 
         // ------------------------------------------------------------------ text chat (multiplayer)
         bool chatOpen;
@@ -194,6 +194,8 @@ namespace FPSBase.Core
         {
             FPSBase.UI.MenuScene.Want(menuOpen && !loading && !FPSBase.Net.NetSession.InSession);
             var kb = Keyboard.current;
+            // Shift+Tab: the Steam overlay (in the menus too)
+            if (kb != null && kb.tabKey.wasPressedThisFrame && kb.shiftKey.isPressed && !chatOpen) FPSBase.Net.NetSession.OpenOverlay();
             if (menuOpen)
             {
                 MenuUpdate();
@@ -933,6 +935,15 @@ namespace FPSBase.Core
             int mode = (int)GameSettings.ExcavatorControls;
             int newMode = GUILayout.Toolbar(mode, new[] { "Realistic (ISO joysticks)", "Simplified (mouse)" }, FPSBase.UI.ShopTheme.Toolbar, GUILayout.Height(30));
             if (newMode != mode) GameSettings.ExcavatorControls = (ExcavatorControlMode)newMode;
+            GUILayout.Label("Sensitivity of each function (how fast it moves for a full push):", hudSmall);
+            float ss = Slider("  Swing", GameSettings.ExSwingSens, 0.25f, 2f, "{0:P0}");
+            if (Mathf.Abs(ss - GameSettings.ExSwingSens) > 0.005f) GameSettings.ExSwingSens = Mathf.Round(ss * 20f) / 20f;
+            float sb = Slider("  Boom up / down", GameSettings.ExBoomSens, 0.25f, 2f, "{0:P0}");
+            if (Mathf.Abs(sb - GameSettings.ExBoomSens) > 0.005f) GameSettings.ExBoomSens = Mathf.Round(sb * 20f) / 20f;
+            float sk = Slider("  Stick in / out", GameSettings.ExStickSens, 0.25f, 2f, "{0:P0}");
+            if (Mathf.Abs(sk - GameSettings.ExStickSens) > 0.005f) GameSettings.ExStickSens = Mathf.Round(sk * 20f) / 20f;
+            float sc = Slider("  Bucket curl / dump", GameSettings.ExBucketSens, 0.25f, 2f, "{0:P0}");
+            if (Mathf.Abs(sc - GameSettings.ExBucketSens) > 0.005f) GameSettings.ExBucketSens = Mathf.Round(sc * 20f) / 20f;
             GUILayout.Label(newMode == 0
                 ? "ISO joysticks on the keyboard: stick, swing, boom, bucket and tracks each have their own keys (see Controls)."
                 : "Drive with the Driving keys.  Mouse X swing, mouse Y boom, scroll wheel stick.  Hold left click to curl/dig, right click to dump.", hudSmall);

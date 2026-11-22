@@ -307,11 +307,18 @@ namespace FPSBase.Vehicles
             return bucketHalfWidth;
         }
         float bucketHalfWidth, pressUntil = -10f;
+        /// <summary>A full bucket drags its heap along in front (off: the old way, spilled off its back; for the tests' comparison).</summary>
+        public static bool HeapAhead = true;
+        /// <summary>0..1: how hard a heap in front of a full bucket is holding the arm back (it slows the rams).</summary>
+        public float HeapDrag { get; private set; }
+        /// <summary>Dirt (m³) the full bucket pushed along ahead of it this frame.</summary>
+        public float LastHeaped { get; private set; }
         bool pressIntent;
 
         void Carve(bool room, float digInput, float dt)
         {
-            LastSpread = 0f; LastScooped = 0f; scoopedAt = null; Pressing = false;
+            LastSpread = 0f; LastScooped = 0f; LastHeaped = 0f; scoopedAt = null; Pressing = false;
+            HeapDrag = Mathf.MoveTowards(HeapDrag, 0f, dt * 2.5f);
             if (shellLocal == null || bucketTip == null || bucketPivot == null) return;
             int n = shellLocal.Length;
             var m = bucketPivot.localToWorldMatrix;
@@ -378,20 +385,24 @@ namespace FPSBase.Vehicles
                 bucketLoad.Add(into);
                 LastScooped = into.volume;
                 scoopedAt = sAt;
-                if (!sc.IsEmpty) // heaped over: the rest spills off the back of the full bucket
+                if (!sc.IsEmpty) // heaped over: the full bucket drags the rest along in front of its mouth
                 {
-                    // (onto the floor of the cut it has just come along, spread across its width: dropped in front of the
-                    // mouth or at its sides it was in the bucket's way or slid back into it, so it was cut again and
-                    // dropped again every frame, and piled up into a pointed mound; the next pass picks it up)
-                    Vector3 back = -Vector3.ProjectOnPlane(vTip, Vector3.up);
-                    back = back.sqrMagnitude > 1e-6f ? back.normalized : -Vector3.ProjectOnPlane(mouthW, Vector3.up).normalized;
-                    if (back.sqrMagnitude < 0.5f) back = -transform.forward;
+                    // (it goes the way the bucket is going: pulled in, the heap comes towards the machine; dropped off the
+                    // back of the bucket it fell into the ditch just dug and filled it in again. Put down just clear of the
+                    // mouth and spread wide across the bucket, the next frame's cut takes it on again, so it's shoved along
+                    // like a little blade rather than piling into a spike, and the heap holds the arm back)
+                    Vector3 ahead = Vector3.ProjectOnPlane(vTip, Vector3.up) * (HeapAhead ? 1f : -1f);
+                    ahead = ahead.sqrMagnitude > 1e-6f ? ahead.normalized : Vector3.ProjectOnPlane(mouthW, Vector3.up).normalized;
+                    if (ahead.sqrMagnitude < 0.5f) ahead = -transform.forward;
                     float reach = 0f;
-                    for (int i = 0; i < n; i++) reach = Mathf.Max(reach, Vector3.Dot(shellW[i] - sAt, back));
-                    float hw = BucketHalfWidth(), spread = Mathf.Max(site.Cell * 1.5f, hw * 0.45f);
-                    Vector3 off = sAt + back * (reach + spread), side = Vector3.Cross(Vector3.up, back);
+                    for (int i = 0; i < n; i++) reach = Mathf.Max(reach, Vector3.Dot(shellW[i] - sAt, ahead));
+                    float hw = BucketHalfWidth(), spread = Mathf.Max(site.Cell * 1.5f, hw * 0.5f);
+                    Vector3 off = sAt + ahead * (reach + spread * 0.8f), side = Vector3.Cross(Vector3.up, ahead);
                     var third = sc.Scaled(1f / 3f);
-                    for (int k = -1; k <= 1; k++) site.Deposit(off + side * (k * hw * 0.65f), third, spread);
+                    for (int k = -1; k <= 1; k++) site.Deposit(off + side * (k * hw * 0.6f), third, spread);
+                    LastHeaped = HeapAhead ? sc.volume : 0f;
+                    // (the heap is taken on again every frame, so this is its size: a bucketful heaped in front holds it right back)
+                    if (HeapAhead) HeapDrag = Mathf.Max(HeapDrag, Mathf.Clamp01(sc.volume / Mathf.Max(0.01f, bucketCapacity)) * 0.85f);
                 }
             }
             if (!pu.IsEmpty)
@@ -432,10 +443,15 @@ namespace FPSBase.Vehicles
             BladeWork();
 
             float boom0 = boom, stick0 = stick, bucket0 = bucket, swing0 = swing;
-            swing += swingIn * swingSpeed * dt;
-            boom = Mathf.Clamp(boom + boomIn * boomSpeed * dt, boomRange.x, boomRange.y);
-            stick = Mathf.Clamp(stick + stickIn * stickSpeed * dt, stickRange.x, stickRange.y);
-            bucket = Mathf.Clamp(bucket + bucketIn * bucketSpeed * dt, bucketRange.x, bucketRange.y);
+            // a full bucket shoving a heap along: the arm works hard and slows (the stick most, it does the dragging)
+            float heapSlow = 1f - 0.6f * HeapDrag, heapSlowBoom = 1f - 0.35f * HeapDrag;
+            stickIn *= heapSlow; swingIn *= heapSlowBoom; boomIn *= heapSlowBoom;
+            if (HeapDrag > 0.1f) strainAmount = Mathf.Max(strainAmount, 0.4f + 0.4f * HeapDrag);
+            // (each function as quick as the player has set it in the settings)
+            swing += swingIn * swingSpeed * GameSettings.ExSwingSens * dt;
+            boom = Mathf.Clamp(boom + boomIn * boomSpeed * GameSettings.ExBoomSens * dt, boomRange.x, boomRange.y);
+            stick = Mathf.Clamp(stick + stickIn * stickSpeed * GameSettings.ExStickSens * dt, stickRange.x, stickRange.y);
+            bucket = Mathf.Clamp(bucket + bucketIn * bucketSpeed * GameSettings.ExBucketSens * dt, bucketRange.x, bucketRange.y);
             ApplyPose();
 
             workAmount = Mathf.Clamp01(Mathf.Abs(boomIn) + Mathf.Abs(stickIn) * 0.5f + Mathf.Abs(bucketIn) * 0.5f + Mathf.Abs(trackInput) + Mathf.Abs(swingIn) * 0.3f);

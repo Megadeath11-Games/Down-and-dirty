@@ -13,6 +13,16 @@ namespace FPSBase.Core
         /// <summary>Newest first.</summary>
         public static readonly Post[] Blog =
         {
+            new Post { date = "Update 52  ·  Nov 22, 2026", title = "Steam overlay, a cleaner trench, firmer steering",
+                body =
+                "• Shift+Tab opens the Steam overlay. Steam only puts its overlay into games it starts itself, so add the game to Steam once (Games > Add a Non-Steam Game to My Library, pick Down and Dirty) and start it from there. Started from its folder, Shift+Tab tells you this instead of doing nothing.\n" +
+                "• Cab glass is plain glass now: a faint grey tint instead of blue.\n" +
+                "• Excavators: a full bucket pulled in through the dirt drags the heap in front of it towards you (pushed out, away), and the arm slows and works hard against it. It no longer dumps the spill off its back into the ditch you just dug, so pulling a full bucket in on the 20, 50 or 90 t keeps your trench clean.\n" +
+                "• Settings > Game > Excavator controls: a sensitivity slider for each function (swing, boom, stick, bucket), so you can have a slow, fine swing and a quick curl. Mouse look sensitivity is in Settings > Game > Mouse.\n" +
+                "• Articulated haulers and wheel loaders: when they steer, the front frame's hit box, its wheels and its tyre tracks swing with the model instead of staying straight.\n" +
+                "• Trucks turn in better: the steering winds on over a moment instead of snapping to full lock, keeps more lock at speed, and the front tyres bite harder as the speed comes up (the rears a little too, so the tail doesn't swing). Pushed hard they still slide. The concrete truck drives the same way.\n" +
+                "• A truck's, trailer's or machine's body hitting a clump of dirt (a bumper in a dip, a belly on a hump) shoves the dirt aside and keeps going, within reason, instead of stopping dead. Loose dirt goes easily; it only shaves a little off unbroken ground, so a real bank still stops you.\n" +
+                "• Sat in a machine, your palms are right on the joysticks and the wheel, and the balls of your feet on the pedals (the hands used to stop short and the heels sat on the pedals)." },
             new Post { date = "Update 51  ·  Nov 22, 2026", title = "Text chat, and solid wheels",
                 body =
                 "• Multiplayer text chat: press T, type, Enter to send, Esc to close. Everyone in the game sees it with your name; lines fade after a while and all come back when you open the box. In the dozer, loader and grader T already does something, so there Enter opens chat. The key can be changed in Controls (Multiplayer).\n" +
@@ -423,6 +433,14 @@ namespace FPSBase.Core
         /// <summary>What's new in this build to try out.</summary>
         public static readonly string[] TestList =
         {
+            "Add the game to Steam (Games > Add a Non-Steam Game), start it from Steam, press Shift+Tab: the Steam overlay opens",
+            "Look out of a cab: the glass is clear, not blue",
+            "20, 50 or 90 t excavator: dig a trench, then pull a full bucket in along it: the heap comes towards you and the trench behind the bucket stays clean",
+            "Esc > Settings > Game: turn the excavator's swing sensitivity down and the bucket up: swing is slow and fine, the curl quick",
+            "Articulated hauler or wheel loader: steer hard and drive into a wall or pile: the front hits where the model's front is; the tyre tracks follow the tyres round the turn",
+            "Drive the pickup, a dump truck and the concrete truck round a corner at speed: they turn in, and only slide if you really push it",
+            "Drive a truck through a dip or over a hump where the bumper or belly catches the dirt: it shoves the clump over and keeps going",
+            "Sit in a few machines and look down: hands on the sticks and the wheel, feet on the pedals",
             "Multiplayer: press T, type something, Enter: your friend sees it with your name",
             "In the dozer press T: the blade tilts, Enter opens chat instead",
             "Look closely at a wheel loader's and a dump truck's wheels and cab: nothing see-through",

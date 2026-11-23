@@ -17,7 +17,8 @@ namespace FPSBase.Core
                 body =
                 "• With the excavator's chain down, the block the hook will take turns green, so you can see which one you'll get before you press the chain key. With a stack, that's the top one.\n" +
                 "• Blocks only snap in where there's something under them: beside a block up on the second course, past the end of the course below, it won't snap any more (it used to, and then fell off). On the ground or on another block it snaps in as before.\n" +
-                "• Hooking a block that's chained down on a trailer or a truck takes its tie-down chains off by itself: no getting out of the cab to unchain it first." },
+                "• Hooking a block that's chained down on a trailer or a truck takes its tie-down chains off by itself: no getting out of the cab to unchain it first.\n" +
+                "• A block that isn't snapped against another block is loose: a dozer, a truck or a bucket can shove it, and a bucket can pick it up. Only blocks snapped into a wall (beside or on top of another) hold fast, and if you lift its neighbours away, a block goes loose again." },
             new Post { date = "Update 53  ·  Nov 22, 2026", title = "Dirt that stays where you drop it",
                 body =
                 "• Dirt out of a bucket lands like dirt: dropped from half a metre or more, a clod goes into the ground right where it hits instead of bouncing and rolling off. A bucketful let go 3 m up is all in the ground about a second later.\n" +
@@ -443,6 +444,7 @@ namespace FPSBase.Core
         public static readonly string[] TestList =
         {
             "Lower the excavator chain near some blocks: the one the hook will take turns green",
+            "Set a block down on its own, then push it with a dozer or the bucket: it moves. Snap one into a wall and push it: it holds",
             "Try to snap a block beside one on the second course, out past the course below: it won't snap there",
             "Chain a block down on a trailer, then hook it from the excavator cab: it comes off the trailer without unchaining it by hand",
             "Dump a bucket from high up: the dirt thuds into the ground where it lands instead of bouncing about",

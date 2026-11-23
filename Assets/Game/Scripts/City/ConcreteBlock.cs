@@ -331,7 +331,9 @@ namespace FPSBase.City
             // (locked straight in: exactly on its spot, not the hair above it a loose block is let go from)
             transform.position = p; Body.position = p; lastPos = p;
             Register();
-            Locked = true;
+            // (held fast only in a wall: snapped against another block. On its own it's loose, for a machine to shove
+            // or a bucket to pick up)
+            Locked = InWall();
             Pin();
         }
 
@@ -571,8 +573,10 @@ namespace FPSBase.City
         /// <summary>
         /// Put in its place on purpose (snapped into a wall, or set down with land level): a machine bumping it doesn't
         /// shift it, only the chain. A block just dropped, or knocked off, isn't: the bucket, a blade or a truck shoves it.
+        /// Only while it's against another block: one on its own (set down level, or its neighbours taken away) is loose.
         /// </summary>
         public bool Locked { get; private set; }
+        float wallCheck;
 
         static readonly Collider[] above = new Collider[16];
         /// <summary>
@@ -713,6 +717,8 @@ namespace FPSBase.City
         {
             if (Pinned && (HookedBy != null || ChainedTo != null || !NetMine)) Unpin();
             if (Locked && (HookedBy != null || ChainedTo != null)) Locked = false;
+            // (the blocks it was set in against lifted away: it's on its own now, loose)
+            if (Locked && (wallCheck -= dt) <= 0f) { wallCheck = 0.5f; if (!InWall()) Locked = false; }
             if (Pinned) PinGround(dt);
             // (still: not going anywhere. Settling dirt under it nudges it a millimetre now and then, which mustn't
             // keep it from ever being set down and holding its ground)

@@ -1961,7 +1961,7 @@ namespace FPSBase.DebugTools
                 float bm = Vector3.Distance(bp0, blk.transform.position), ba = Quaternion.Angle(br0, blk.transform.rotation);
                 int bumps = FPSBase.City.ConcreteBlock.Shoves - sh0;
                 log.AppendLine($"INFO  bucket knocked into the set-down block {bumps} times: moved {bm:0.000} m, turned {ba:0.0}°");
-                Check(bm < 0.02f && ba < 0.5f, $"set down, the bucket knocking into it doesn't move it ({bumps} knocks, moved {bm:0.000} m, turned {ba:0.0}°)");
+                Check(!blk.Locked && (bumps == 0 || bm > 0.02f || ba > 0.5f), $"set down on its own (not against another block), it's loose: the bucket knocking into it shoves it ({bumps} knocks, moved {bm:0.000} m, turned {ba:0.0}°, locked {blk.Locked})");
             }
             ex.TestControl(null);
             Destroy(blk.gameObject); Destroy(ex.gameObject);
@@ -5003,14 +5003,27 @@ namespace FPSBase.DebugTools
             var dealer = FindFirstObjectByType<VehicleDealer>();
             GameObject dzPrefab = null;
             foreach (var l in dealer.listings) if (dzPrefab == null && l.prefab != null && l.prefab.GetComponent<Bulldozer>() != null) dzPrefab = l.prefab;
-            for (int pass = 0; pass < 2 && dzPrefab != null; pass++)
+            FPSBase.City.ConcreteBlock anchor = null;
+            string[] how = { "dropped", "set down level on its own", "snapped in beside another" };
+            for (int pass = 0; pass < 3 && dzPrefab != null; pass++)
             {
                 Vector3 bAt = at + Vector3.right * (12f + 8f * pass); bAt.y = site.SurfaceY(bAt);
-                var blk2 = FPSBase.City.BlockYard.Spawn(5, bAt + Vector3.up * 0.05f, Quaternion.identity);
-                for (int i = 0; i < 50 * 3; i++) yield return new WaitForFixedUpdate();
-                // (pass 1: put in its place with land level, as off the chain)
-                if (pass == 1) { blk2.Claim(); blk2.SetLevel(); for (int i = 0; i < 20; i++) yield return new WaitForFixedUpdate(); }
-                Check(blk2.Pinned, $"a block {(pass == 0 ? "dropped" : "set down level")} on firm ground is pinned there too (locked {blk2.Locked})");
+                if (pass == 2)
+                {
+                    // (pass 2: a block set down, and this one snapped in end to end against it, as off the chain)
+                    anchor = FPSBase.City.BlockYard.Spawn(5, bAt + Vector3.up * 0.05f, Quaternion.identity);
+                    for (int i = 0; i < 50 * 3; i++) yield return new WaitForFixedUpdate();
+                    anchor.Claim(); anchor.SetLevel();
+                    for (int i = 0; i < 20; i++) yield return new WaitForFixedUpdate();
+                    bAt = anchor.transform.position + Vector3.right * (anchor.Size.x + 0.15f);
+                }
+                var blk2 = FPSBase.City.BlockYard.Spawn(5, bAt + Vector3.up * (pass == 2 ? 0.3f : 0.05f), Quaternion.identity);
+                if (pass == 2) { blk2.Body.isKinematic = true; Physics.SyncTransforms(); yield return null; blk2.Claim(); bool sn = blk2.SnapToWall(); Check(sn && blk2.Locked, $"snapped in beside another block, it's held fast there (snapped {sn}, locked {blk2.Locked})"); }
+                else for (int i = 0; i < 50 * 3; i++) yield return new WaitForFixedUpdate();
+                // (pass 1: put in its place with land level, as off the chain, but on its own)
+                if (pass == 1) { blk2.Claim(); blk2.SetLevel(); for (int i = 0; i < 20; i++) yield return new WaitForFixedUpdate(); Check(!blk2.Locked, "set down level on its own, a block isn't held fast: it's loose"); }
+                for (int i = 0; i < 20; i++) yield return new WaitForFixedUpdate();
+                Check(blk2.Pinned, $"a block {how[pass]} on firm ground is pinned there too (locked {blk2.Locked})");
                 if (blk != null) Destroy(blk.gameObject);
                 blk = blk2;
                 Vector3 bp = blk.transform.position;
@@ -5031,9 +5044,10 @@ namespace FPSBase.DebugTools
                 d.TestDrive(0f);
                 float shoved = Vector3.Distance(new Vector3(blk.transform.position.x, 0f, blk.transform.position.z), new Vector3(bp.x, 0f, bp.z));
                 log.AppendLine($"INFO  dozer driven into the set-down block: block moved {shoved:0.00} m, knocked loose {FPSBase.City.ConcreteBlock.Shoves - sh0} times, last touch {FPSBase.City.ConcreteBlock.LastTouch}, dozer closest {closest:0.0} m");
-                if (pass == 0) Check(shoved > 0.3f, $"a dozer driven into a dropped block shoves it (moved {shoved:0.00} m, bumped {FPSBase.City.ConcreteBlock.Shoves - sh0} times)");
-                else Check(shoved < 0.05f && blk.Pinned, $"a machine driven into a block set in its place doesn't move it: only the chain does (moved {shoved:0.00} m, bumped {FPSBase.City.ConcreteBlock.Shoves - sh0} times, pinned {blk.Pinned})");
+                if (pass < 2) Check(shoved > 0.3f, $"a dozer driven into a block {how[pass]} shoves it (moved {shoved:0.00} m, bumped {FPSBase.City.ConcreteBlock.Shoves - sh0} times)");
+                else Check(shoved < 0.05f && blk.Pinned, $"a machine driven into a block snapped into a wall doesn't move it: only the chain does (moved {shoved:0.00} m, bumped {FPSBase.City.ConcreteBlock.Shoves - sh0} times, pinned {blk.Pinned})");
                 Destroy(d.gameObject);
+                if (anchor != null) { Destroy(anchor.gameObject); anchor = null; }
                 for (int i = 0; i < 5; i++) yield return null;
             }
             Destroy(blk.gameObject);

@@ -49,6 +49,8 @@ namespace FPSBase.Vehicles
                     if (i % step != 0) continue;
                     var p = buf[i];
                     if (p.thisCollider == null || p.thisCollider.isTrigger) continue;
+                    // (a truck's solid tyre: the wheel does the ground's work, not the body)
+                    if (p.thisCollider.name == "Tyre Support") continue;
                     Vector3 v = rb.GetPointVelocity(p.point); v.y = 0f;
                     float sp = v.magnitude;
                     if (sp < 0.3f) continue;

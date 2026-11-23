@@ -169,6 +169,87 @@ namespace FPSBase.Vehicles
                 clumps = cc;
             }
             UpdateContents();
+            AddTyreBodies();
+        }
+
+        // ------------------------------------------------------------------ tyres you can stand on a ledge with
+
+        /// <summary>
+        /// Tests: each tyre is a solid body too (off: the old way, held up only by the wheel's ray down from the middle
+        /// of the tyre, so one with half its tread still on a ledge dropped straight off it).
+        /// </summary>
+        public static bool TyreBodies = true;
+        static PhysicsMaterial slick;
+        static readonly System.Collections.Generic.Dictionary<int, Mesh> tyreMeshes = new();
+        /// <summary>The solid tyre shapes (for the test).</summary>
+        public MeshCollider[] TyreSupports { get; private set; }
+
+        /// <summary>
+        /// A solid tyre round each wheel, a little smaller than it (so on the ground the wheel does the work and the tyre
+        /// never drags), at the wheel's resting height. Off the edge of a deck with part of its tread still on it, the
+        /// wheel's ray finds nothing but the tyre sits on the edge and holds the truck up. Slick, so it never brakes it.
+        /// </summary>
+        void AddTyreBodies()
+        {
+            if (!TyreBodies || wheels == null || TyreSupports != null) return;
+            if (slick == null) slick = new PhysicsMaterial("Tyre Support") { dynamicFriction = 0f, staticFriction = 0f, bounciness = 0f, frictionCombine = PhysicsMaterialCombine.Minimum, bounceCombine = PhysicsMaterialCombine.Minimum };
+            var list = new System.Collections.Generic.List<MeshCollider>();
+            for (int i = 0; i < wheels.Length; i++)
+            {
+                var w = wheels[i];
+                if (w == null) continue;
+                float width = TyreWidth(i, w);
+                var go = new GameObject("Tyre Support");
+                go.layer = w.gameObject.layer;
+                go.transform.SetParent(w.transform, false);
+                float rest = w.suspensionDistance * (1f - w.suspensionSpring.targetPosition);
+                go.transform.localPosition = w.center - Vector3.up * rest;
+                var mc = go.AddComponent<MeshCollider>();
+                mc.sharedMesh = TyreMesh(w.radius * 0.88f, width);
+                mc.convex = true;
+                mc.sharedMaterial = slick;
+                list.Add(mc);
+            }
+            TyreSupports = list.ToArray();
+        }
+
+        /// <summary>How wide the tyre is across (m): from its model, along the axle.</summary>
+        float TyreWidth(int i, WheelCollider w)
+        {
+            var vis = wheelVisuals != null && i < wheelVisuals.Length ? wheelVisuals[i] : null;
+            var mf = vis != null ? vis.GetComponentInChildren<MeshFilter>() : null;
+            if (mf == null || mf.sharedMesh == null) return Mathf.Max(0.2f, w.radius * 0.6f);
+            // (the model's thinnest way across: a tyre is narrower than it is tall, whichever way the model is turned yet)
+            Vector3 s = Vector3.Scale(mf.sharedMesh.bounds.size, mf.transform.lossyScale);
+            float width = Mathf.Min(Mathf.Abs(s.x), Mathf.Min(Mathf.Abs(s.y), Mathf.Abs(s.z)));
+            return Mathf.Clamp(width, 0.15f, w.radius * 1.6f);
+        }
+
+        /// <summary>A plain 16-sided cylinder along x: the solid tyre.</summary>
+        static Mesh TyreMesh(float r, float width)
+        {
+            int key = Mathf.RoundToInt(r * 100f) * 1000 + Mathf.RoundToInt(width * 100f);
+            if (tyreMeshes.TryGetValue(key, out var m) && m != null) return m;
+            const int n = 16;
+            var v = new Vector3[n * 2];
+            for (int k = 0; k < n; k++)
+            {
+                float a = k * Mathf.PI * 2f / n;
+                float y = Mathf.Cos(a) * r, z = Mathf.Sin(a) * r;
+                v[k] = new Vector3(-width * 0.5f, y, z);
+                v[k + n] = new Vector3(width * 0.5f, y, z);
+            }
+            var t = new System.Collections.Generic.List<int>();
+            for (int k = 0; k < n; k++)
+            {
+                int a = k, b = (k + 1) % n;
+                t.AddRange(new[] { a, b, b + n, a, b + n, a + n });
+                if (k > 0 && k < n - 1) { t.AddRange(new[] { 0, b, a }); t.AddRange(new[] { n, a + n, b + n }); }
+            }
+            m = new Mesh { name = "Tyre Support", vertices = v, triangles = t.ToArray() };
+            m.RecalculateBounds();
+            tyreMeshes[key] = m;
+            return m;
         }
 
         // ------------------------------------------------------------------ tidy tank (diesel transfer tank at the front of the bed)

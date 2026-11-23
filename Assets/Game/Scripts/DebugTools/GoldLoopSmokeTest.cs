@@ -84,6 +84,8 @@ namespace FPSBase.DebugTools
                         case "cabreach": yield return CabReachTests(); break;
                         case "clods": yield return ClodLandingTests(); break;
                         case "blocksupport": yield return BlockSupportTests(); break;
+                        case "tyreledge": yield return TyreLedgeTests(); break;
+                        case "washfuel": yield return WashFuelTests(); break;
                         case "slosh": yield return SloshTests(DigSite.Instance, FindFirstObjectByType<DumpPickup>()); break;
                         case "materials": yield return MaterialsTests(DigSite.Instance, Economy.Instance, FindFirstObjectByType<WashPlant>(), FindFirstObjectByType<DumpPickup>()); break;
                         default: log.AppendLine($"INFO  unknown quick test '{part}'"); break;
@@ -3814,6 +3816,114 @@ namespace FPSBase.DebugTools
             BodyDirt.On = true;
             Check(shoved > 0.01f, $"a truck's bumper hitting a clump of dirt shoves some of it aside ({shoved:0.00} m3)");
             Check(went[1] > 19f && went[1] >= went[0] - 0.5f, $"with the clump its bumper hits shoved over, the truck keeps going ({went[1]:0.0} m, against {went[0]:0.0} m hitting it like a wall)");
+        }
+
+        /// <summary>
+        /// A haul truck stood with one side's tyres over the edge of a ledge (more than half the tread still on it):
+        /// the solid tyres hold it up there. The old way (only the wheel's ray, from the middle of the tyre) it dropped off.
+        /// </summary>
+        IEnumerator TyreLedgeTests()
+        {
+            var dealer = FindFirstObjectByType<VehicleDealer>();
+            Vector3 padAt = new Vector3(-300f, 400f, 300f);
+            var pad = TestPad(padAt, "Ledge pad");
+            float width = 0f;
+            foreach (string name in new[] { "Haul Truck 25t", "Articulated Haul Truck 50 t", "Dump Truck 10 t" })
+            {
+                var pf = Prefab0(dealer, name);
+                if (pf == null) { Check(false, $"found the {name}"); continue; }
+                float[] roll = new float[2]; float[] drop = new float[2];
+                for (int run = 0; run < 2; run++)
+                {
+                    DumpPickup.TyreBodies = run == 0;
+                    Vector3 at = padAt + new Vector3(run * 40f - 20f, 0f, name.Length * 3f);
+                    // a ledge 1.2 m high, its edge running along x = at.x
+                    var ledge = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                    ledge.name = "Test Ledge";
+                    ledge.transform.position = at + new Vector3(-6f, 0.6f, 0f);
+                    ledge.transform.localScale = new Vector3(12f, 1.2f, 30f);
+                    var t = Instantiate(pf, at + new Vector3(-20f, 3f, 0f), Quaternion.identity).GetComponent<DumpPickup>();
+                    var trb = t.GetComponent<Rigidbody>();
+                    yield return null;
+                    if (run == 0 && t.TyreSupports != null && t.TyreSupports.Length > 0) width = t.TyreSupports[0].sharedMesh.bounds.size.x;
+                    // the right-hand tyres: their middles a fifth of the tread past the edge (so 70% of it still on the ledge)
+                    float right = float.MinValue;
+                    foreach (var w in t.wheels) if (w != null) right = Mathf.Max(right, t.transform.InverseTransformPoint(w.transform.TransformPoint(w.center)).x);
+                    float tw = width > 0f ? width : 0.5f;
+                    trb.isKinematic = true;
+                    t.transform.position = at + new Vector3(-right + tw * 0.2f, 1.2f + 1.2f, 0f);
+                    trb.position = t.transform.position;
+                    Physics.SyncTransforms();
+                    yield return new WaitForFixedUpdate();
+                    trb.isKinematic = false;
+                    for (int i = 0; i < 50 * 2; i++) yield return new WaitForFixedUpdate();
+                    float y0 = t.transform.position.y;
+                    for (int i = 0; i < 50 * 4; i++) yield return new WaitForFixedUpdate();
+                    roll[run] = Vector3.Angle(t.transform.up, Vector3.up);
+                    drop[run] = (at.y + 2.4f) - t.transform.position.y;
+                    log.AppendLine($"INFO  {name} with its right tyres 20% of the tread over a 1.2 m ledge ({(run == 0 ? "solid tyres" : "OLD: ray only")}, tyre {tw:0.00} m wide): leaning {roll[run]:0.0}°, {drop[run]:0.00} m down from where it was set, still going {trb.linearVelocity.magnitude:0.00} m/s");
+                    Destroy(t.gameObject); Destroy(ledge);
+                    yield return null;
+                }
+                Check(roll[0] < 8f && roll[1] > roll[0] + 10f, $"{name}: with most of its tyres' tread still on a ledge, it stays up on it ({roll[0]:0.0}° lean, against {roll[1]:0.0}° the old way)");
+            }
+            DumpPickup.TyreBodies = true;
+            // the solid tyres don't hold a truck back on flat ground
+            {
+                var pf = Prefab0(dealer, "Haul Truck 25t");
+                float[] went = new float[2];
+                for (int run = 0; run < 2 && pf != null; run++)
+                {
+                    DumpPickup.TyreBodies = run == 0;
+                    var t = Instantiate(pf, padAt + new Vector3(run * 30f - 15f, 1.5f, -150f), Quaternion.identity).GetComponent<DumpPickup>();
+                    for (int i = 0; i < 75; i++) yield return new WaitForFixedUpdate();
+                    Vector3 p0 = t.transform.position;
+                    t.TestDrive(1f);
+                    for (int i = 0; i < 50 * 8; i++) yield return new WaitForFixedUpdate();
+                    went[run] = Vector3.Distance(p0, t.transform.position);
+                    Destroy(t.gameObject);
+                    yield return null;
+                }
+                log.AppendLine($"INFO  25 t haul truck on the flat, 8 s full throttle: {went[0]:0.0} m with solid tyres, {went[1]:0.0} m the old way");
+                Check(went[0] > went[1] * 0.95f, $"the solid tyres don't drag on flat ground ({went[0]:0.0} m against {went[1]:0.0} m)");
+            }
+            DumpPickup.TyreBodies = true;
+            Destroy(pad);
+        }
+
+        /// <summary>
+        /// The wash plant's generator is filled from a tidy tank or fuel trailer brought up to it, for nothing (that
+        /// diesel was paid for at the pump). With none in reach it can't be filled.
+        /// </summary>
+        IEnumerator WashFuelTests()
+        {
+            var plant = FindFirstObjectByType<WashPlant>();
+            var dealer = FindFirstObjectByType<VehicleDealer>();
+            if (plant == null) { Check(false, "found the wash plant"); yield break; }
+            // (anything already parked by it moved out of the way)
+            foreach (var t0 in new System.Collections.Generic.List<FuelTank>(FuelTank.All)) if (t0 != null && plant.NearTank() == t0) { var v0 = t0.GetComponentInParent<VehicleBase>(); if (v0 != null) v0.transform.position += Vector3.up * 500f; }
+            yield return null;
+            plant.fuel = 10f;
+            Check(plant.NearTank() == null, "with no tidy tank or fuel trailer near it, the wash plant's generator can't be filled");
+            Check(plant.RefillFrom(plant.NearTank()) == 0f && plant.fuel == 10f, "and nothing goes in");
+            var pf = Prefab0(dealer, "GMT400");
+            var pk = Instantiate(pf, plant.transform.position + new Vector3(0f, 1.5f, -9f), Quaternion.identity).GetComponent<DumpPickup>();
+            for (int i = 0; i < 50; i++) yield return new WaitForFixedUpdate();
+            var tank = plant.NearTank();
+            Check(tank != null && tank == pk.tidyTank, $"a pickup with a tidy tank parked by the plant: its hose reaches ({(tank != null ? tank.label : "none")}, {Vector3.Distance(pk.transform.position, plant.transform.position):0.0} m from the hopper)");
+            if (tank != null)
+            {
+                tank.liters = 200f;
+                var eco = Economy.Instance;
+                float m0 = eco.Money;
+                float l = plant.RefillFrom(tank);
+                Check(Mathf.Abs(plant.fuel - plant.fuelCapacity) < 0.01f && Mathf.Abs(tank.liters - (200f - l)) < 0.01f && l > 80f, $"the generator is filled from the tank ({l:0} L moved, generator {plant.fuel:0}/{plant.fuelCapacity:0} L, {tank.liters:0} L left in the tank)");
+                Check(Mathf.Abs(eco.Money - m0) < 0.01f, $"filling it costs nothing: the diesel's already paid for (money {m0:N0} → {eco.Money:N0})");
+                plant.fuel = 10f; tank.liters = 30f;
+                l = plant.RefillFrom(tank);
+                Check(Mathf.Abs(l - 30f) < 0.01f && tank.liters < 0.01f && Mathf.Abs(plant.fuel - 40f) < 0.01f, $"a nearly empty tank gives what it has ({l:0} L, generator {plant.fuel:0} L)");
+            }
+            Destroy(pk.gameObject);
         }
 
         /// <summary>

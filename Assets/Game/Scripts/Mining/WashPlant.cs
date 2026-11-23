@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using FPSBase.Core;
 using UnityEngine;
+using FPSBase.Vehicles;
 
 namespace FPSBase.Mining
 {
@@ -84,7 +85,8 @@ namespace FPSBase.Mining
         public float ApplyNetAction(int a)
         {
             if (a == 0) { float g = sluiceGold; sluiceGold = 0f; UpdateVisuals(); return g; }
-            if (a == 1) fuel = fuelCapacity;
+            if (a >= 1000) fuel = Mathf.Min(fuelCapacity, fuel + (a - 1000)); // (litres from a friend's tidy tank)
+            else if (a == 1) fuel = fuelCapacity;
             else if (a == 2) running = true;
             else if (a == 3) running = false;
             else if (a >= 4 && a - 4 < 4) { var t = Tracks[a - 4]; if (!t.Maxed) t.level++; }
@@ -212,9 +214,14 @@ namespace FPSBase.Mining
                 UpdateVisuals();
             }
             float need = fuelCapacity - fuel;
-            GUI.enabled = need > 0.5f;
-            if (GUILayout.Button($"Refill generator  ({need:0} L for ${need * fuelPrice:N0})", GUILayout.Height(30)))
-                if (eco.TrySpend(need * fuelPrice)) { fuel = fuelCapacity; if (NetMirror) NetAction?.Invoke(this, 1); }
+            var tank = NearTank();
+            GUI.enabled = need > 0.5f && tank != null && tank.liters > 0.5f;
+            string why = need <= 0.5f ? "full" : tank == null ? "bring a tidy tank or fuel trailer up to the plant" : tank.liters <= 0.5f ? $"the {tank.label.ToLower()} is empty" : null;
+            if (GUILayout.Button(why == null ? $"Refill generator from the {tank.label.ToLower()}  ({Mathf.Min(need, tank.liters):0} L, free: it's your diesel)" : $"Refill generator  ({why})", GUILayout.Height(30)))
+            {
+                float l = RefillFrom(tank);
+                if (l > 0f) { GameUI.Toast($"Filled the generator with {l:0} L from the {tank.label.ToLower()}  ({tank.liters:0} L left in it)"); if (NetMirror) NetAction?.Invoke(this, 1000 + Mathf.RoundToInt(l)); }
+            }
             GUI.enabled = true;
 
             GUILayout.Space(10);
@@ -223,6 +230,37 @@ namespace FPSBase.Mining
             DrawUpgrade(recovery, eco);
             DrawUpgrade(scrubber, eco);
             DrawUpgrade(hopperSize, eco);
+        }
+
+        /// <summary>
+        /// The fullest tidy tank or fuel trailer whose hose reaches the plant (null = none). The generator's only
+        /// filled from one of those: the diesel in it is already paid for, at the pump.
+        /// </summary>
+        public FuelTank NearTank()
+        {
+            FuelTank best = null;
+            var cols = GetComponentsInChildren<Collider>();
+            foreach (var t in FuelTank.All)
+            {
+                if (t == null) continue;
+                Vector3 p = t.transform.position;
+                float d = Vector3.Distance(p, transform.position);
+                foreach (var c in cols) if (c != null && !c.isTrigger) d = Mathf.Min(d, Vector3.Distance(p, c.ClosestPoint(p)));
+                if (d > t.hoseReach) continue;
+                if (best == null || t.liters > best.liters) best = t;
+            }
+            return best;
+        }
+
+        /// <summary>Pump the generator full from `tank` (as much as is in it): the litres moved. Free.</summary>
+        public float RefillFrom(FuelTank tank)
+        {
+            if (tank == null) return 0f;
+            float l = Mathf.Min(fuelCapacity - fuel, tank.liters);
+            if (l <= 0f) return 0f;
+            tank.liters -= l;
+            fuel += l;
+            return l;
         }
 
         void DrawUpgrade(UpgradeTrack t, Economy eco)

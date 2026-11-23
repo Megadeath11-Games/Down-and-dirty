@@ -13,6 +13,10 @@ namespace FPSBase.Core
         /// <summary>Newest first.</summary>
         public static readonly Post[] Blog =
         {
+            new Post { date = "Update 55  ·  Nov 22, 2026", title = "Tyres that hold a ledge, and fuel you brought",
+                body =
+                "• Truck tyres are solid now: with half a tyre (or more) still on a ledge, like the side of the wash plant's deck, the truck stays up on it instead of dropping off the edge. Before, a wheel only felt the ground right under the middle of the tyre. All the trucks: pickups, dump trucks and the 25 and 50 t haulers.\n" +
+                "• The wash plant's generator is filled from a tidy tank or a fuel trailer brought up to the plant, and it's free: you already paid for that diesel at the pump. With no tank in reach of the plant, the refill button tells you to bring one." },
             new Post { date = "Update 54  ·  Nov 22, 2026", title = "A green hook, and blocks that need a footing",
                 body =
                 "• With the excavator's chain down, the block the hook will take turns green, so you can see which one you'll get before you press the chain key. With a stack, that's the top one.\n" +
@@ -443,6 +447,8 @@ namespace FPSBase.Core
         /// <summary>What's new in this build to try out.</summary>
         public static readonly string[] TestList =
         {
+            "Back a haul truck onto the wash plant deck with one side's tyres half over the edge: it stays up",
+            "Refill the wash plant generator: it needs a tidy tank or fuel trailer parked near the plant, and costs nothing",
             "Lower the excavator chain near some blocks: the one the hook will take turns green",
             "Set a block down on its own, then push it with a dozer or the bucket: it moves. Snap one into a wall and push it: it holds",
             "Try to snap a block beside one on the second course, out past the course below: it won't snap there",

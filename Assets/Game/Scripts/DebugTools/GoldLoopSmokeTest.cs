@@ -83,6 +83,7 @@ namespace FPSBase.DebugTools
                         case "bodyshove": yield return BodyShoveTests(); break;
                         case "cabreach": yield return CabReachTests(); break;
                         case "clods": yield return ClodLandingTests(); break;
+                        case "blocksupport": yield return BlockSupportTests(); break;
                         case "slosh": yield return SloshTests(DigSite.Instance, FindFirstObjectByType<DumpPickup>()); break;
                         case "materials": yield return MaterialsTests(DigSite.Instance, Economy.Instance, FindFirstObjectByType<WashPlant>(), FindFirstObjectByType<DumpPickup>()); break;
                         default: log.AppendLine($"INFO  unknown quick test '{part}'"); break;
@@ -1870,14 +1871,36 @@ namespace FPSBase.DebugTools
                 log.AppendLine($"INFO  hook by the bottom block's loop with one on top: bottom {Vector3.Distance(blk.eye.position, chain.HookEnd):0.00} m, top {Vector3.Distance(top.eye.position, chain.HookEnd):0.00} m from the hook; picks {(pick == top ? "the top one" : pick == blk ? "the bottom one" : "none")}");
                 Check(blk.Covered() && !top.Covered() && pick != blk, $"a block with another on top can't be hooked (covered {blk.Covered()}, the hook picks {(pick == top ? "the top one" : pick == blk ? "the bottom one" : "none")})");
                 Check(pick == top, "the hook low by the bottom block's loop takes the top one instead");
+                BucketChain.ShowWhenEmpty = true;
+                for (int i = 0; i < 3; i++) yield return null;
+                Check(top.Highlighted && !blk.Highlighted && chain.Targeted == top, $"the block the hook will take is drawn green: the top one, not the one under it (top {top.Highlighted}, bottom {blk.Highlighted})");
+                {
+                    // (the tint really reaches what's drawn: the block's own material takes a base colour, and it's set)
+                    var rr = top.GetComponentInChildren<MeshRenderer>();
+                    var mpb = new MaterialPropertyBlock(); if (rr != null) rr.GetPropertyBlock(mpb);
+                    bool tinted = rr != null && rr.sharedMaterial != null && rr.sharedMaterial.HasProperty("_BaseColor") && mpb.GetColor("_BaseColor").g > 0.8f && mpb.GetColor("_BaseColor").r < 0.5f;
+                    Check(tinted, $"the green is on the block's own surface ({(rr != null && rr.sharedMaterial != null ? rr.sharedMaterial.shader.name : "no renderer")})");
+                }
                 Destroy(top.gameObject);
                 yield return null;
                 Physics.SyncTransforms();
                 blk.Body.isKinematic = false;
                 Check(!blk.Covered(), "with the top one lifted off, the bottom one can be hooked again");
+                for (int i = 0; i < 3; i++) yield return null;
+                Check(blk.Highlighted && chain.Targeted == blk, "with the top one gone, the bottom one turns green");
             }
+            // (chained down, as on a trailer deck: the chain key takes the tie-downs off and hooks it, from the cab)
+            var testDeck = new GameObject("Test Deck").transform;
+            testDeck.position = blk.transform.position;
+            blk.ChainTo(testDeck);
+            bool wasChained = blk.ChainedTo == testDeck;
             chain.Toggle();
+            Check(wasChained && chain.Held == blk && blk.ChainedTo == null && blk.transform.parent != testDeck, $"a chained-down block is unchained by itself when the chain hooks it (chained first {wasChained}, now {(blk.ChainedTo != null ? "still chained" : "free")})");
+            Destroy(testDeck.gameObject);
             Check(chain.Held == blk && blk.HookedBy == chain, "chain key again with the hook by the loop hooks the block");
+            for (int i = 0; i < 2; i++) yield return null;
+            Check(!blk.Highlighted, "hooked, it goes back to its own colour");
+            BucketChain.ShowWhenEmpty = false;
             {
                 float l0 = chain.Length;
                 chain.ChangeLength(-10f);
@@ -3791,6 +3814,44 @@ namespace FPSBase.DebugTools
             BodyDirt.On = true;
             Check(shoved > 0.01f, $"a truck's bumper hitting a clump of dirt shoves some of it aside ({shoved:0.00} m3)");
             Check(went[1] > 19f && went[1] >= went[0] - 0.5f, $"with the clump its bumper hits shoved over, the truck keeps going ({went[1]:0.0} m, against {went[0]:0.0} m hitting it like a wall)");
+        }
+
+        /// <summary>
+        /// A block only snaps in where there's something under it: beside a block up on the second course, past the
+        /// end of the course below, there's only air, so it doesn't go there (it used to, and then fell). Beside the
+        /// bottom one, on the ground, it still does.
+        /// </summary>
+        IEnumerator BlockSupportTests()
+        {
+            var site = DigSite.Instance;
+            Vector3 at = new Vector3(80f, 0f, -140f);
+            if (!site.Contains(at)) { Check(false, $"block support test ground is on the dirt field ({at})"); yield break; }
+            at.y = site.SurfaceY(at);
+            var a = FPSBase.City.BlockYard.Spawn(1, at, Quaternion.identity);
+            for (int i = 0; i < 80; i++) yield return new WaitForFixedUpdate();
+            var b = FPSBase.City.BlockYard.Spawn(1, a.transform.position + Vector3.up * (a.Size.y + 0.01f), a.transform.rotation);
+            for (int i = 0; i < 80; i++) yield return new WaitForFixedUpdate();
+            float h = a.Size.y;
+            log.AppendLine($"INFO  block support: bottom at {a.transform.position.y - at.y:+0.00;-0.00} m, top block {b.transform.position.y - a.transform.position.y:0.00} m over it (block {a.Size})");
+            // held past the top block's end, at its height: nothing below but air (the bottom block ends under the top one's end)
+            var c = FPSBase.City.BlockYard.Spawn(1, b.transform.position + b.transform.forward * (b.Size.z + 0.08f) + Vector3.up * 0.05f, b.transform.rotation);
+            c.Body.isKinematic = true;
+            Physics.SyncTransforms();
+            yield return null;
+            bool found = c.FindSnap(out Vector3 p, out Quaternion q, out var to);
+            bool hanging = found && to == b && Mathf.Abs(p.y - b.transform.position.y) < 0.15f;
+            log.AppendLine($"INFO  block support: held beside the top block over air: {(found ? $"would snap {(to == b ? "beside the top one" : to == a ? "beside the bottom one" : "elsewhere")} at {p.y - at.y:+0.00;-0.00} m" : "doesn't snap")}");
+            Check(!hanging, "a block doesn't snap in beside one up on the second course with nothing under it");
+            Check(!found || c.Beneath(p, q) || to == b && p.y > b.transform.position.y + h * 0.5f, "wherever it does snap, there's something under it");
+            Destroy(c.gameObject);
+            // beside the bottom one, on the ground: it still goes in
+            var d = FPSBase.City.BlockYard.Spawn(1, a.transform.position - a.transform.forward * (a.Size.z + 0.1f) + Vector3.up * 0.3f, a.transform.rotation);
+            d.Body.isKinematic = true;
+            Physics.SyncTransforms();
+            yield return null;
+            bool ok = d.FindSnap(out Vector3 p2, out _, out var to2);
+            Check(ok && to2 == a && Mathf.Abs(p2.y - a.transform.position.y) < 0.2f, $"beside the bottom block, on the ground, it still snaps in ({(ok ? (to2 == a ? "beside it" : "elsewhere") : "no snap")})");
+            Destroy(d.gameObject); Destroy(b.gameObject); Destroy(a.gameObject);
         }
 
         /// <summary>

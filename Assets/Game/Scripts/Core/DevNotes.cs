@@ -13,6 +13,11 @@ namespace FPSBase.Core
         /// <summary>Newest first.</summary>
         public static readonly Post[] Blog =
         {
+            new Post { date = "Update 54  ·  Nov 22, 2026", title = "A green hook, and blocks that need a footing",
+                body =
+                "• With the excavator's chain down, the block the hook will take turns green, so you can see which one you'll get before you press the chain key. With a stack, that's the top one.\n" +
+                "• Blocks only snap in where there's something under them: beside a block up on the second course, past the end of the course below, it won't snap any more (it used to, and then fell off). On the ground or on another block it snaps in as before.\n" +
+                "• Hooking a block that's chained down on a trailer or a truck takes its tie-down chains off by itself: no getting out of the cab to unchain it first." },
             new Post { date = "Update 53  ·  Nov 22, 2026", title = "Dirt that stays where you drop it",
                 body =
                 "• Dirt out of a bucket lands like dirt: dropped from half a metre or more, a clod goes into the ground right where it hits instead of bouncing and rolling off. A bucketful let go 3 m up is all in the ground about a second later.\n" +
@@ -437,6 +442,9 @@ namespace FPSBase.Core
         /// <summary>What's new in this build to try out.</summary>
         public static readonly string[] TestList =
         {
+            "Lower the excavator chain near some blocks: the one the hook will take turns green",
+            "Try to snap a block beside one on the second course, out past the course below: it won't snap there",
+            "Chain a block down on a trailer, then hook it from the excavator cab: it comes off the trailer without unchaining it by hand",
             "Dump a bucket from high up: the dirt thuds into the ground where it lands instead of bouncing about",
             "Dump a bucket on a slope or the side of a pile: it stays there instead of rolling down",
             "Add the game to Steam (Games > Add a Non-Steam Game), start it from Steam, press Shift+Tab: the Steam overlay opens",

@@ -380,6 +380,8 @@ namespace FPSBase.City
                     if (d >= bd) continue;
                     if (l.y < 0.01f) p = OnGround(p);
                     if (!Free(p, q)) continue;
+                    // (beside a block: only where there's something under it, or it would just fall)
+                    if (l.y < 0.01f && !Beneath(p, q)) continue;
                     if (l.y > 0.01f && !Supported(p, q)) continue;
                     bd = d; bestP = p; bestQ = q; bestB = o; snapOnGround = l.y < 0.01f;
                 }
@@ -404,6 +406,36 @@ namespace FPSBase.City
                 var c = near[i];
                 if (c == null || c.transform.IsChildOf(transform)) continue;
                 if (c.GetComponentInParent<ConcreteBlock>() != null || c.attachedRigidbody != null) return false;
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Something to stand on under a spot beside a block, at both its ends and in the middle: another block, a
+        /// deck or slab, or the dirt close enough under it to be packed up to it when it goes in (see SnapToWall).
+        /// A block always needs something beneath it: beside one up on the second course, over thin air, it can't go.
+        /// </summary>
+        public bool Beneath(Vector3 p, Quaternion q)
+        {
+            Vector3 along = q * Vector3.forward, up = q * Vector3.up;
+            var site = DigSite.At(p);
+            foreach (float f in new[] { -0.4f, 0f, 0.4f })
+            {
+                Vector3 at = p + along * (Size.z * f);
+                // the dirt: near enough under it that the bed is built up to it (more than that and it's a drop)
+                if (site != null && site.Contains(at) && site.SurfaceY(at) > p.y - 0.45f) continue;
+                bool hit = false;
+                foreach (var h in Physics.RaycastAll(at + up * 0.06f, -up, 0.2f, ~0, QueryTriggerInteraction.Ignore))
+                {
+                    var c = h.collider;
+                    if (c.transform.IsChildOf(transform)) continue;
+                    // (a block, a deck, a slab or any solid ground; not a machine's arm or a player swinging past)
+                    var b = c.GetComponentInParent<ConcreteBlock>();
+                    if (b != null && b.HookedBy != null) continue;
+                    if (b == null && c.attachedRigidbody != null && c.GetComponentInParent<FPSBase.Vehicles.Trailer>() == null && c.GetComponentInParent<FPSBase.Vehicles.VehicleBase>() == null) continue;
+                    hit = true; break;
+                }
+                if (!hit) return false;
             }
             return true;
         }
@@ -548,6 +580,30 @@ namespace FPSBase.City
         /// that one's lifted off.
         /// </summary>
         public bool Covered() => Covered(out _);
+
+        // ------------------------------------------------------------------ the chain's pick, shown green
+
+        Renderer[] tintRenderers;
+        static MaterialPropertyBlock greenBlock;
+        static readonly Color HookGreen = new Color(0.32f, 0.95f, 0.38f, 1f);
+        /// <summary>Drawn green: it's the block the chain will hook if you press the chain key now.</summary>
+        public bool Highlighted { get; private set; }
+
+        /// <summary>Green while it's the one the chain would hook; back to its own colour after.</summary>
+        public void SetHighlight(bool on)
+        {
+            if (on == Highlighted) return;
+            Highlighted = on;
+            tintRenderers ??= GetComponentsInChildren<Renderer>(true);
+            if (greenBlock == null)
+            {
+                greenBlock = new MaterialPropertyBlock();
+                greenBlock.SetColor("_BaseColor", HookGreen);
+                greenBlock.SetColor("_Color", HookGreen);
+            }
+            foreach (var r in tintRenderers)
+                if (r != null && !(r is ParticleSystemRenderer)) r.SetPropertyBlock(on ? greenBlock : null);
+        }
 
         public bool Covered(out ConcreteBlock over)
         {

@@ -113,12 +113,29 @@ namespace FPSBase.Vehicles
             if (mk != null) mk.hookRing = () => Out && Held == null && payout > 0.05f ? (HookEnd, Reach, Nearest(Reach) != null) : null;
         }
         void OnEnable() { if (!all.Contains(this)) all.Add(this); }
-        void OnDisable() { all.Remove(this); if (Held != null) Release(true); }
+        void OnDisable() { all.Remove(this); if (Held != null) Release(true); if (targeted != null) { targeted.SetHighlight(false); targeted = null; } }
+
+        /// <summary>The block the chain would hook right now (drawn green for the operator).</summary>
+        public ConcreteBlock Targeted => targeted;
+        ConcreteBlock targeted;
+        /// <summary>Tests: show the pick with nobody in the cab.</summary>
+        public static bool ShowWhenEmpty;
+
+        void ShowTarget()
+        {
+            // (only for whoever's in this machine: the same pick as pressing the chain key)
+            var want = ex != null && ((ex.Occupied && !ex.NetRemote) || ShowWhenEmpty) && Out && Held == null && payout > 0.05f ? Nearest(Reach) : null;
+            if (want == targeted) return;
+            if (targeted != null) targeted.SetHighlight(false);
+            targeted = want;
+            if (targeted != null) targeted.SetHighlight(true);
+        }
 
         void Update()
         {
             RopeStep(Time.deltaTime);
             ShowSnap();
+            ShowTarget();
             if (ex == null || !ex.Occupied || ex.NetRemote) return;
             if (Controls.Pressed(GameAction.Hook)) Toggle();
             if (Out || Held != null)
@@ -315,11 +332,8 @@ namespace FPSBase.Vehicles
         public void Hook(ConcreteBlock b, bool fromNet = false)
         {
             if (b == null || Held != null) return;
-            if (b.ChainedTo != null)
-            {
-                if (fromNet) b.Unchain(true);
-                else { GameUI.Toast("It's chained down: undo its chains first (look at it, F)"); return; }
-            }
+            // (chained down on a trailer or a truck: hooking it takes the tie-down chains off, no getting out of the cab)
+            if (b.ChainedTo != null) b.Unchain(fromNet);
             if (b.HookedBy != null) b.HookedBy.Release(fromNet);
             Out = true;
             Held = b; b.HookedBy = this;

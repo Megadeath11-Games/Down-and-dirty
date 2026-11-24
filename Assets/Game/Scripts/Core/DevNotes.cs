@@ -13,6 +13,11 @@ namespace FPSBase.Core
         /// <summary>Newest first.</summary>
         public static readonly Post[] Blog =
         {
+            new Post { date = "Update 56  ·  Nov 23, 2026", title = "Standing on a ledge, a lighter map, and a lag log",
+                body =
+                "• A truck with a tyre half over a ledge now really stands on the half that's still on it: the wheel grips and holds there, and the tyre is drawn sitting on the edge instead of hanging down past it. Driving slowly along the edge of the wash plant deck, a haul truck stays up.\n" +
+                "• The map was redrawing the whole world in the background every frame, even with the map shut. Now it keeps the dig grounds (the part that changes) up to date and goes over the rest slowly: about 1.5 ms less work every frame.\n" +
+                "• Stutters are written to the game's log now: every frame slower than 50 ms gets a line saying what the game was doing (ground redrawn, physics, a memory clean-up, network), and every 30 seconds a frame-rate summary. If a save is laggy, play it for a few minutes and that log shows why." },
             new Post { date = "Update 55  ·  Nov 22, 2026", title = "Tyres that hold a ledge, and fuel you brought",
                 body =
                 "• Truck tyres are solid now: with half a tyre (or more) still on a ledge, like the side of the wash plant's deck, the truck stays up on it instead of dropping off the edge. Before, a wheel only felt the ground right under the middle of the tyre. All the trucks: pickups, dump trucks and the 25 and 50 t haulers.\n" +
@@ -447,6 +452,8 @@ namespace FPSBase.Core
         /// <summary>What's new in this build to try out.</summary>
         public static readonly string[] TestList =
         {
+            "Drive a haul truck slowly along the edge of the wash plant deck with a tyre half over: it stays up, and the tyre sits on the edge",
+            "Play a laggy save (like TJ) for a few minutes: the game feels a bit smoother, and Player.log has [Lag] lines",
             "Back a haul truck onto the wash plant deck with one side's tyres half over the edge: it stays up",
             "Refill the wash plant generator: it needs a tidy tank or fuel trailer parked near the plant, and costs nothing",
             "Lower the excavator chain near some blocks: the one the hook will take turns green",

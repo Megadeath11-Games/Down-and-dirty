@@ -459,6 +459,9 @@ namespace FPSBase.Net
 
         // big reliable messages wait here when Steam's send buffer is full
         readonly Dictionary<ulong, Queue<byte[]>> backlog = new();
+        /// <summary>Bytes sent and received so far, and messages waiting to go (for the lag log).</summary>
+        public static long BytesOut, BytesIn;
+        public static int Backlog { get { if (Instance == null) return 0; int n = 0; foreach (var q in Instance.backlog.Values) n += q.Count; return n; } }
 
         void Send(CSteamID to, BinaryWriter w, bool reliable)
         {
@@ -489,6 +492,7 @@ namespace FPSBase.Net
 
         EResult RawSend(CSteamID to, byte[] data, int len, bool reliable)
         {
+            BytesOut += len;
             if (lan != null) return lan.Send(to.m_SteamID, data, len, reliable) ? EResult.k_EResultOK : EResult.k_EResultFail;
             var id = new SteamNetworkingIdentity(); id.SetSteamID(to);
             var h = GCHandle.Alloc(data, GCHandleType.Pinned);
@@ -525,6 +529,7 @@ namespace FPSBase.Net
                 int guard = 0;
                 while (guard++ < 4000 && lan != null && lan.TryReceive(out ulong fromId, out byte[] bytes))
                 {
+                    BytesIn += bytes.Length;
                     var from = new CSteamID(fromId);
                     if (!InSession || !IsMember(from)) continue;
                     try { Handle(from, new BinaryReader(new MemoryStream(bytes))); }
@@ -540,6 +545,7 @@ namespace FPSBase.Net
                     {
                         var m = SteamNetworkingMessage_t.FromIntPtr(inbox[i]);
                         var data = new byte[m.m_cbSize];
+                        BytesIn += m.m_cbSize;
                         Marshal.Copy(m.m_pData, data, 0, m.m_cbSize);
                         var from = m.m_identityPeer.GetSteamID();
                         SteamNetworkingMessage_t.Release(inbox[i]);

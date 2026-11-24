@@ -40,11 +40,28 @@ namespace FPSBase.Core
                 if (++frames < 3 || DigSite.Instance == null) return;
                 Init();
             }
-            int n = Baked ? 2500 : 24000;
-            for (int k = 0; k < n; k++)
+            if (!Baked)
             {
-                Sample(cursor % Res, cursor / Res);
-                if (++cursor >= Res * Res) { cursor = 0; Baked = true; }
+                for (int k = 0; k < 24000; k++)
+                {
+                    Sample(cursor % Res, cursor / Res);
+                    if (++cursor >= Res * Res) { cursor = 0; Baked = true; FindLive(); }
+                }
+            }
+            else
+            {
+                // baked: the dig grounds are what changes (dug, filled, built on), so they're kept fresh; the rest of the
+                // world (hills, town, trees) is only gone over slowly. Was 2500 rays a frame over the whole world, always.
+                for (int k = 0; k < 500 && live != null && live.Length > 0; k++)
+                {
+                    int i = live[liveCursor]; if (++liveCursor >= live.Length) liveCursor = 0;
+                    Sample(i % Res, i / Res);
+                }
+                for (int k = 0; k < 60; k++)
+                {
+                    Sample(cursor % Res, cursor / Res);
+                    if (++cursor >= Res * Res) cursor = 0;
+                }
             }
             dirty = true;
             if ((applyTimer -= Time.unscaledDeltaTime) <= 0f && dirty)
@@ -55,12 +72,26 @@ namespace FPSBase.Core
             }
         }
 
+        int[] live; int liveCursor;
+        /// <summary>The map's pixels over the dig grounds (the part of the world that changes).</summary>
+        void FindLive()
+        {
+            var l = new List<int>();
+            for (int y = 0; y < Res; y++)
+                for (int x = 0; x < Res; x++)
+                {
+                    float wx = World.x + (x + 0.5f) / Res * World.width, wz = World.y + (y + 0.5f) / Res * World.height;
+                    foreach (var g in DigSite.All) if (g != null && g.FieldRect.Contains(new Vector2(wx, wz))) { l.Add(y * Res + x); break; }
+                }
+            live = l.ToArray(); liveCursor = 0;
+        }
+
         /// <summary>Bake the whole picture now (tests and screenshots).</summary>
         public void BakeAll()
         {
             if (tex == null) Init();
             for (int i = 0; i < Res * Res; i++) Sample(i % Res, i / Res);
-            cursor = 0; Baked = true;
+            cursor = 0; Baked = true; FindLive();
             tex.SetPixels32(px); tex.Apply(false);
         }
 

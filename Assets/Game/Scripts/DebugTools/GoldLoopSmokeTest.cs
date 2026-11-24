@@ -85,6 +85,7 @@ namespace FPSBase.DebugTools
                         case "clods": yield return ClodLandingTests(); break;
                         case "blocksupport": yield return BlockSupportTests(); break;
                         case "tyreledge": yield return TyreLedgeTests(); break;
+                        case "perfsave": yield return PerfSaveTests(); break;
                         case "washfuel": yield return WashFuelTests(); break;
                         case "slosh": yield return SloshTests(DigSite.Instance, FindFirstObjectByType<DumpPickup>()); break;
                         case "materials": yield return MaterialsTests(DigSite.Instance, Economy.Instance, FindFirstObjectByType<WashPlant>(), FindFirstObjectByType<DumpPickup>()); break;
@@ -3816,6 +3817,123 @@ namespace FPSBase.DebugTools
             BodyDirt.On = true;
             Check(shoved > 0.01f, $"a truck's bumper hitting a clump of dirt shoves some of it aside ({shoved:0.00} m3)");
             Check(went[1] > 19f && went[1] >= went[0] - 0.5f, $"with the clump its bumper hits shoved over, the truck keeps going ({went[1]:0.0} m, against {went[0]:0.0} m hitting it like a wall)");
+        }
+
+        /// <summary>
+        /// Where the time goes in a player's save (PERF_SAVE = its path): every script's Update/FixedUpdate and the
+        /// physics, standing about and then driving each big machine in it. Not a pass/fail test: a report.
+        /// </summary>
+        IEnumerator PerfSaveTests()
+        {
+            string path = System.Environment.GetEnvironmentVariable("PERF_SAVE");
+            if (string.IsNullOrEmpty(path) || !File.Exists(path)) { Check(false, $"the save to time is there ({path})"); yield break; }
+            string err = "never finished";
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            yield return SaveGame.Load(path, e => err = e);
+            Check(err == null, $"loaded {Path.GetFileName(path)} ({err ?? "ok"}, {sw.Elapsed.TotalSeconds:0.0} s)");
+            for (int i = 0; i < 120; i++) yield return null;
+            int bodies = 0, awake = 0, cols = 0, meshCols = 0;
+            foreach (var r in FindObjectsByType<Rigidbody>(FindObjectsSortMode.None)) { bodies++; if (!r.isKinematic && !r.IsSleeping()) awake++; }
+            foreach (var c in FindObjectsByType<Collider>(FindObjectsSortMode.None)) { cols++; if (c is MeshCollider) meshCols++; }
+            var vs = FindObjectsByType<VehicleBase>(FindObjectsSortMode.None);
+            var names = new System.Collections.Generic.List<string>(); foreach (var v in vs) names.Add(v.displayName);
+            log.AppendLine($"INFO  perf: {vs.Length} machines ({string.Join(", ", names)}), {FindObjectsByType<Trailer>(FindObjectsSortMode.None).Length} trailers, {ConcreteBlock.All.Count} blocks, {DirtGrains.Live} clods, {bodies} rigidbodies ({awake} awake), {cols} colliders ({meshCols} mesh), {FindObjectsByType<MonoBehaviour>(FindObjectsSortMode.None).Length} scripts");
+            yield return PerfMeasure("standing about", 10f);
+            VehicleBase Find(System.Func<VehicleBase, bool> f) { foreach (var v in vs) if (v != null && f(v)) return v; return null; }
+            var semi = Find(v => v is SemiTruck);
+            var hauler = Find(v => v.displayName.Contains("50 t") && v is DumpPickup);
+            var ex50 = Find(v => v.displayName.Contains("50 t") && v is EarthmoverBase && !(v is SemiTruck));
+            foreach (var v in new[] { semi, hauler, ex50 })
+            {
+                if (v == null) continue;
+                var cam = Camera.main; if (cam != null) cam.transform.SetPositionAndRotation(v.transform.position + v.transform.up * 6f - v.transform.forward * 12f, Quaternion.LookRotation(v.transform.forward - v.transform.up * 0.3f));
+                if (v is EarthmoverBase em) em.TestDrive(1f); else if (v is DumpPickup dp) dp.TestDrive(1f);
+                yield return PerfMeasure($"driving the {v.displayName}", 10f);
+                if (v is EarthmoverBase em2) em2.TestDrive(0f); else if (v is DumpPickup dp2) dp2.TestDrive(0f);
+            }
+            log.AppendLine("PASS  perf report written");
+        }
+
+        IEnumerator PerfMeasure(string label, float seconds)
+        {
+            UnityEngine.Profiling.Profiler.enabled = true;
+            var handles = new System.Collections.Generic.List<Unity.Profiling.LowLevel.Unsafe.ProfilerRecorderHandle>();
+            Unity.Profiling.LowLevel.Unsafe.ProfilerRecorderHandle.GetAvailable(handles);
+            var recs = new System.Collections.Generic.List<(string name, Unity.Profiling.ProfilerRecorder r)>();
+            var seen = new System.Collections.Generic.HashSet<string>();
+            foreach (var h in handles)
+            {
+                var d = Unity.Profiling.LowLevel.Unsafe.ProfilerRecorderHandle.GetDescription(h);
+                string n = d.Name;
+                if (n == null || !seen.Add(n)) continue;
+                bool want = n.Contains("()") || n == "Physics.Simulate" || n == "FixedUpdate.PhysicsFixedUpdate" || n == "PlayerLoop"
+                    || n == "Physics.Processing" || n == "Physics.ProcessReports" || n == "FixedBehaviourUpdate" || n == "BehaviourUpdate" || n == "PostLateUpdate.FinishFrameRendering"
+                    || n == "Gfx.WaitForPresentOnGfxThread" || n == "GC.Collect" || n == "GC.Alloc" || n == "Physics.UpdateBodies" || n == "Physics.Interpolation" || n == "Physics.SyncColliderTransform" || n == "Physics.SyncRigidbodyTransform" || n == "GC Allocated In Frame" || n == "Main Thread" || n == "Render Thread" || n == "CPU Main Thread Frame Time" || n == "CPU Render Thread Frame Time";
+                if (!want) continue;
+                var r = Unity.Profiling.ProfilerRecorder.StartNew(d.Category, n, 1);
+                if (r.Valid) recs.Add((n, r)); else r.Dispose();
+            }
+            var tot = new double[recs.Count]; var peak = new double[recs.Count];
+            var frames = new System.Collections.Generic.List<double>();
+            double last = Time.realtimeSinceStartupAsDouble, end = last + seconds;
+            yield return null;
+            last = Time.realtimeSinceStartupAsDouble;
+            int fixedSteps = 0; float fs0 = Time.fixedTime;
+            // the worst frames, and what the dirt was doing in them
+            var worst = new System.Collections.Generic.List<(double ms, string what)>();
+            double rb0 = DigSite.RebuildMs, co0 = DigSite.ColliderMs, up0 = DigSite.UploadMs, de0 = DigSite.DecorMs, rl0 = DigSite.RelaxMs, pu0 = DigSite.PushMs; long cs0 = DigSite.ColliderSamples; int rbn0 = DigSite.Rebuilds;
+            int iDig = recs.FindIndex(x => x.name.Contains("DigSite.LateUpdate")), iPhys = recs.FindIndex(x => x.name == "Physics.Simulate"), iGc = recs.FindIndex(x => x.name == "GC Allocated In Frame"), iBeh = recs.FindIndex(x => x.name == "BehaviourUpdate"), iFix = recs.FindIndex(x => x.name == "FixedBehaviourUpdate");
+            int iGrain = recs.FindIndex(x => x.name.Contains("DirtGrains.") && x.name.Contains("Update"));
+            // what multiplayer would send: the ground cells changed, gathered every 0.12 s as the game does
+            foreach (var s0 in DigSite.Ordered()) s0.TakeChangedCells(false);
+            float netTimer = 0.12f; long netCells = 0, netBytes = 0, netPeak = 0; int netSends = 0;
+            while (Time.realtimeSinceStartupAsDouble < end)
+            {
+                yield return null;
+                double now = Time.realtimeSinceStartupAsDouble;
+                frames.Add((now - last) * 1000.0); last = now;
+                double V(int i, double div = 1e6) => i >= 0 ? recs[i].r.LastValue / div : -1;
+                string what = $"dig late {V(iDig):0.0} (rebuilds {DigSite.Rebuilds - rbn0} = {DigSite.RebuildMs - rb0:0.0} ms, collider {DigSite.ColliderMs - co0:0.0} ms / {DigSite.ColliderSamples - cs0} pts, upload {DigSite.UploadMs - up0:0.0}, decor {DigSite.DecorMs - de0:0.0}, relax {DigSite.RelaxMs - rl0:0.0}, push {DigSite.PushMs - pu0:0.0}), physics {V(iPhys):0.0}, scripts {V(iBeh):0.0} + fixed {V(iFix):0.0}, grains {V(iGrain):0.0}, GC {V(iGc, 1024.0):0} KB";
+                rb0 = DigSite.RebuildMs; co0 = DigSite.ColliderMs; up0 = DigSite.UploadMs; de0 = DigSite.DecorMs; rl0 = DigSite.RelaxMs; pu0 = DigSite.PushMs; cs0 = DigSite.ColliderSamples; rbn0 = DigSite.Rebuilds;
+                worst.Add((frames[frames.Count - 1], what));
+                if ((netTimer -= Time.unscaledDeltaTime) <= 0f)
+                {
+                    netTimer = 0.12f;
+                    long sendBytes = 0;
+                    foreach (var site in DigSite.Ordered())
+                    {
+                        var cells = site.TakeChangedCells(false);
+                        if (cells.Count == 0) continue;
+                        var raw = new MemoryStream(); var rw = new BinaryWriter(raw);
+                        foreach (int c in cells) site.WriteCell(rw, c);
+                        var packed = new MemoryStream();
+                        using (var z = new System.IO.Compression.DeflateStream(packed, System.IO.Compression.CompressionLevel.Fastest, true)) z.Write(raw.GetBuffer(), 0, (int)raw.Length);
+                        netCells += cells.Count; sendBytes += packed.Length;
+                    }
+                    if (sendBytes > 0) { netSends++; netBytes += sendBytes; netPeak = System.Math.Max(netPeak, sendBytes); }
+                }
+                if (worst.Count > 6) { worst.Sort((a, b) => b.ms.CompareTo(a.ms)); worst.RemoveAt(worst.Count - 1); }
+                for (int i = 0; i < recs.Count; i++) { double ms = recs[i].r.LastValue / 1e6; if (recs[i].name == "GC Allocated In Frame") ms = recs[i].r.LastValue / 1024.0; else if (recs[i].name == "GC.Alloc") ms = recs[i].r.LastValue; tot[i] += ms; if (ms > peak[i]) peak[i] = ms; }
+            }
+            fixedSteps = Mathf.RoundToInt((Time.fixedTime - fs0) / Time.fixedDeltaTime);
+            frames.Sort();
+            int nf = Mathf.Max(1, frames.Count);
+            double mean = 0; foreach (var f in frames) mean += f; mean /= nf;
+            log.AppendLine($"INFO  perf {label}: {frames.Count} frames in {seconds:0} s, frame mean {mean:0.0} ms, median {frames[nf / 2]:0.0}, 95% {frames[(int)(nf * 0.95f)]:0.0}, worst {frames[nf - 1]:0.0} ms; {fixedSteps} physics steps ({fixedSteps / Mathf.Max(1, frames.Count):0.0} a frame)");
+            var order = new System.Collections.Generic.List<int>(); for (int i = 0; i < recs.Count; i++) order.Add(i);
+            order.Sort((a, b) => tot[b].CompareTo(tot[a]));
+            for (int k = 0; k < order.Count && k < 28; k++)
+            {
+                int i = order[k];
+                if (tot[i] / nf < 0.05) break;
+                log.AppendLine(recs[i].name.StartsWith("GC")
+                    ? $"INFO  perf {label}:    {recs[i].name,-58} {tot[i] / nf,8:0.0} {(recs[i].name == "GC.Alloc" ? "allocs" : "KB")} a frame (peak {peak[i]:0})"
+                    : $"INFO  perf {label}:    {recs[i].name,-58} {tot[i] / nf,8:0.00} ms a frame (peak {peak[i]:0.0})");
+            }
+            log.AppendLine($"INFO  perf {label}:    multiplayer ground updates: {netCells / seconds:0} cells a second changed, {netBytes / 1024f / seconds:0.0} KB a second to send (biggest single send {netPeak / 1024f:0.0} KB, {netSends} sends)");
+            worst.Sort((a, b) => b.ms.CompareTo(a.ms));
+            foreach (var w in worst) log.AppendLine($"INFO  perf {label}:    slow frame {w.ms:0.0} ms: {w.what}");
+            foreach (var x in recs) x.r.Dispose();
         }
 
         /// <summary>

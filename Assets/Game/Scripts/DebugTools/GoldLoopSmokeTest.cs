@@ -3832,7 +3832,7 @@ namespace FPSBase.DebugTools
             {
                 var pf = Prefab0(dealer, name);
                 if (pf == null) { Check(false, $"found the {name}"); continue; }
-                float[] roll = new float[2]; float[] drop = new float[2];
+                float[] roll = new float[2]; float[] drop = new float[2]; float[] sag = new float[2]; float[] rollDriven = new float[2];
                 for (int run = 0; run < 2; run++)
                 {
                     DumpPickup.TyreBodies = run == 0;
@@ -3846,12 +3846,12 @@ namespace FPSBase.DebugTools
                     var trb = t.GetComponent<Rigidbody>();
                     yield return null;
                     if (run == 0 && t.TyreSupports != null && t.TyreSupports.Length > 0) width = t.TyreSupports[0].sharedMesh.bounds.size.x;
-                    // the right-hand tyres: their middles a fifth of the tread past the edge (so 70% of it still on the ledge)
+                    // the right-hand tyres: their middles 15% of the tread past the edge (so only 35% of it still on the ledge)
                     float right = float.MinValue;
                     foreach (var w in t.wheels) if (w != null) right = Mathf.Max(right, t.transform.InverseTransformPoint(w.transform.TransformPoint(w.center)).x);
                     float tw = width > 0f ? width : 0.5f;
                     trb.isKinematic = true;
-                    t.transform.position = at + new Vector3(-right + tw * 0.2f, 1.2f + 1.2f, 0f);
+                    t.transform.position = at + new Vector3(-right + tw * 0.15f, 1.2f + 1.2f, 0f);
                     trb.position = t.transform.position;
                     Physics.SyncTransforms();
                     yield return new WaitForFixedUpdate();
@@ -3861,11 +3861,28 @@ namespace FPSBase.DebugTools
                     for (int i = 0; i < 50 * 4; i++) yield return new WaitForFixedUpdate();
                     roll[run] = Vector3.Angle(t.transform.up, Vector3.up);
                     drop[run] = (at.y + 2.4f) - t.transform.position.y;
-                    log.AppendLine($"INFO  {name} with its right tyres 20% of the tread over a 1.2 m ledge ({(run == 0 ? "solid tyres" : "OLD: ray only")}, tyre {tw:0.00} m wide): leaning {roll[run]:0.0}°, {drop[run]:0.00} m down from where it was set, still going {trb.linearVelocity.magnitude:0.00} m/s");
+                    // the tyres over the edge, as drawn: sitting on the ledge, or hanging down past it
+                    float ledgeTop = at.y + 1.2f; string offs = "";
+                    for (int i = 0; i < t.wheels.Length && i < t.wheelVisuals.Length; i++)
+                    {
+                        var w = t.wheels[i];
+                        if (w == null || t.wheelVisuals[i] == null || t.transform.InverseTransformPoint(w.transform.position).x < 0f) continue;
+                        sag[run] = Mathf.Max(sag[run], ledgeTop + w.radius - t.wheelVisuals[i].position.y);
+                        offs += $" {t.TreadOffset(i):+0.00;-0.00}";
+                    }
+                    // and driven slowly along the edge: it stays up there
+                    t.TestDrive(0.5f);
+                    for (int i = 0; i < 50 * 4; i++) yield return new WaitForFixedUpdate();
+                    t.TestDrive(0f);
+                    rollDriven[run] = Vector3.Angle(t.transform.up, Vector3.up);
+                    log.AppendLine($"INFO  {name} ({(run == 0 ? "solid tyres" : "OLD")}): the tyres over the edge drawn {sag[run]:0.00} m lower than sitting on the ledge (contact moved{offs} m); driven 4 s along the edge, leaning {rollDriven[run]:0.0}°");
+                    log.AppendLine($"INFO  {name} with its right tyres 15% of the tread over a 1.2 m ledge ({(run == 0 ? "solid tyres" : "OLD: ray only")}, tyre {tw:0.00} m wide): leaning {roll[run]:0.0}°, {drop[run]:0.00} m down from where it was set, still going {trb.linearVelocity.magnitude:0.00} m/s");
                     Destroy(t.gameObject); Destroy(ledge);
                     yield return null;
                 }
-                Check(roll[0] < 8f && roll[1] > roll[0] + 10f, $"{name}: with most of its tyres' tread still on a ledge, it stays up on it ({roll[0]:0.0}° lean, against {roll[1]:0.0}° the old way)");
+                Check(roll[0] < 5f && roll[1] > roll[0] + 10f, $"{name}: with a third of its tyres' tread still on a ledge, it stays up on it ({roll[0]:0.0}° lean, against {roll[1]:0.0}° the old way)");
+                Check(sag[0] < 0.08f, $"{name}: and the tyres are drawn sitting on the ledge, not hanging off it ({sag[0]:0.00} m low, against {sag[1]:0.00} m the old way)");
+                if (width > 0.5f) Check(rollDriven[0] < 5f, $"{name}: driven along the edge like that, it stays up on the ledge ({rollDriven[0]:0.0}° lean, against {rollDriven[1]:0.0}° the old way)");
             }
             DumpPickup.TyreBodies = true;
             // the solid tyres don't hold a truck back on flat ground

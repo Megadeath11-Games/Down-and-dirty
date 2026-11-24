@@ -194,11 +194,13 @@ namespace FPSBase.Vehicles
             if (!TyreBodies || wheels == null || TyreSupports != null) return;
             if (slick == null) slick = new PhysicsMaterial("Tyre Support") { dynamicFriction = 0f, staticFriction = 0f, bounciness = 0f, frictionCombine = PhysicsMaterialCombine.Minimum, bounceCombine = PhysicsMaterialCombine.Minimum };
             var list = new System.Collections.Generic.List<MeshCollider>();
+            treadW = new float[wheels.Length]; treadOff = new float[wheels.Length]; treadC0 = new Vector3[wheels.Length];
             for (int i = 0; i < wheels.Length; i++)
             {
                 var w = wheels[i];
                 if (w == null) continue;
                 float width = TyreWidth(i, w);
+                treadW[i] = width; treadC0[i] = w.center;
                 var go = new GameObject("Tyre Support");
                 go.layer = w.gameObject.layer;
                 go.transform.SetParent(w.transform, false);
@@ -211,6 +213,63 @@ namespace FPSBase.Vehicles
                 list.Add(mc);
             }
             TyreSupports = list.ToArray();
+        }
+
+        float[] treadW, treadOff; Vector3[] treadC0;
+        static readonly RaycastHit[] treadHits = new RaycastHit[12];
+        /// <summary>How far each wheel stands off its middle, along the axle, onto the part of its tread with ground under it (m, for the test).</summary>
+        public float TreadOffset(int i) => treadOff != null && i < treadOff.Length ? treadOff[i] : 0f;
+
+        /// <summary>
+        /// A wheel stands on the highest ground under any part of its tread, not just under its middle: with the middle
+        /// past the edge of a ledge and the inner half still on it, it's held up by (and grips on) that inner half.
+        /// (The wheel's contact moves over to that part of the tread; the tyre is still drawn where it is.)
+        /// </summary>
+        void TreadStep()
+        {
+            if (!TyreBodies || treadW == null || rb == null || rb.isKinematic) return;
+            for (int i = 0; i < wheels.Length && i < treadW.Length; i++)
+            {
+                var w = wheels[i];
+                if (w == null || treadW[i] <= 0f) continue;
+                Vector3 up = w.transform.up, axle = w.transform.right;
+                Vector3 mid = w.transform.TransformPoint(treadC0[i]);
+                float reach = w.radius + w.suspensionDistance + 0.15f;
+                // the ground under five spots across the tread (distance down: smaller is higher)
+                float best = float.MaxValue, bestOff = 0f, cur = float.MaxValue, middle = float.MaxValue;
+                for (int k = 0; k < 5; k++)
+                {
+                    // (from the middle outwards, so the middle, then the spots nearest it, win a tie)
+                    int j = k == 0 ? 0 : (k + 1) / 2 * (k % 2 == 1 ? -1 : 1);
+                    float off = treadW[i] * 0.2f * j;
+                    float d = TreadRay(mid + axle * off + up * 0.1f, -up, reach + 0.1f);
+                    if (j == 0) middle = d;
+                    if (Mathf.Abs(off - treadOff[i]) < 1e-3f) cur = d;
+                    if (d < best - 0.02f) { best = d; bestOff = off; }
+                }
+                float want;
+                if (best == float.MaxValue || middle <= best + (treadOff[i] != 0f ? 0.05f : 0.1f)) want = 0f; // the middle's on the ground (bumps and all): as normal
+                else if (cur <= best + 0.03f) want = treadOff[i];                       // where it stands is as good: no hunting about
+                else want = bestOff;                                                    // the middle's off the edge: onto the part that's on
+                if (Mathf.Abs(want - treadOff[i]) > 1e-4f)
+                {
+                    treadOff[i] = want;
+                    w.center = treadC0[i] + Vector3.right * want;
+                }
+            }
+        }
+
+        float TreadRay(Vector3 from, Vector3 dir, float len)
+        {
+            int n = Physics.RaycastNonAlloc(from, dir, treadHits, len, ~0, QueryTriggerInteraction.Ignore);
+            float best = float.MaxValue;
+            for (int k = 0; k < n; k++)
+            {
+                var c = treadHits[k].collider;
+                if (c == null || c.attachedRigidbody == rb) continue;
+                if (treadHits[k].distance < best) best = treadHits[k].distance;
+            }
+            return best;
         }
 
         /// <summary>How wide the tyre is across (m): from its model, along the axle.</summary>
@@ -423,6 +482,7 @@ namespace FPSBase.Vehicles
 
         protected void ApplyDrive(float throttle, float steer, bool handbrake)
         {
+            TreadStep();
             lastThrottle = throttle;
             float speed = Vector3.Dot(rb.linearVelocity, transform.forward);
             float kmh = Mathf.Abs(speed) * 3.6f;
@@ -491,6 +551,8 @@ namespace FPSBase.Vehicles
                 if (wheelVisuals.Length > i && wheelVisuals[i] != null && !RidingTrailer) // on a trailer deck the tyres hold still
                 {
                     w.GetWorldPose(out Vector3 p, out Quaternion q);
+                    // (standing on part of its tread off to one side: the tyre itself is still where it is)
+                    if (treadOff != null && i < treadOff.Length && treadOff[i] != 0f) p -= w.transform.right * treadOff[i];
                     // an articulated hauler's front wheels turn with the front frame, not on steering knuckles
                     if (articulation != null && i < 2) Articulate(ref p, ref q, transform.rotation * Quaternion.Euler(0f, w.steerAngle, 0f));
                     wheelVisuals[i].SetPositionAndRotation(p, q * Quaternion.Euler(0f, 0f, 90f));
